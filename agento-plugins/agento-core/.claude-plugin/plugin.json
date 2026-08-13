@@ -1,0 +1,6 @@
+{
+  "name": "agento-core",
+  "version": "0.1.0",
+  "description": "Reglas tecnicas transversales del sistema de gestion de talento humano Agento: convenciones Laravel, autenticacion JWT via middleware, convenciones React + Ant Design, scoping multiempresa, normalizacion de base de datos y principios SOLID.",
+  "keywords": ["agento", "talento-humano", "laravel", "react", "multiempresa"]
+}

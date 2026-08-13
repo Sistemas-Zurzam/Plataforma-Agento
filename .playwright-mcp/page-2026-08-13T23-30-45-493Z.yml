@@ -1,0 +1,108 @@
+- generic [ref=f19e56]:
+  - complementary [ref=f19e57]:
+    - generic [ref=f19e58]:
+      - generic [ref=f19e59]:
+        - img "Agento" [ref=f19e61]
+        - generic [ref=f19e62]: Agento
+      - menu [ref=f19e63]:
+        - menuitem "dollar Nóminas" [ref=f19e64] [cursor=pointer]:
+          - img "dollar" [ref=f19e65]
+          - generic [ref=f19e68]: Nóminas
+        - menuitem "user-switch Selección y reclutamiento" [disabled] [ref=f19e69]:
+          - img "user-switch" [ref=f19e70]
+          - generic [ref=f19e73]: Selección y reclutamiento
+        - menuitem "bar-chart Reportes" [disabled] [ref=f19e74]:
+          - img "bar-chart" [ref=f19e75]
+          - generic [ref=f19e78]: Reportes
+        - menuitem "setting Configuraciones" [expanded] [ref=f19e79] [cursor=pointer]:
+          - img "setting" [ref=f19e80]
+          - generic [ref=f19e83]: Configuraciones
+        - menu [ref=f19e84]:
+          - menuitem "bank Gestión de empresas" [ref=f19e85] [cursor=pointer]:
+            - img "bank" [ref=f19e86]
+            - generic [ref=f19e89]: Gestión de empresas
+          - menuitem "safety Gestión de usuarios" [disabled] [ref=f19e90]:
+            - img "safety" [ref=f19e91]
+            - generic [ref=f19e95]: Gestión de usuarios
+    - img "left" [ref=f19e97] [cursor=pointer]
+  - generic [ref=f19e100]:
+    - banner [ref=f19e101]:
+      - generic [ref=f19e102]:
+        - heading "Configuraciones" [level=1] [ref=f19e103]
+        - paragraph [ref=f19e104]: Gestión de empresas
+      - generic [ref=f19e105]:
+        - button [ref=f19e106]:
+          - text: Empresa Demo
+          - img "down" [ref=f19e107]
+        - generic [ref=f19e110]:
+          - searchbox "Buscar..." [disabled] [ref=f19e111]
+          - button "search" [disabled] [ref=f19e112]:
+            - generic:
+              - img "search"
+        - button [disabled] [ref=f19e113]:
+          - img "setting" [ref=f19e114]
+        - button [disabled] [ref=f19e117]:
+          - img "safety" [ref=f19e118]
+        - button [disabled] [ref=f19e122]:
+          - img "reload" [ref=f19e123]
+        - button [disabled] [ref=f19e126]:
+          - img "bell" [ref=f19e127]
+        - generic [ref=f19e130] [cursor=pointer]:
+          - generic [ref=f19e131]: T
+          - generic [ref=f19e133]:
+            - paragraph [ref=f19e134]: Test User
+            - generic [ref=f19e135]: Admin
+    - main [ref=f19e136]:
+      - generic [ref=f19e137]:
+        - complementary [ref=f19e138]:
+          - navigation [ref=f19e139]:
+            - button [ref=f19e140]:
+              - img "user" [ref=f19e142]
+              - text: Mi Perfil
+            - button [ref=f19e145]:
+              - img "bank" [ref=f19e147]
+              - text: Empresas
+            - button [ref=f19e150]:
+              - img "team" [ref=f19e152]
+              - text: Usuarios y Roles
+            - button [disabled] [ref=f19e155]:
+              - img "safety" [ref=f19e157]
+              - text: Permisos
+            - button [disabled] [ref=f19e161]:
+              - img "bell" [ref=f19e163]
+              - text: Notificaciones
+            - button [disabled] [ref=f19e166]:
+              - img "lock" [ref=f19e168]
+              - text: Seguridad
+          - paragraph [ref=f19e171]: Nóminas
+          - navigation [ref=f19e172]:
+            - button [disabled] [ref=f19e173]:
+              - img "file-text" [ref=f19e175]
+              - text: Parámetros Laborales
+            - button [disabled] [ref=f19e178]:
+              - img "safety" [ref=f19e180]
+              - text: Comisiones AFP
+        - generic [ref=f19e185]:
+          - heading "Mi Perfil" [level=2] [ref=f19e186]
+          - paragraph [ref=f19e187]: Gestiona tu información personal y preferencias
+          - generic [ref=f19e188]:
+            - generic [ref=f19e189]: T
+            - generic [ref=f19e191]:
+              - paragraph [ref=f19e192]: Test User
+              - paragraph [ref=f19e193]: test@example.com
+              - generic [ref=f19e194]: Administrador
+          - generic [ref=f19e195]:
+            - generic [ref=f19e196]:
+              - generic [ref=f19e198]:
+                - generic "Nombre completo" [ref=f19e200]: "* Nombre completo"
+                - textbox "* Nombre completo" [ref=f19e204]: Test User
+              - generic [ref=f19e206]:
+                - generic "Email" [ref=f19e208]: "* Email"
+                - textbox "* Email" [ref=f19e212]: test@example.com
+              - generic [ref=f19e214]:
+                - generic "Empresa" [ref=f19e216]
+                - textbox [disabled] [ref=f19e220]: Empresa Demo
+              - generic [ref=f19e222]:
+                - generic "Área" [ref=f19e224]
+                - textbox [disabled] [ref=f19e228]: No asignada
+            - button "Guardar cambios" [ref=f19e234] [cursor=pointer]

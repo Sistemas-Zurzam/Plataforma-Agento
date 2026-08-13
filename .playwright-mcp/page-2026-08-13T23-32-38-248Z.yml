@@ -1,0 +1,108 @@
+- generic [ref=f20e56]:
+  - complementary [ref=f20e57]:
+    - generic [ref=f20e58]:
+      - generic [ref=f20e59]:
+        - img "Agento" [ref=f20e61]
+        - generic [ref=f20e62]: Agento
+      - menu [ref=f20e63]:
+        - menuitem "dollar Nóminas" [ref=f20e64] [cursor=pointer]:
+          - img "dollar" [ref=f20e65]
+          - generic [ref=f20e68]: Nóminas
+        - menuitem "user-switch Selección y reclutamiento" [disabled] [ref=f20e69]:
+          - img "user-switch" [ref=f20e70]
+          - generic [ref=f20e73]: Selección y reclutamiento
+        - menuitem "bar-chart Reportes" [disabled] [ref=f20e74]:
+          - img "bar-chart" [ref=f20e75]
+          - generic [ref=f20e78]: Reportes
+        - menuitem "setting Configuraciones" [expanded] [ref=f20e79] [cursor=pointer]:
+          - img "setting" [ref=f20e80]
+          - generic [ref=f20e83]: Configuraciones
+        - menu [ref=f20e84]:
+          - menuitem "bank Gestión de empresas" [ref=f20e85] [cursor=pointer]:
+            - img "bank" [ref=f20e86]
+            - generic [ref=f20e89]: Gestión de empresas
+          - menuitem "safety Gestión de usuarios" [disabled] [ref=f20e90]:
+            - img "safety" [ref=f20e91]
+            - generic [ref=f20e95]: Gestión de usuarios
+    - img "left" [ref=f20e97] [cursor=pointer]
+  - generic [ref=f20e100]:
+    - banner [ref=f20e101]:
+      - generic [ref=f20e102]:
+        - heading "Configuraciones" [level=1] [ref=f20e103]
+        - paragraph [ref=f20e104]: Gestión de empresas
+      - generic [ref=f20e105]:
+        - button [ref=f20e106]:
+          - text: Empresa Demo
+          - img "down" [ref=f20e107]
+        - generic [ref=f20e110]:
+          - searchbox "Buscar..." [disabled] [ref=f20e111]
+          - button "search" [disabled] [ref=f20e112]:
+            - generic:
+              - img "search"
+        - button [disabled] [ref=f20e113]:
+          - img "setting" [ref=f20e114]
+        - button [disabled] [ref=f20e117]:
+          - img "safety" [ref=f20e118]
+        - button [disabled] [ref=f20e122]:
+          - img "reload" [ref=f20e123]
+        - button [disabled] [ref=f20e126]:
+          - img "bell" [ref=f20e127]
+        - generic [ref=f20e130] [cursor=pointer]:
+          - generic [ref=f20e131]: C
+          - generic [ref=f20e133]:
+            - paragraph [ref=f20e134]: Carlos Vega
+            - generic [ref=f20e135]: Colaborador
+    - main [ref=f20e136]:
+      - generic [ref=f20e137]:
+        - complementary [ref=f20e138]:
+          - navigation [ref=f20e139]:
+            - button [ref=f20e140]:
+              - img "user" [ref=f20e142]
+              - text: Mi Perfil
+            - button [ref=f20e145]:
+              - img "bank" [ref=f20e147]
+              - text: Empresas
+            - button [ref=f20e150]:
+              - img "team" [ref=f20e152]
+              - text: Usuarios y Roles
+            - button [disabled] [ref=f20e155]:
+              - img "safety" [ref=f20e157]
+              - text: Permisos
+            - button [disabled] [ref=f20e161]:
+              - img "bell" [ref=f20e163]
+              - text: Notificaciones
+            - button [disabled] [ref=f20e166]:
+              - img "lock" [ref=f20e168]
+              - text: Seguridad
+          - paragraph [ref=f20e171]: Nóminas
+          - navigation [ref=f20e172]:
+            - button [disabled] [ref=f20e173]:
+              - img "file-text" [ref=f20e175]
+              - text: Parámetros Laborales
+            - button [disabled] [ref=f20e178]:
+              - img "safety" [ref=f20e180]
+              - text: Comisiones AFP
+        - generic [ref=f20e185]:
+          - heading "Mi Perfil" [level=2] [ref=f20e186]
+          - paragraph [ref=f20e187]: Gestiona tu información personal y preferencias
+          - generic [ref=f20e188]:
+            - generic [ref=f20e189]: C
+            - generic [ref=f20e191]:
+              - paragraph [ref=f20e192]: Carlos Vega
+              - paragraph [ref=f20e193]: carlos.vega@empresademo.com
+              - generic [ref=f20e194]: Colaborador
+          - generic [ref=f20e195]:
+            - generic [ref=f20e196]:
+              - generic [ref=f20e198]:
+                - generic "Nombre completo" [ref=f20e200]: "* Nombre completo"
+                - textbox "* Nombre completo" [ref=f20e204]: Carlos Vega
+              - generic [ref=f20e206]:
+                - generic "Email" [ref=f20e208]: "* Email"
+                - textbox "* Email" [ref=f20e212]: carlos.vega@empresademo.com
+              - generic [ref=f20e214]:
+                - generic "Empresa" [ref=f20e216]
+                - textbox [disabled] [ref=f20e220]: Empresa Demo
+              - generic [ref=f20e222]:
+                - generic "Área" [ref=f20e224]
+                - textbox [disabled] [ref=f20e228]: No asignada
+            - button "Guardar cambios" [ref=f20e234] [cursor=pointer]
