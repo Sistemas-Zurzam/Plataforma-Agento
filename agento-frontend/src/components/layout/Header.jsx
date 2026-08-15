@@ -10,7 +10,7 @@ import {
 } from '@ant-design/icons';
 import { App, Avatar, Dropdown, Input, Layout, Tag } from 'antd';
 import { useEffect } from 'react';
-import { useEmpresas } from '../../hooks/useEmpresas';
+import { useEmpresas } from '../../modules/configuracion/hooks/useEmpresas';
 
 const { Header: AntHeader } = Layout;
 

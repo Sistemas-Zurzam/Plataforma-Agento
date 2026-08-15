@@ -15,7 +15,10 @@ export function colorForName(name = '') {
 }
 
 export function initialsForName(name = '') {
-  const parts = name.trim().split(/\s+/);
+  const parts = name
+    .trim()
+    .split(/\s+/)
+    .filter((part) => /^\p{L}/u.test(part));
   const initials = parts.slice(0, 2).map((part) => part.charAt(0).toUpperCase());
   return initials.join('') || '?';
 }

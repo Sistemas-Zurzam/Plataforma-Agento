@@ -2,9 +2,9 @@
 
 namespace Database\Seeders;
 
-use App\Models\Empresa;
-use App\Models\Role;
 use App\Models\User;
+use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Configuracion\Models\Role;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
@@ -18,6 +18,9 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call(RoleSeeder::class);
+        $this->call(PermissionSeeder::class);
+        $this->call(ParametroLaboralDefinicionSeeder::class);
+        $this->call(AfpSeeder::class);
 
         // User::factory(10)->create();
 

@@ -2,7 +2,6 @@ import {
   BankOutlined,
   BarChartOutlined,
   ClockCircleOutlined,
-  DollarOutlined,
   SafetyOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -10,49 +9,71 @@ import {
   WalletOutlined,
 } from '@ant-design/icons';
 import { Layout, Menu } from 'antd';
+import { useMemo } from 'react';
 import agentoLogo from '../../assets/agento-logo.png';
+import FileInvoiceDollarIcon from '../icons/FileInvoiceDollarIcon';
 
 const { Sider } = Layout;
 
-const menuItems = [
-  {
-    key: 'nominas',
-    icon: <DollarOutlined />,
-    label: 'Nóminas',
-    children: [
+/**
+ * "Gestión de remuneraciones" y "Gestión de asistencias" todavía no tienen
+ * funcionalidad real detrás, así que quedan como vista previa de
+ * "próximamente" para quien administra el sistema. "Gestión de personas"
+ * ya tiene una funcionalidad real parcial (el botón "Gestión de horarios"
+ * dentro de ella, ver GestionPersonas.jsx) — por eso se habilita para
+ * cualquiera con el permiso horarios.ver, no solo para isAdmin. Gestión de
+ * horarios NO tiene su propia entrada de sidebar a propósito: en Agento
+ * (como en la referencia) es un botón dentro de Gestión de personas, no un
+ * módulo aparte.
+ */
+function buildMenuItems(isAdmin, puedeVerHorarios) {
+  const items = [];
+
+  if (isAdmin || puedeVerHorarios) {
+    items.push({
+      key: 'nominas',
+      icon: <FileInvoiceDollarIcon />,
+      label: 'Nóminas',
+      children: [
+        {
+          key: 'nominas-personas',
+          icon: <TeamOutlined />,
+          label: 'Gestión de personas',
+        },
+        {
+          key: 'nominas-remuneraciones',
+          icon: <WalletOutlined />,
+          label: 'Gestión de remuneraciones',
+          disabled: true,
+        },
+        {
+          key: 'nominas-asistencias',
+          icon: <ClockCircleOutlined />,
+          label: 'Gestión de asistencias',
+          disabled: true,
+        },
+      ],
+    });
+  }
+
+  if (isAdmin) {
+    items.push(
       {
-        key: 'nominas-personas',
-        icon: <TeamOutlined />,
-        label: 'Gestión de personas',
+        key: 'seleccion',
+        icon: <UserSwitchOutlined />,
+        label: 'Selección y reclutamiento',
         disabled: true,
       },
       {
-        key: 'nominas-remuneraciones',
-        icon: <WalletOutlined />,
-        label: 'Gestión de remuneraciones',
+        key: 'reportes',
+        icon: <BarChartOutlined />,
+        label: 'Reportes',
         disabled: true,
       },
-      {
-        key: 'nominas-asistencias',
-        icon: <ClockCircleOutlined />,
-        label: 'Gestión de asistencias',
-        disabled: true,
-      },
-    ],
-  },
-  {
-    key: 'seleccion',
-    icon: <UserSwitchOutlined />,
-    label: 'Selección y reclutamiento',
-    disabled: true,
-  },
-  {
-    key: 'reportes',
-    icon: <BarChartOutlined />,
-    label: 'Reportes',
-    disabled: true,
-  },
-  {
+    );
+  }
+
+  items.push({
     key: 'configuraciones',
     icon: <SettingOutlined />,
     label: 'Configuraciones',
@@ -69,10 +90,19 @@ const menuItems = [
         disabled: true,
       },
     ],
-  },
-];
+  });
 
-export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect }) {
+  return items;
+}
+
+export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, user }) {
+  const isAdmin = user?.role === 'administrador';
+  const puedeVerHorarios = user?.permisos?.includes('horarios.ver');
+  const menuItems = useMemo(
+    () => buildMenuItems(isAdmin, puedeVerHorarios),
+    [isAdmin, puedeVerHorarios],
+  );
+
   return (
     <Sider
       theme="light"
