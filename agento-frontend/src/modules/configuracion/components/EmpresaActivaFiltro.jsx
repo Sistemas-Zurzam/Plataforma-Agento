@@ -31,7 +31,9 @@ export default function EmpresaActivaFiltro({ user, onUserRefresh }) {
       value={user?.empresa?.id}
       onChange={handleChange}
       className="w-56"
-      options={empresas.map((empresa) => ({ value: empresa.id, label: empresa.nombre }))}
+      options={empresas
+        .filter((empresa) => empresa.activa)
+        .map((empresa) => ({ value: empresa.id, label: empresa.nombre }))}
     />
   );
 }

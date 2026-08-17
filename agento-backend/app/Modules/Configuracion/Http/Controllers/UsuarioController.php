@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Configuracion\Http\Requests\StoreUsuarioRequest;
 use App\Modules\Configuracion\Http\Requests\UpdateRolRequest;
+use App\Modules\Configuracion\Http\Requests\UpdateUsuarioEstadoRequest;
 use App\Modules\Configuracion\Http\Requests\UpdateUsuarioRequest;
 use App\Modules\Configuracion\Http\Resources\UsuarioResource;
 use App\Modules\Configuracion\Models\Empresa;
@@ -43,6 +44,7 @@ class UsuarioController extends Controller
             $empresaDestino,
             $request->only('name', 'username', 'email', 'password', 'area_id'),
             $rol,
+            $request->user('api'),
         );
 
         $usuario->setAttribute('empresaActiva', [
@@ -97,5 +99,26 @@ class UsuarioController extends Controller
         $this->usuarios->eliminar($empresaActiva, $usuario, $request->user('api'));
 
         return response()->json(['message' => 'Usuario eliminado de la empresa']);
+    }
+
+    public function actualizarEstado(
+        UpdateUsuarioEstadoRequest $request,
+        User $usuario,
+    ): UsuarioResource {
+        $empresaActiva = $request->user('api')->empresa;
+        $usuario = $this->usuarios->cambiarEstado(
+            $empresaActiva,
+            $usuario,
+            $request->boolean('activo'),
+            $request->user('api'),
+        );
+
+        $usuarioActualizado = $empresaActiva->users()->with('area')->where('users.id', $usuario->id)->first();
+        $usuarioActualizado->setAttribute('empresaActiva', [
+            'id' => $empresaActiva->id,
+            'nombre' => $empresaActiva->nombre,
+        ]);
+
+        return new UsuarioResource($usuarioActualizado);
     }
 }

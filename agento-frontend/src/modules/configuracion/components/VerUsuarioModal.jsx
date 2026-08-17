@@ -1,4 +1,4 @@
-import { Descriptions, Modal } from 'antd';
+import { Descriptions, Modal, Tag } from 'antd';
 
 export default function VerUsuarioModal({ open, usuario, onCancel }) {
   return (
@@ -18,6 +18,11 @@ export default function VerUsuarioModal({ open, usuario, onCancel }) {
           <Descriptions.Item label="Empresa">{usuario.empresa?.nombre}</Descriptions.Item>
           <Descriptions.Item label="Área">{usuario.area?.nombre ?? 'Sin asignar'}</Descriptions.Item>
           <Descriptions.Item label="Rol">{usuario.role?.nombre}</Descriptions.Item>
+          <Descriptions.Item label="Estado">
+            <Tag color={usuario.activo ? 'green' : 'default'}>
+              {usuario.activo ? 'Activo' : 'Inactivo'}
+            </Tag>
+          </Descriptions.Item>
         </Descriptions>
       )}
     </Modal>

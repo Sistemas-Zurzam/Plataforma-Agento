@@ -24,7 +24,12 @@ class SedeController extends Controller
 
         abort_unless($tieneAcceso, 403, 'No tienes acceso a esta empresa.');
 
-        return SedeResource::collection($empresa->sedes()->orderBy('codigo')->get());
+        $sedes = $empresa->sedes()
+            ->when($request->boolean('solo_activas'), fn ($query) => $query->where('activa', true))
+            ->orderBy('codigo')
+            ->get();
+
+        return SedeResource::collection($sedes);
     }
 
     public function store(StoreSedeRequest $request, Empresa $empresa): SedeResource

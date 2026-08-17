@@ -84,7 +84,9 @@ export default function EditarUsuarioModal({
           >
             <Select
               placeholder="Selecciona un rol"
-              options={roles?.map((role) => ({ value: role.id, label: role.nombre }))}
+              options={roles
+                ?.filter((role) => role.clave !== 'administrador' || user?.role === 'administrador')
+                .map((role) => ({ value: role.id, label: role.nombre }))}
             />
           </Form.Item>
         )}

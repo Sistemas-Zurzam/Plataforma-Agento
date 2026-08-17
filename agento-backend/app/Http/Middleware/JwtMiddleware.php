@@ -32,6 +32,12 @@ class JwtMiddleware
             return response()->json(['message' => 'Usuario no encontrado'], 401);
         }
 
+        $tokenVersion = JWTAuth::parseToken()->getPayload()->get('token_version');
+
+        if (! $user->activo || $tokenVersion === null || (int) $tokenVersion !== $user->token_version) {
+            return response()->json(['message' => 'La sesión ya no es válida'], 401);
+        }
+
         return $next($request);
     }
 }

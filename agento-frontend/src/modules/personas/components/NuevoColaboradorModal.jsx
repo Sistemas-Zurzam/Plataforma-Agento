@@ -62,7 +62,7 @@ function campoLabel(texto) {
  * horario" internamente en vez de dejar que Form.Item enganche su propio
  * onChange directo sobre el <Select>, que lo sobrescribiría.
  */
-function HorarioSelect({ value, onChange, horarios, disabled, onCrearNuevo }) {
+function HorarioSelect({ value, onChange, horarios, disabled, puedeCrear, onCrearNuevo }) {
   const handleChange = (seleccionado) => {
     if (seleccionado === CREAR_HORARIO) {
       onCrearNuevo();
@@ -79,7 +79,7 @@ function HorarioSelect({ value, onChange, horarios, disabled, onCrearNuevo }) {
       disabled={disabled}
       options={[
         ...horarios.map((h) => ({ value: h.id, label: h.nombre })),
-        { value: CREAR_HORARIO, label: '+ Crear nuevo horario' },
+        ...(puedeCrear ? [{ value: CREAR_HORARIO, label: '+ Crear nuevo horario' }] : []),
       ]}
     />
   );
@@ -120,6 +120,11 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
 
   const empresaId = user?.empresa?.id;
   const puedeCrearArea = user?.permisos?.includes('areas.crear');
+  const puedeCrearHorario = user?.permisos?.includes('horarios.crear');
+  const tipoContrato = Form.useWatch('tipo_contrato', form);
+  const periodicidadOptions = tipoContrato === 'locacion_servicios'
+    ? PERIODICIDAD_OPTIONS
+    : PERIODICIDAD_OPTIONS.filter((opcion) => opcion.value === 'mensual');
   const horarioSeleccionado = horarios.find((h) => h.id === form.getFieldValue('horario_id'));
 
   useEffect(() => {
@@ -131,6 +136,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
         contabilizar_horas_extra: true,
         moneda_salario: 'PEN',
         moneda_cuenta: 'PEN',
+        periodicidad_pago: 'mensual',
         fecha_ingreso: dayjs(),
       });
       fetchHorarios(1, 100, '', 'activo');
@@ -363,7 +369,13 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 name="tipo_contrato"
                 rules={[{ required: true, message: 'Requerido' }]}
               >
-                <Select options={TIPO_CONTRATO_OPTIONS} placeholder="Selecciona" />
+                <Select
+                  options={TIPO_CONTRATO_OPTIONS}
+                  placeholder="Selecciona"
+                  onChange={(valor) => {
+                    if (valor !== 'locacion_servicios') form.setFieldValue('periodicidad_pago', 'mensual');
+                  }}
+                />
               </Form.Item>
               <Form.Item label={campoLabel('Régimen laboral')} name="regimen_laboral">
                 <Select allowClear placeholder="Sin especificar" options={REGIMEN_OPTIONS} />
@@ -384,7 +396,14 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
               >
                 <DatePicker className="w-full" format="DD/MM/YYYY" />
               </Form.Item>
-              <Form.Item label={campoLabel('Fin de contrato')} name="fecha_fin_contrato">
+              <Form.Item
+                label={campoLabel('Fin de contrato')}
+                name="fecha_fin_contrato"
+                rules={[{
+                  required: tipoContrato === 'plazo_fijo',
+                  message: 'Requerido para contratos a plazo fijo',
+                }]}
+              >
                 <DatePicker className="w-full" format="DD/MM/YYYY" placeholder="Opcional" />
               </Form.Item>
               <Form.Item
@@ -392,7 +411,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 name="periodicidad_pago"
                 rules={[{ required: true, message: 'Requerido' }]}
               >
-                <Select placeholder="Selecciona" options={PERIODICIDAD_OPTIONS} />
+                <Select placeholder="Selecciona" options={periodicidadOptions} />
               </Form.Item>
             </div>
             <div className="grid grid-cols-3 gap-x-3">
@@ -467,7 +486,11 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 name="horario_id"
                 rules={[{ required: true, message: 'Requerido' }]}
               >
-                <HorarioSelect horarios={horarios} onCrearNuevo={() => setHorarioModalOpen(true)} />
+                <HorarioSelect
+                  horarios={horarios}
+                  puedeCrear={puedeCrearHorario}
+                  onCrearNuevo={() => setHorarioModalOpen(true)}
+                />
               </Form.Item>
               <Form.Item
                 label={campoLabel('Modalidad de trabajo')}

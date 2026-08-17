@@ -41,6 +41,14 @@ export function useUsuarios() {
     return data.data;
   }, []);
 
+  const cambiarEstado = useCallback(async (usuarioId, activo) => {
+    const { data } = await api.patch(`/usuarios/${usuarioId}/estado`, { activo });
+    setUsuarios((prev) =>
+      prev.map((usuario) => (usuario.id === usuarioId ? data.data : usuario)),
+    );
+    return data.data;
+  }, []);
+
   const eliminarUsuario = useCallback(async (usuarioId) => {
     await api.delete(`/usuarios/${usuarioId}`);
   }, []);
@@ -53,6 +61,7 @@ export function useUsuarios() {
     crearUsuario,
     actualizarUsuario,
     cambiarRol,
+    cambiarEstado,
     eliminarUsuario,
   };
 }

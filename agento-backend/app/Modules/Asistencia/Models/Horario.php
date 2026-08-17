@@ -3,6 +3,8 @@
 namespace App\Modules\Asistencia\Models;
 
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -39,5 +41,15 @@ class Horario extends Model
     public function dias(): HasMany
     {
         return $this->hasMany(HorarioDia::class)->orderBy('dia_semana');
+    }
+
+    public function colaboradores(): HasMany
+    {
+        return $this->hasMany(Colaborador::class);
+    }
+
+    public function asignaciones(): HasMany
+    {
+        return $this->hasMany(ColaboradorHorarioAsignacion::class);
     }
 }

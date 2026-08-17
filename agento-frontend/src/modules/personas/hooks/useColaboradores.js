@@ -38,6 +38,50 @@ export function useColaboradores() {
     return data.dias;
   }, []);
 
+  const fetchColaborador = useCallback(async (colaboradorId) => {
+    const { data } = await api.get(`/colaboradores/${colaboradorId}`);
+    return data.data;
+  }, []);
+
+  const actualizarCalendario = useCallback(async (colaboradorId, dias) => {
+    const { data } = await api.put(`/colaboradores/${colaboradorId}/calendario`, { dias });
+    return data.data;
+  }, []);
+
+  const actualizarHorario = useCallback(async (colaboradorId, values) => {
+    const { data } = await api.put(`/colaboradores/${colaboradorId}/horario`, values);
+    return data.data;
+  }, []);
+
+  const actualizarColaborador = useCallback(async (colaboradorId, values) => {
+    const { data } = await api.put(`/colaboradores/${colaboradorId}`, values);
+    return data.data;
+  }, []);
+
+  const cesarColaborador = useCallback(async (colaboradorId, values) => {
+    const { data } = await api.patch(`/colaboradores/${colaboradorId}/cesar`, values);
+    return data.data;
+  }, []);
+
+  const eliminarColaborador = useCallback(async (colaboradorId) => {
+    await api.delete(`/colaboradores/${colaboradorId}`);
+  }, []);
+
+  const subirDocumento = useCallback(async (colaboradorId, tipo, archivo) => {
+    const formData = new FormData();
+    formData.append('tipo', tipo);
+    formData.append('archivo', archivo);
+    const { data } = await api.post(`/colaboradores/${colaboradorId}/documentos`, formData);
+    return data.data;
+  }, []);
+
+  const verDocumento = useCallback(async (colaboradorId, documentoId) => {
+    const { data } = await api.get(`/colaboradores/${colaboradorId}/documentos/${documentoId}`, {
+      responseType: 'blob',
+    });
+    return data;
+  }, []);
+
   return {
     colaboradores,
     stats,
@@ -46,5 +90,13 @@ export function useColaboradores() {
     fetchColaboradores,
     crearColaborador,
     fetchCalendarioDefecto,
+    fetchColaborador,
+    actualizarCalendario,
+    actualizarHorario,
+    actualizarColaborador,
+    cesarColaborador,
+    eliminarColaborador,
+    subirDocumento,
+    verDocumento,
   };
 }

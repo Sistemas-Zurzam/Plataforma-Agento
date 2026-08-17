@@ -30,6 +30,14 @@ export function useEmpresas() {
     return data.data;
   }, []);
 
+  const updateEmpresaEstado = useCallback(async (empresaId, activa) => {
+    const { data } = await api.patch(`/empresas/${empresaId}/estado`, { activa });
+    setEmpresas((prev) =>
+      prev.map((empresa) => (empresa.id === empresaId ? data.data : empresa)),
+    );
+    return data.data;
+  }, []);
+
   const activarEmpresa = useCallback(async (empresaId) => {
     await api.put(`/empresas/${empresaId}/activar`);
   }, []);
@@ -40,6 +48,7 @@ export function useEmpresas() {
     fetchEmpresas,
     createEmpresa,
     updateEmpresa,
+    updateEmpresaEstado,
     activarEmpresa,
   };
 }

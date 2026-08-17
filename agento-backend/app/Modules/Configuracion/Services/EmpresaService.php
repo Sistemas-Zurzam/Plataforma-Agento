@@ -40,6 +40,10 @@ class EmpresaService
             throw new AuthorizationException('No tienes acceso a esta empresa.');
         }
 
+        if (! $empresa->activa) {
+            throw new AuthorizationException('No puedes seleccionar una empresa inactiva.');
+        }
+
         $usuario->update(['empresa_id' => $empresa->id]);
     }
 
@@ -62,6 +66,51 @@ class EmpresaService
             'pivot',
             $empresa->users()->find($usuario->id)->pivot,
         );
+    }
+
+    public function actualizarEstado(Empresa $empresa, bool $activa, User $usuario): Empresa
+    {
+        if (! $this->puedeEditar($empresa, $usuario)) {
+            throw new AuthorizationException('No puedes cambiar el estado de esta empresa.');
+        }
+
+        $empresa->update(['activa' => $activa]);
+
+        return $empresa->setRelation(
+            'pivot',
+            $empresa->users()->find($usuario->id)->pivot,
+        );
+    }
+
+    /**
+     * Autoriza una acción usando el rol que el usuario tiene en la empresa
+     * objetivo, no el rol de la empresa que esté activa en ese momento.
+     */
+    public function autorizarAccion(Empresa $empresa, User $usuario, string $permiso): void
+    {
+        $vinculo = $usuario->empresas()
+            ->where('empresas.id', $empresa->id)
+            ->first();
+
+        if (! $vinculo) {
+            throw new AuthorizationException('No tienes acceso a esta empresa.');
+        }
+
+        $rol = Role::with('permissions')->find($vinculo->pivot->role_id);
+        $autorizado = $rol?->clave === Role::ADMINISTRADOR
+            || $rol?->permissions->contains('clave', $permiso);
+
+        if (! $autorizado) {
+            throw new AuthorizationException('No tienes permiso para realizar esta acción en esta empresa.');
+        }
+    }
+
+    public function esAdministradorEn(Empresa $empresa, User $usuario): bool
+    {
+        return $usuario->empresas()
+            ->where('empresas.id', $empresa->id)
+            ->wherePivot('role_id', Role::administrador()->id)
+            ->exists();
     }
 
     private function tieneAcceso(Empresa $empresa, User $usuario): bool

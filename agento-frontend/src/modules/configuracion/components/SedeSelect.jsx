@@ -8,7 +8,7 @@ import { useSedes } from '../hooks/useSedes';
  * Se recomienda remontar con `key={empresaId}` cuando cambie la empresa.
  */
 export default function SedeSelect({ empresaId, value, onChange, disabled }) {
-  const { sedes, loading, fetchSedes } = useSedes(empresaId);
+  const { sedes, loading, fetchSedes } = useSedes(empresaId, true);
 
   useEffect(() => {
     if (empresaId) {

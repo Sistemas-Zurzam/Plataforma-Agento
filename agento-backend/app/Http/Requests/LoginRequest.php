@@ -27,7 +27,7 @@ class LoginRequest extends FormRequest
      * "email" when the submitted identifier looks like one and against
      * "username" otherwise.
      *
-     * @return array{email: string, password: string}|array{username: string, password: string}
+     * @return array{email: string, password: string, activo: true}|array{username: string, password: string, activo: true}
      */
     public function credentials(): array
     {
@@ -37,6 +37,7 @@ class LoginRequest extends FormRequest
         return [
             $campo => $login,
             'password' => $this->validated('password'),
+            'activo' => true,
         ];
     }
 }

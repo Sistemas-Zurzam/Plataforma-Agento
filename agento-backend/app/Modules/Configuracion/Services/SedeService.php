@@ -10,12 +10,15 @@ use Illuminate\Support\Facades\DB;
 
 class SedeService
 {
+    public function __construct(private readonly EmpresaService $empresas) {}
+
     /**
      * @param  array<string, mixed>  $datos
      */
     public function crear(Empresa $empresa, array $datos, User $usuario): Sede
     {
-        $this->autorizar($empresa, $usuario);
+        $this->empresas->autorizarAccion($empresa, $usuario, 'sedes.crear');
+        $this->verificarEmpresaActiva($empresa);
 
         return DB::transaction(function () use ($empresa, $datos) {
             $siguiente = $empresa->sedes()->count() + 1;
@@ -33,7 +36,7 @@ class SedeService
      */
     public function actualizar(Empresa $empresa, Sede $sede, array $datos, User $usuario): Sede
     {
-        $this->autorizar($empresa, $usuario);
+        $this->empresas->autorizarAccion($empresa, $usuario, 'sedes.editar');
         $this->verificarPertenencia($empresa, $sede);
 
         $sede->update($datos);
@@ -41,22 +44,17 @@ class SedeService
         return $sede;
     }
 
-    /**
-     * @throws AuthorizationException if the user has no access to the empresa.
-     */
-    private function autorizar(Empresa $empresa, User $usuario): void
-    {
-        $tieneAcceso = $usuario->empresas()->where('empresas.id', $empresa->id)->exists();
-
-        if (! $tieneAcceso) {
-            throw new AuthorizationException('No tienes acceso a esta empresa.');
-        }
-    }
-
     private function verificarPertenencia(Empresa $empresa, Sede $sede): void
     {
         if ($sede->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Esta sede no pertenece a la empresa indicada.');
+        }
+    }
+
+    private function verificarEmpresaActiva(Empresa $empresa): void
+    {
+        if (! $empresa->activa) {
+            throw new AuthorizationException('No puedes crear sedes en una empresa inactiva.');
         }
     }
 }

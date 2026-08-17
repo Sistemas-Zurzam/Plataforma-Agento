@@ -5,6 +5,7 @@ namespace App\Modules\Configuracion\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Configuracion\Http\Requests\StoreEmpresaRequest;
 use App\Modules\Configuracion\Http\Requests\UpdateEmpresaRequest;
+use App\Modules\Configuracion\Http\Requests\UpdateEmpresaEstadoRequest;
 use App\Modules\Configuracion\Http\Resources\EmpresaResource;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Services\EmpresaService;
@@ -38,6 +39,17 @@ class EmpresaController extends Controller
         $empresa = $this->empresas->actualizar(
             $empresa,
             $request->validated(),
+            $request->user('api'),
+        );
+
+        return new EmpresaResource($empresa);
+    }
+
+    public function actualizarEstado(UpdateEmpresaEstadoRequest $request, Empresa $empresa): EmpresaResource
+    {
+        $empresa = $this->empresas->actualizarEstado(
+            $empresa,
+            $request->boolean('activa'),
             $request->user('api'),
         );
 

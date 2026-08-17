@@ -26,7 +26,7 @@ const { Sider } = Layout;
  * (como en la referencia) es un botón dentro de Gestión de personas, no un
  * módulo aparte.
  */
-function buildMenuItems(isAdmin, puedeVerHorarios) {
+function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia) {
   const items = [];
 
   if (isAdmin || puedeVerHorarios) {
@@ -50,7 +50,7 @@ function buildMenuItems(isAdmin, puedeVerHorarios) {
           key: 'nominas-asistencias',
           icon: <ClockCircleOutlined />,
           label: 'Gestión de asistencias',
-          disabled: true,
+          disabled: !isAdmin && !puedeVerAsistencia,
         },
       ],
     });
@@ -98,9 +98,10 @@ function buildMenuItems(isAdmin, puedeVerHorarios) {
 export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, user }) {
   const isAdmin = user?.role === 'administrador';
   const puedeVerHorarios = user?.permisos?.includes('horarios.ver');
+  const puedeVerAsistencia = user?.permisos?.includes('asistencia.ver');
   const menuItems = useMemo(
-    () => buildMenuItems(isAdmin, puedeVerHorarios),
-    [isAdmin, puedeVerHorarios],
+    () => buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia),
+    [isAdmin, puedeVerHorarios, puedeVerAsistencia],
   );
 
   return (

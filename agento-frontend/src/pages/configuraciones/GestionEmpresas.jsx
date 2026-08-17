@@ -7,7 +7,7 @@ import {
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import ComisionesAfp from '../../modules/configuracion/pages/ComisionesAfp';
 import Empresas from '../../modules/configuracion/pages/Empresas';
 import ParametrosLaborales from '../../modules/configuracion/pages/ParametrosLaborales';
@@ -44,8 +44,12 @@ function TabItem({ tab, active, onSelect }) {
   );
 }
 
-export default function GestionEmpresas({ user, onProfileUpdated }) {
-  const [activeTab, setActiveTab] = useState('mi-perfil');
+export default function GestionEmpresas({
+  user,
+  onProfileUpdated,
+  activeTab = 'mi-perfil',
+  onTabSelect,
+}) {
   const isAdmin = user?.role === 'administrador';
   const puedeVerUsuarios = user?.permisos?.includes('usuarios.ver');
   const puedeVerParametros = user?.permisos?.includes('parametros_laborales.ver');
@@ -103,6 +107,17 @@ export default function GestionEmpresas({ user, onProfileUpdated }) {
     return tabs;
   }, [isAdmin, puedeVerUsuarios]);
 
+  const availableTabs = useMemo(
+    () => [...generalTabs, ...nominaTabs].filter((tab) => !tab.disabled).map((tab) => tab.key),
+    [generalTabs, nominaTabs],
+  );
+
+  useEffect(() => {
+    if (!availableTabs.includes(activeTab)) {
+      onTabSelect?.('mi-perfil');
+    }
+  }, [activeTab, availableTabs, onTabSelect]);
+
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
       <aside className="w-full shrink-0 rounded-2xl bg-white p-4 shadow-sm lg:w-64">
@@ -112,7 +127,7 @@ export default function GestionEmpresas({ user, onProfileUpdated }) {
               key={tab.key}
               tab={tab}
               active={activeTab === tab.key}
-              onSelect={setActiveTab}
+              onSelect={onTabSelect}
             />
           ))}
         </nav>
@@ -128,7 +143,7 @@ export default function GestionEmpresas({ user, onProfileUpdated }) {
                   key={tab.key}
                   tab={tab}
                   active={activeTab === tab.key}
-                  onSelect={setActiveTab}
+                  onSelect={onTabSelect}
                 />
               ))}
             </nav>

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import api from '../../../services/api';
 
-export function useSedes(empresaId) {
+export function useSedes(empresaId, soloActivas = false) {
   const [sedes, setSedes] = useState([]);
   const [loading, setLoading] = useState(false);
 
@@ -9,13 +9,15 @@ export function useSedes(empresaId) {
     if (!empresaId) return;
     setLoading(true);
     try {
-      const { data } = await api.get(`/empresas/${empresaId}/sedes`);
+      const { data } = await api.get(`/empresas/${empresaId}/sedes`, {
+        params: soloActivas ? { solo_activas: true } : undefined,
+      });
       setSedes(data.data);
       return data.data;
     } finally {
       setLoading(false);
     }
-  }, [empresaId]);
+  }, [empresaId, soloActivas]);
 
   const createSede = useCallback(
     async (values) => {

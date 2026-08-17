@@ -17,6 +17,9 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('access_token');
+      window.dispatchEvent(new CustomEvent('auth:unauthorized', {
+        detail: { message: error.response?.data?.message ?? 'La sesión expiró' },
+      }));
     }
     return Promise.reject(error);
   },

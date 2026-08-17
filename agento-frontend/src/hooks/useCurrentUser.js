@@ -36,6 +36,12 @@ export function useCurrentUser() {
   useEffect(() => {
     restoreSession();
 
+    const handleUnauthorized = () => {
+      setUser(null);
+      setInitializing(false);
+      setLoading(false);
+    };
+
     // The browser can restore a frozen snapshot of this page from bfcache
     // (e.g. after pressing the back/forward button) without re-running this
     // effect. Re-check the session whenever that happens so a stale
@@ -47,7 +53,11 @@ export function useCurrentUser() {
     };
 
     window.addEventListener('pageshow', handlePageShow);
-    return () => window.removeEventListener('pageshow', handlePageShow);
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => {
+      window.removeEventListener('pageshow', handlePageShow);
+      window.removeEventListener('auth:unauthorized', handleUnauthorized);
+    };
   }, [restoreSession]);
 
   return {

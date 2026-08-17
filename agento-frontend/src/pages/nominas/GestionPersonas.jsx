@@ -1,16 +1,20 @@
 import {
   ClockCircleOutlined,
+  EyeOutlined,
+  RightOutlined,
   TeamOutlined,
   UploadOutlined,
   UserAddOutlined,
   UserOutlined,
 } from '@ant-design/icons';
 import { App, Avatar, Button, Input, Table, Tag } from 'antd';
+import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import GestionHorarios from '../../modules/asistencia/pages/GestionHorarios';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import { TIPO_CONTRATO_OPTIONS } from '../../modules/personas/constants/opciones';
 import NuevoColaboradorModal from '../../modules/personas/components/NuevoColaboradorModal';
+import FichaColaborador from '../../modules/personas/components/FichaColaborador';
 import { useColaboradores } from '../../modules/personas/hooks/useColaboradores';
 import { colorForName, initialsForName } from '../../utils/avatarColor';
 
@@ -18,13 +22,14 @@ function etiquetaTipoContrato(valor) {
   return TIPO_CONTRATO_OPTIONS.find((o) => o.value === valor)?.label ?? valor;
 }
 
-function ListaColaboradores({ user, onUserRefresh, onVerHorarios }) {
+function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId, onAbrirColaborador, onVolverColaboradores }) {
   const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador } =
     useColaboradores();
   const { message } = App.useApp();
   const [busqueda, setBusqueda] = useState('');
   const [modalOpen, setModalOpen] = useState(false);
   const [creando, setCreando] = useState(false);
+  const [colaboradorSeleccionado, setColaboradorSeleccionado] = useState(null);
 
   const puedeVer = user?.permisos?.includes('colaboradores.ver');
   const puedeCrear = user?.permisos?.includes('colaboradores.crear');
@@ -56,34 +61,102 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios }) {
     }
   };
 
+  const colaboradorActivo = colaboradorId
+    ? { id: colaboradorId }
+    : colaboradorSeleccionado;
+
+  const abrirColaborador = (colaborador) => {
+    if (onAbrirColaborador) {
+      onAbrirColaborador(colaborador.id);
+    } else {
+      setColaboradorSeleccionado(colaborador);
+    }
+  };
+
+  if (colaboradorActivo) {
+    return (
+      <FichaColaborador
+        colaboradorId={colaboradorActivo.id}
+        onVolver={() => {
+          setColaboradorSeleccionado(null);
+          onVolverColaboradores?.();
+        }}
+      />
+    );
+  }
+
   const columns = [
     {
-      title: 'Colaborador',
+      title: 'Empleado',
       key: 'colaborador',
+      width: 260,
       render: (_, colaborador) => (
         <div className="flex items-center gap-2">
           <Avatar style={{ backgroundColor: colorForName(colaborador.nombre_completo) }}>
             {initialsForName(colaborador.nombre_completo)}
           </Avatar>
-          <div>
+          <div className="min-w-0">
             <p className="font-medium text-gray-900">{colaborador.nombre_completo}</p>
-            <p className="text-xs text-gray-400">{colaborador.legajo}</p>
           </div>
         </div>
       ),
     },
-    { title: 'Área', key: 'area', render: (_, c) => c.area?.nombre ?? '—' },
+    { title: 'Legajo', dataIndex: 'legajo', width: 110 },
+    {
+      title: 'Empresa',
+      key: 'empresa',
+      width: 170,
+      render: (_, colaborador) => colaborador.empresa?.nombre ?? user?.empresa?.nombre ?? '—',
+    },
+    { title: 'Área', key: 'area', width: 160, render: (_, c) => c.area?.nombre ?? '—' },
+    {
+      title: 'Cargo',
+      dataIndex: 'cargo',
+      width: 160,
+      render: (cargo) => cargo ?? '—',
+    },
     {
       title: 'Contrato',
       dataIndex: 'tipo_contrato',
+      width: 140,
       render: (v) => etiquetaTipoContrato(v),
     },
     {
       title: 'Estado',
       dataIndex: 'activo',
+      width: 100,
       render: (activo) => <Tag color={activo ? 'green' : 'default'}>{activo ? 'Activo' : 'Inactivo'}</Tag>,
     },
-    { title: 'Ingreso', dataIndex: 'fecha_ingreso' },
+    {
+      title: 'Ingreso',
+      dataIndex: 'fecha_ingreso',
+      width: 110,
+      render: (fecha) => (fecha ? dayjs(fecha).format('DD/MM/YYYY') : '—'),
+    },
+    {
+      title: 'Acciones',
+      key: 'acciones',
+      width: 120,
+      fixed: 'right',
+      render: (_, colaborador) => (
+        <div className="flex items-center">
+          <Button
+            type="text"
+            size="small"
+            icon={<EyeOutlined />}
+            aria-label={`Ver a ${colaborador.nombre_completo}`}
+            onClick={() => abrirColaborador(colaborador)}
+          />
+          <Button
+            type="text"
+            size="small"
+            icon={<RightOutlined />}
+            aria-label={`Abrir ficha de ${colaborador.nombre_completo}`}
+            onClick={() => abrirColaborador(colaborador)}
+          />
+        </div>
+      ),
+    },
   ];
 
   return (
@@ -164,6 +237,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios }) {
           loading={loading}
           dataSource={colaboradores}
           columns={columns}
+          scroll={{ x: 1310 }}
           pagination={{
             current: pagination.current,
             pageSize: pagination.pageSize,
@@ -184,6 +258,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios }) {
         onCancel={() => setModalOpen(false)}
         submitting={creando}
       />
+
     </div>
   );
 }
@@ -192,7 +267,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios }) {
  * "Gestión de horarios" no tiene su propia entrada de sidebar a propósito
  * (ver Sidebar.jsx) — es un botón dentro de Gestión de personas.
  */
-export default function GestionPersonas({ user, onUserRefresh }) {
+export default function GestionPersonas({ user, onUserRefresh, colaboradorId, onAbrirColaborador, onVolverColaboradores }) {
   const [vista, setVista] = useState('personas');
 
   if (vista === 'horarios') {
@@ -210,6 +285,9 @@ export default function GestionPersonas({ user, onUserRefresh }) {
       user={user}
       onUserRefresh={onUserRefresh}
       onVerHorarios={() => setVista('horarios')}
+      colaboradorId={colaboradorId}
+      onAbrirColaborador={onAbrirColaborador}
+      onVolverColaboradores={onVolverColaboradores}
     />
   );
 }

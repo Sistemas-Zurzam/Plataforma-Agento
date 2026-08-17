@@ -8,12 +8,15 @@ use App\Modules\Configuracion\Http\Resources\AreaResource;
 use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
+use App\Modules\Configuracion\Services\EmpresaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Str;
 
 class AreaController extends Controller
 {
+    public function __construct(private readonly EmpresaService $empresas) {}
+
     /**
      * List the areas of a given empresa. Deliberately bypasses Area's
      * EmpresaScope (which filters by the actor's *active* empresa): this
@@ -45,11 +48,8 @@ class AreaController extends Controller
      */
     public function store(StoreAreaRequest $request, Empresa $empresa): AreaResource
     {
-        $tieneAcceso = $request->user('api')->empresas()
-            ->where('empresas.id', $empresa->id)
-            ->exists();
-
-        abort_unless($tieneAcceso, 403, 'No tienes acceso a esta empresa.');
+        $this->empresas->autorizarAccion($empresa, $request->user('api'), 'areas.crear');
+        abort_unless($empresa->activa, 422, 'No puedes crear áreas en una empresa inactiva.');
 
         $area = $empresa->areas()->create([
             'nombre' => Str::trim($request->validated('nombre')),

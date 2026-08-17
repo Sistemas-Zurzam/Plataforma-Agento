@@ -19,6 +19,7 @@ class UsuarioResource extends JsonResource
             'name' => $this->name,
             'username' => $this->username,
             'email' => $this->email,
+            'activo' => $this->activo,
             'empresa' => $this->empresaActiva,
             'area' => $this->area ? [
                 'id' => $this->area->id,

@@ -9,6 +9,15 @@ use Illuminate\Validation\Validator;
 
 class StoreColaboradorRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'nombres' => mb_strtoupper(trim((string) $this->input('nombres')), 'UTF-8'),
+            'apellidos' => mb_strtoupper(trim((string) $this->input('apellidos')), 'UTF-8'),
+            'numero_documento' => trim((string) $this->input('numero_documento')),
+        ]);
+    }
+
     public function authorize(): bool
     {
         return true;
@@ -77,6 +86,23 @@ class StoreColaboradorRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
+            $tipoContrato = $this->input('tipo_contrato');
+            $periodicidad = $this->input('periodicidad_pago');
+
+            if ($tipoContrato !== 'locacion_servicios' && $periodicidad !== 'mensual') {
+                $validator->errors()->add(
+                    'periodicidad_pago',
+                    'La periodicidad debe ser mensual para este tipo de contrato.',
+                );
+            }
+
+            if ($tipoContrato === 'plazo_fijo' && ! $this->input('fecha_fin_contrato')) {
+                $validator->errors()->add(
+                    'fecha_fin_contrato',
+                    'La fecha de fin es obligatoria para un contrato a plazo fijo.',
+                );
+            }
+
             $sistemaPrevisional = $this->input('sistema_previsional');
 
             if (! $sistemaPrevisional) {

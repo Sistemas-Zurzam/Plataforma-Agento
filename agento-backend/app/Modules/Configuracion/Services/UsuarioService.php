@@ -13,6 +13,8 @@ use Illuminate\Validation\ValidationException;
 
 class UsuarioService
 {
+    public function __construct(private readonly EmpresaService $empresas) {}
+
     /**
      * @return LengthAwarePaginator<int, User>
      */
@@ -28,8 +30,11 @@ class UsuarioService
      *
      * @param  array{name: string, username: string, email: string, password: string, area_id: ?int}  $datos
      */
-    public function crear(Empresa $empresaDestino, array $datos, Role $rol): User
+    public function crear(Empresa $empresaDestino, array $datos, Role $rol, User $actor): User
     {
+        $this->empresas->autorizarAccion($empresaDestino, $actor, 'usuarios.crear');
+        $this->autorizarAsignacionRol($empresaDestino, $rol, $actor);
+
         return DB::transaction(function () use ($empresaDestino, $datos, $rol) {
             $usuario = User::create([
                 ...$datos,
@@ -64,6 +69,7 @@ class UsuarioService
 
         if (! empty($datos['password'])) {
             $datos['password'] = Hash::make($datos['password']);
+            $datos['token_version'] = $objetivo->token_version + 1;
         } else {
             unset($datos['password']);
         }
@@ -77,7 +83,9 @@ class UsuarioService
      */
     public function cambiarRol(Empresa $empresaActiva, User $objetivo, Role $nuevoRol, User $actor): void
     {
+        $this->empresas->autorizarAccion($empresaActiva, $actor, 'usuarios.cambiar_rol');
         $this->verificarPertenencia($empresaActiva, $objetivo);
+        $this->autorizarAsignacionRol($empresaActiva, $nuevoRol, $actor);
 
         if ($objetivo->id === $actor->id) {
             throw ValidationException::withMessages([
@@ -130,6 +138,47 @@ class UsuarioService
 
             $empresaActiva->users()->detach($objetivo->id);
         });
+    }
+
+    public function cambiarEstado(Empresa $empresaActiva, User $objetivo, bool $activo, User $actor): User
+    {
+        $this->empresas->autorizarAccion($empresaActiva, $actor, 'usuarios.inactivar');
+        $this->verificarPertenencia($empresaActiva, $objetivo);
+
+        if ($objetivo->id === $actor->id && ! $activo) {
+            throw ValidationException::withMessages([
+                'usuario' => 'No puedes inactivar tu propia cuenta.',
+            ]);
+        }
+
+        if (! $activo && $this->esUltimoAdministrador($empresaActiva, $objetivo)) {
+            throw ValidationException::withMessages([
+                'usuario' => 'No puedes inactivar al último administrador de la empresa.',
+            ]);
+        }
+
+        if (! $activo && $objetivo->empresas()->count() > 1) {
+            throw ValidationException::withMessages([
+                'usuario' => 'La cuenta pertenece a varias empresas. Retírala de esta empresa en lugar de inactivarla globalmente.',
+            ]);
+        }
+
+        if ($objetivo->activo !== $activo) {
+            $objetivo->update([
+                'activo' => $activo,
+                'token_version' => $objetivo->token_version + 1,
+            ]);
+        }
+
+        return $objetivo;
+    }
+
+    private function autorizarAsignacionRol(Empresa $empresa, Role $rol, User $actor): void
+    {
+        if ($rol->clave === Role::ADMINISTRADOR
+            && ! $this->empresas->esAdministradorEn($empresa, $actor)) {
+            throw new AuthorizationException('Solo un administrador de la empresa puede asignar ese rol.');
+        }
     }
 
     private function verificarPertenencia(Empresa $empresaActiva, User $objetivo): void

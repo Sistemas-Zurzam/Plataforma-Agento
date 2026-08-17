@@ -28,9 +28,13 @@ function horaTexto(valor) {
 function calcularHoras(entrada, salida, refrigerioInicio, refrigerioFin) {
   if (!dayjs.isDayjs(entrada) || !dayjs.isDayjs(salida)) return null;
 
-  let minutos = Math.abs(salida.diff(entrada, 'minute'));
+  const salidaAjustada = salida.isAfter(entrada) ? salida : salida.add(1, 'day');
+  let minutos = salidaAjustada.diff(entrada, 'minute');
   if (dayjs.isDayjs(refrigerioInicio) && dayjs.isDayjs(refrigerioFin)) {
-    minutos -= Math.abs(refrigerioFin.diff(refrigerioInicio, 'minute'));
+    const refrigerioFinAjustado = refrigerioFin.isAfter(refrigerioInicio)
+      ? refrigerioFin
+      : refrigerioFin.add(1, 'day');
+    minutos -= refrigerioFinAjustado.diff(refrigerioInicio, 'minute');
   }
   return Math.max(0, minutos / 60);
 }
@@ -194,6 +198,66 @@ export default function HorarioFormModal({ open, horario, onSubmit, onCancel, su
     });
   };
 
+  const handleCopiarDia = (alcance) => {
+    const dias = form.getFieldValue('dias') ?? [];
+    const origen = dias[diaActivo];
+
+    if (!origen || origen.estado === 'pendiente') {
+      message.warning('Configura el estado del día antes de copiarlo.');
+      return;
+    }
+
+    if (['laborables', 'laborables_sabado'].includes(alcance) && origen.estado !== 'laborable') {
+      message.warning('Selecciona un día laborable para generar la semana.');
+      return;
+    }
+
+    if (origen.estado === 'laborable' && (!origen.hora_entrada || !origen.hora_salida)) {
+      message.warning('Completa la entrada y salida del día antes de copiarlo.');
+      return;
+    }
+
+    const indicesDestino = alcance === 'laborables'
+      ? [0, 1, 2, 3, 4]
+      : alcance === 'laborables_sabado'
+        ? [0, 1, 2, 3, 4, 5]
+        : DIAS_SEMANA.map(({ value }) => value);
+
+    const nuevosDias = dias.map((dia, index) => {
+      if (indicesDestino.includes(index) && index !== diaActivo) {
+        return { ...origen, dia_semana: index };
+      }
+
+      const esDescansoAutomatico = alcance === 'laborables'
+        ? [5, 6].includes(index)
+        : alcance === 'laborables_sabado' && index === 6;
+
+      if (esDescansoAutomatico) {
+        return {
+          ...dia,
+          estado: 'descanso',
+          hora_entrada: null,
+          hora_salida: null,
+          refrigerio_inicio: null,
+          refrigerio_fin: null,
+          jornada_nocturna: false,
+          permitir_horas_extra: false,
+        };
+      }
+
+      return dia;
+    });
+
+    form.setFieldValue('dias', nuevosDias);
+    message.success(
+      alcance === 'laborables'
+        ? 'Semana generada: lunes a viernes laborables y fin de semana de descanso.'
+        : alcance === 'laborables_sabado'
+          ? 'Semana generada: lunes a sábado laborables y domingo de descanso.'
+          : 'Configuración copiada a toda la semana.',
+    );
+  };
+
   return (
     <Modal
       title={horario ? 'Editar horario' : 'Nuevo horario'}
@@ -259,9 +323,22 @@ export default function HorarioFormModal({ open, horario, onSubmit, onCancel, su
           </Form.Item>
         </div>
 
-        <p className="mt-1 mb-2 text-xs font-semibold tracking-wide text-gray-400 uppercase">
-          Configuración semanal
-        </p>
+        <div className="mt-1 mb-2 flex items-center justify-between gap-2">
+          <p className="text-xs font-semibold tracking-wide text-gray-400 uppercase">
+            Configuración semanal
+          </p>
+          <div className="flex gap-1">
+            <Button size="small" onClick={() => handleCopiarDia('laborables')}>
+              Generar semana L-V
+            </Button>
+            <Button size="small" onClick={() => handleCopiarDia('laborables_sabado')}>
+              Generar semana L-S
+            </Button>
+            <Button size="small" onClick={() => handleCopiarDia('todos')}>
+              Copiar a todos
+            </Button>
+          </div>
+        </div>
 
         <SelectorDias form={form} diaActivo={diaActivo} onCambiar={setDiaActivo} />
 

@@ -13,6 +13,7 @@ export default function NuevoUsuarioModal({
 }) {
   const [form] = Form.useForm();
   const empresaId = Form.useWatch('empresa_id', form);
+  const empresaSeleccionada = empresas.find((empresa) => empresa.id === empresaId);
   const puedeCrearArea = user?.permisos?.includes('areas.crear');
 
   useEffect(() => {
@@ -119,10 +120,14 @@ export default function NuevoUsuarioModal({
         >
           <Select
             placeholder="Selecciona un rol"
-            options={roles.map((role) => ({
+            options={roles
+              .filter(
+                (role) => role.clave !== 'administrador' || empresaSeleccionada?.role === 'administrador',
+              )
+              .map((role) => ({
               value: role.id,
               label: role.nombre,
-            }))}
+              }))}
           />
         </Form.Item>
       </Form>

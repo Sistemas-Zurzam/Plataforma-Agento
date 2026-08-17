@@ -7,6 +7,7 @@ use App\Modules\Configuracion\Models\Empresa;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class HorarioService
 {
@@ -17,6 +18,7 @@ class HorarioService
     {
         return Horario::where('empresa_id', $empresa->id)
             ->with('dias')
+            ->withCount('colaboradores')
             ->when($busqueda, fn ($query) => $query->where('nombre', 'like', "%{$busqueda}%"))
             ->when($estadoFiltro === 'activo', fn ($query) => $query->where('activo', true))
             ->when($estadoFiltro === 'inactivo', fn ($query) => $query->where('activo', false))
@@ -54,7 +56,7 @@ class HorarioService
 
             $this->guardarDias($horario, $datos['dias']);
 
-            return $horario->load('dias');
+            return $horario->load('dias')->loadCount('colaboradores');
         });
     }
 
@@ -70,11 +72,17 @@ class HorarioService
     {
         $this->verificarPertenencia($empresa, $horario);
 
+        if ($horario->asignaciones()->exists()) {
+            throw ValidationException::withMessages([
+                'horario' => 'Este horario ya tiene trabajadores asignados. Duplícalo para crear una nueva versión.',
+            ]);
+        }
+
         return DB::transaction(function () use ($horario, $datos) {
             $horario->update($this->datosHorario($datos));
             $this->guardarDias($horario, $datos['dias']);
 
-            return $horario->load('dias');
+            return $horario->load('dias')->loadCount('colaboradores');
         });
     }
 
@@ -105,7 +113,7 @@ class HorarioService
 
             $copia->dias()->createMany($diasCopiados);
 
-            return $copia->load('dias');
+            return $copia->load('dias')->loadCount('colaboradores');
         });
     }
 
@@ -118,7 +126,7 @@ class HorarioService
 
         $horario->update(['activo' => ! $horario->activo]);
 
-        return $horario->load('dias');
+        return $horario->load('dias')->loadCount('colaboradores');
     }
 
     private function datosHorario(array $datos): array

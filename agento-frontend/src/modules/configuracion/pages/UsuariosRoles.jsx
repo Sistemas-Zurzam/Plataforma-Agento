@@ -1,4 +1,4 @@
-import { MoreOutlined, PlusOutlined } from '@ant-design/icons';
+import { MoreOutlined, PauseCircleOutlined, PlayCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { App, Avatar, Button, Dropdown, Table, Tag } from 'antd';
 import { useEffect, useState } from 'react';
 import EditarUsuarioModal from '../components/EditarUsuarioModal';
@@ -21,6 +21,7 @@ export default function UsuariosRoles({ user }) {
     crearUsuario,
     actualizarUsuario,
     cambiarRol,
+    cambiarEstado,
     eliminarUsuario,
   } = useUsuarios();
   const { message, modal } = App.useApp();
@@ -32,6 +33,7 @@ export default function UsuariosRoles({ user }) {
   const puedeCrear = user?.permisos?.includes('usuarios.crear');
   const puedeEditar = user?.permisos?.includes('usuarios.editar');
   const puedeEliminar = user?.permisos?.includes('usuarios.eliminar');
+  const puedeInactivar = user?.permisos?.includes('usuarios.inactivar');
 
   useEffect(() => {
     fetchRoles();
@@ -130,6 +132,36 @@ export default function UsuariosRoles({ user }) {
     });
   };
 
+  const handleCambiarEstado = (usuario) => {
+    const nuevoEstado = !usuario.activo;
+    const ejecutar = async () => {
+      try {
+        await cambiarEstado(usuario.id, nuevoEstado);
+        message.success(`Usuario ${nuevoEstado ? 'activado' : 'inactivado'} correctamente`);
+      } catch (err) {
+        message.error(
+          err.response?.data?.errors?.usuario?.[0] ??
+            err.response?.data?.message ??
+            'No se pudo cambiar el estado del usuario',
+        );
+      }
+    };
+
+    if (nuevoEstado) {
+      ejecutar();
+      return;
+    }
+
+    modal.confirm({
+      title: '¿Inactivar este usuario?',
+      content: 'Sus sesiones actuales dejarán de ser válidas y no podrá volver a iniciar sesión.',
+      okText: 'Inactivar',
+      okButtonProps: { danger: true },
+      cancelText: 'Cancelar',
+      onOk: ejecutar,
+    });
+  };
+
   const columns = [
     {
       title: 'Usuario',
@@ -167,6 +199,13 @@ export default function UsuariosRoles({ user }) {
         ),
     },
     {
+      title: 'Estado',
+      dataIndex: 'activo',
+      render: (activo) => (
+        <Tag color={activo ? 'green' : 'default'}>{activo ? 'Activo' : 'Inactivo'}</Tag>
+      ),
+    },
+    {
       title: 'Acciones',
       key: 'acciones',
       width: 64,
@@ -175,6 +214,14 @@ export default function UsuariosRoles({ user }) {
 
         const items = [{ key: 'ver', label: 'Ver' }];
         if (puedeEditar) items.push({ key: 'editar', label: 'Editar' });
+        if (puedeInactivar) {
+          items.push({
+            key: 'estado',
+            label: usuario.activo ? 'Inactivar' : 'Activar',
+            icon: usuario.activo ? <PauseCircleOutlined /> : <PlayCircleOutlined />,
+            danger: usuario.activo,
+          });
+        }
         if (puedeEliminar) items.push({ key: 'eliminar', label: 'Eliminar', danger: true });
 
         return (
@@ -185,6 +232,7 @@ export default function UsuariosRoles({ user }) {
               onClick: ({ key }) => {
                 if (key === 'ver') setViewingUsuario(usuario);
                 if (key === 'editar') setEditingUsuario(usuario);
+                if (key === 'estado') handleCambiarEstado(usuario);
                 if (key === 'eliminar') handleEliminar(usuario);
               },
             }}

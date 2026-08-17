@@ -47,6 +47,23 @@ class StoreHorarioRequest extends FormRequest
             if ($diasSemana->unique()->sort()->values()->all() !== [0, 1, 2, 3, 4, 5, 6]) {
                 $validator->errors()->add('dias', 'Debes enviar exactamente los 7 días de la semana (0 a 6), sin repetir.');
             }
+
+            foreach ($this->input('dias', []) as $indice => $dia) {
+                if (($dia['estado'] ?? null) === 'laborable') {
+                    if (empty($dia['hora_entrada'])) {
+                        $validator->errors()->add("dias.{$indice}.hora_entrada", 'La hora de entrada es obligatoria en un día laborable.');
+                    }
+                    if (empty($dia['hora_salida'])) {
+                        $validator->errors()->add("dias.{$indice}.hora_salida", 'La hora de salida es obligatoria en un día laborable.');
+                    }
+                }
+
+                $tieneInicioRefrigerio = ! empty($dia['refrigerio_inicio']);
+                $tieneFinRefrigerio = ! empty($dia['refrigerio_fin']);
+                if ($tieneInicioRefrigerio !== $tieneFinRefrigerio) {
+                    $validator->errors()->add("dias.{$indice}.refrigerio_inicio", 'Debes indicar el inicio y fin del refrigerio.');
+                }
+            }
         });
     }
 }

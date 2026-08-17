@@ -1,4 +1,4 @@
-import { MoreOutlined, PlusOutlined } from '@ant-design/icons';
+import { MoreOutlined, PlusOutlined, PoweroffOutlined } from '@ant-design/icons';
 import { App, Avatar, Button, Dropdown, Table, Tag } from 'antd';
 import { useEffect, useState } from 'react';
 import EmpresaFormModal from '../components/EmpresaFormModal';
@@ -6,11 +6,19 @@ import { useEmpresas } from '../hooks/useEmpresas';
 import { colorForName, initialsForName } from '../../../utils/avatarColor';
 
 export default function Empresas({ user }) {
-  const { empresas, loading, fetchEmpresas, createEmpresa, updateEmpresa } = useEmpresas();
-  const { message } = App.useApp();
+  const {
+    empresas,
+    loading,
+    fetchEmpresas,
+    createEmpresa,
+    updateEmpresa,
+    updateEmpresaEstado,
+  } = useEmpresas();
+  const { message, modal } = App.useApp();
   const [modalOpen, setModalOpen] = useState(false);
   const [editingEmpresa, setEditingEmpresa] = useState(null);
   const [submitting, setSubmitting] = useState(false);
+  const [togglingId, setTogglingId] = useState(null);
   const puedeCrear = user?.permisos?.includes('empresas.crear');
   const puedeEditar = user?.permisos?.includes('empresas.editar');
 
@@ -56,6 +64,35 @@ export default function Empresas({ user }) {
     }
   };
 
+  const applyToggleEstado = async (empresa) => {
+    setTogglingId(empresa.id);
+    try {
+      await updateEmpresaEstado(empresa.id, !empresa.activa);
+      message.success(`Empresa ${empresa.activa ? 'inactivada' : 'activada'} correctamente`);
+    } catch (err) {
+      message.error(err.response?.data?.message ?? 'No se pudo cambiar el estado de la empresa');
+    } finally {
+      setTogglingId(null);
+    }
+  };
+
+  const handleToggleEstado = (empresa) => {
+    if (!empresa.activa) {
+      applyToggleEstado(empresa);
+      return;
+    }
+
+    modal.confirm({
+      title: '¿Inactivar esta empresa?',
+      content:
+        'Ya no podrá seleccionarse para registrar nuevas operaciones. La información histórica se conservará.',
+      okText: 'Inactivar',
+      okButtonProps: { danger: true },
+      cancelText: 'Cancelar',
+      onOk: () => applyToggleEstado(empresa),
+    });
+  };
+
   const columns = [
     {
       title: 'Empresa',
@@ -76,6 +113,11 @@ export default function Empresas({ user }) {
       title: 'RUC',
       dataIndex: 'ruc',
       render: (ruc) => ruc ?? '—',
+    },
+    {
+      title: 'Abreviatura',
+      dataIndex: 'abreviatura',
+      render: (abreviatura) => abreviatura ?? '—',
     },
     {
       title: 'Dirección',
@@ -105,9 +147,19 @@ export default function Empresas({ user }) {
           <Dropdown
             trigger={['click']}
             menu={{
-              items: [{ key: 'editar', label: 'Editar' }],
+              items: [
+                { key: 'editar', label: 'Editar' },
+                {
+                  key: 'estado',
+                  icon: <PoweroffOutlined />,
+                  label: empresa.activa ? 'Inactivar' : 'Activar',
+                  danger: empresa.activa,
+                  disabled: togglingId === empresa.id,
+                },
+              ],
               onClick: ({ key }) => {
                 if (key === 'editar') openEditModal(empresa);
+                if (key === 'estado') handleToggleEstado(empresa);
               },
             }}
           >

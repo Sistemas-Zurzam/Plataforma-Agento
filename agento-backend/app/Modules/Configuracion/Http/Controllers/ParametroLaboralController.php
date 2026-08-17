@@ -22,6 +22,7 @@ class ParametroLaboralController extends Controller
     public function store(StoreParametroLaboralValoresRequest $request): JsonResponse
     {
         $empresaActiva = $request->user('api')->empresa;
+        abort_unless($empresaActiva->activa, 422, 'No puedes modificar una empresa inactiva.');
         $datos = $request->validated();
 
         $this->parametros->crearValores(
@@ -37,6 +38,7 @@ class ParametroLaboralController extends Controller
     public function inicializar(Request $request): JsonResponse
     {
         $empresaActiva = $request->user('api')->empresa;
+        abort_unless($empresaActiva->activa, 422, 'No puedes modificar una empresa inactiva.');
 
         $this->parametros->inicializarValoresPorDefecto($empresaActiva);
 

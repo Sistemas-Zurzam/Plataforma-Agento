@@ -36,7 +36,7 @@ export default function Header({ title, subtitle, user, onLogout, onUserRefresh 
     }
   };
 
-  const empresaMenuItems = empresas.map((empresa) => ({
+  const empresaMenuItems = empresas.filter((empresa) => empresa.activa).map((empresa) => ({
     key: String(empresa.id),
     label: empresa.nombre,
     icon: empresa.es_activa ? <CheckOutlined /> : <BankOutlined />,

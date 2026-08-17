@@ -26,6 +26,7 @@ class PermissionSeeder extends Seeder
             ['clave' => 'usuarios.crear', 'nombre' => 'Crear usuarios', 'grupo' => 'Usuarios y Roles'],
             ['clave' => 'usuarios.editar', 'nombre' => 'Editar usuarios', 'grupo' => 'Usuarios y Roles'],
             ['clave' => 'usuarios.cambiar_rol', 'nombre' => 'Cambiar rol de usuarios', 'grupo' => 'Usuarios y Roles'],
+            ['clave' => 'usuarios.inactivar', 'nombre' => 'Activar o inactivar usuarios', 'grupo' => 'Usuarios y Roles'],
             ['clave' => 'usuarios.eliminar', 'nombre' => 'Eliminar usuarios', 'grupo' => 'Usuarios y Roles'],
             ['clave' => 'parametros_laborales.ver', 'nombre' => 'Ver parámetros laborales', 'grupo' => 'Parámetros Laborales'],
             ['clave' => 'parametros_laborales.editar', 'nombre' => 'Editar parámetros laborales', 'grupo' => 'Parámetros Laborales'],
@@ -35,7 +36,19 @@ class PermissionSeeder extends Seeder
             ['clave' => 'horarios.crear', 'nombre' => 'Crear horarios', 'grupo' => 'Horarios'],
             ['clave' => 'horarios.editar', 'nombre' => 'Editar horarios', 'grupo' => 'Horarios'],
             ['clave' => 'colaboradores.ver', 'nombre' => 'Ver colaboradores', 'grupo' => 'Colaboradores'],
+            ['clave' => 'asistencia.ver', 'nombre' => 'Ver asistencia', 'grupo' => 'Asistencia'],
+            ['clave' => 'asistencia.procesar', 'nombre' => 'Procesar asistencia', 'grupo' => 'Asistencia'],
+            ['clave' => 'asistencia.importar', 'nombre' => 'Importar marcaciones', 'grupo' => 'Asistencia'],
+            ['clave' => 'asistencia.incidencias', 'nombre' => 'Resolver incidencias', 'grupo' => 'Asistencia'],
+            ['clave' => 'asistencia.permisos', 'nombre' => 'Gestionar permisos laborales', 'grupo' => 'Asistencia'],
+            ['clave' => 'asistencia.gestiones_area', 'nombre' => 'Gestionar solicitudes del área', 'grupo' => 'Asistencia'],
+            ['clave' => 'asistencia.horas_extra', 'nombre' => 'Aprobar horas extra', 'grupo' => 'Asistencia'],
+            ['clave' => 'asistencia.periodos', 'nombre' => 'Gestionar períodos de asistencia', 'grupo' => 'Asistencia'],
+            ['clave' => 'asistencia.aprobar_rrhh', 'nombre' => 'Aprobación final de RR.HH.', 'grupo' => 'Asistencia'],
             ['clave' => 'colaboradores.crear', 'nombre' => 'Crear colaboradores', 'grupo' => 'Colaboradores'],
+            ['clave' => 'colaboradores.editar', 'nombre' => 'Editar colaboradores', 'grupo' => 'Colaboradores'],
+            ['clave' => 'colaboradores.cesar', 'nombre' => 'Cesar colaboradores', 'grupo' => 'Colaboradores'],
+            ['clave' => 'colaboradores.eliminar', 'nombre' => 'Eliminar colaboradores', 'grupo' => 'Colaboradores'],
         ];
 
         foreach ($permisos as $permiso) {

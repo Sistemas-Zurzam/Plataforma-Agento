@@ -5,7 +5,6 @@ namespace App\Modules\Asistencia\Http\Resources;
 use App\Modules\Asistencia\Models\HorarioDia;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
-use Illuminate\Support\Carbon;
 
 /**
  * @mixin \App\Modules\Asistencia\Models\Horario
@@ -36,7 +35,7 @@ class HorarioResource extends JsonResource
             'refrigerio' => $this->formatearRango($diaRepresentativo?->refrigerio_inicio, $diaRepresentativo?->refrigerio_fin),
             'horas_dia' => $this->calcularHorasDia($diaRepresentativo),
             'config_pendiente' => $this->dias->contains('estado', 'pendiente'),
-            'trabajadores' => 0,
+            'trabajadores' => $this->colaboradores_count ?? 0,
             'dias' => $this->dias->map(fn ($dia) => [
                 'dia_semana' => $dia->dia_semana,
                 'nombre_dia' => self::NOMBRES_DIA[$dia->dia_semana],
@@ -66,16 +65,30 @@ class HorarioResource extends JsonResource
             return null;
         }
 
-        $entrada = Carbon::createFromFormat('H:i:s', $dia->hora_entrada);
-        $salida = Carbon::createFromFormat('H:i:s', $dia->hora_salida);
-        $minutos = $salida->diffInMinutes($entrada, true);
-
-        if ($dia->refrigerio_inicio && $dia->refrigerio_fin) {
-            $refrigerioInicio = Carbon::createFromFormat('H:i:s', $dia->refrigerio_inicio);
-            $refrigerioFin = Carbon::createFromFormat('H:i:s', $dia->refrigerio_fin);
-            $minutos -= $refrigerioFin->diffInMinutes($refrigerioInicio, true);
+        $entrada = $this->horaAMinutos($dia->hora_entrada);
+        $salida = $this->horaAMinutos($dia->hora_salida);
+        $minutos = $salida - $entrada;
+        if ($minutos <= 0) {
+            $minutos += 24 * 60;
         }
 
-        return round($minutos / 60, 2);
+        if ($dia->refrigerio_inicio && $dia->refrigerio_fin) {
+            $refrigerioInicio = $this->horaAMinutos($dia->refrigerio_inicio);
+            $refrigerioFin = $this->horaAMinutos($dia->refrigerio_fin);
+            $minutosRefrigerio = $refrigerioFin - $refrigerioInicio;
+            if ($minutosRefrigerio <= 0) {
+                $minutosRefrigerio += 24 * 60;
+            }
+            $minutos -= $minutosRefrigerio;
+        }
+
+        return round(max(0, $minutos) / 60, 2);
+    }
+
+    private function horaAMinutos(string $hora): int
+    {
+        [$horas, $minutos] = array_map('intval', explode(':', $hora));
+
+        return ($horas * 60) + $minutos;
     }
 }

@@ -3,6 +3,9 @@
 namespace App\Modules\Personas\Models;
 
 use App\Modules\Asistencia\Models\Horario;
+use App\Modules\Asistencia\Models\AsistenciaIncidencia;
+use App\Modules\Asistencia\Models\AsistenciaMarcacion;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Sede;
@@ -10,6 +13,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
     'empresa_id', 'sede_id', 'area_id', 'horario_id', 'legajo',
@@ -17,12 +21,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'fecha_nacimiento', 'pais_residencia', 'ciudad_residencia', 'distrito_residencia',
     'direccion', 'email', 'celular_colaborador', 'celular_referencia',
     'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador',
-    'contabilizar_tardanzas', 'contabilizar_horas_extra', 'fecha_ingreso', 'fecha_fin_contrato',
+    'contabilizar_tardanzas', 'contabilizar_horas_extra', 'fecha_ingreso', 'fecha_fin_contrato', 'fecha_cese', 'motivo_cese',
     'cts_cuenta', 'sistema_previsional', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
     'modalidad_trabajo', 'tolerancia_particular_minutos', 'activo',
 ])]
 class Colaborador extends Model
 {
+    use SoftDeletes;
     /**
      * Eloquent pluralizaría "Colaborador" como "colaboradors" (regla en
      * inglés); la tabla real es "colaboradores".
@@ -35,6 +40,7 @@ class Colaborador extends Model
             'fecha_nacimiento' => 'date',
             'fecha_ingreso' => 'date',
             'fecha_fin_contrato' => 'date',
+            'fecha_cese' => 'date',
             'contabilizar_tardanzas' => 'boolean',
             'contabilizar_horas_extra' => 'boolean',
             'activo' => 'boolean',
@@ -69,5 +75,31 @@ class Colaborador extends Model
     public function calendario(): HasMany
     {
         return $this->hasMany(ColaboradorCalendarioDia::class)->orderBy('fecha');
+    }
+
+    public function asignacionesHorario(): HasMany
+    {
+        return $this->hasMany(ColaboradorHorarioAsignacion::class)
+            ->orderByDesc('vigencia_desde');
+    }
+
+    public function documentos(): HasMany
+    {
+        return $this->hasMany(ColaboradorDocumento::class);
+    }
+
+    public function resultadosAsistencia(): HasMany
+    {
+        return $this->hasMany(AsistenciaResultadoDiario::class);
+    }
+
+    public function incidenciasAsistencia(): HasMany
+    {
+        return $this->hasMany(AsistenciaIncidencia::class);
+    }
+
+    public function marcacionesAsistencia(): HasMany
+    {
+        return $this->hasMany(AsistenciaMarcacion::class);
     }
 }
