@@ -277,7 +277,7 @@ class AsistenciaController extends Controller
 
         app(\App\Modules\Asistencia\Services\AsistenciaAuditoriaService::class)->registrar(
             $empresa->id, $request->user('api')->id, 'asistencia_reprocesada', 'rango_asistencia',
-            'Reprocesamiento manual', null, ['fecha_desde' => $datos['fecha_desde'], 'fecha_hasta' => $datos['fecha_hasta'], 'colaborador_ids' => $datos['colaborador_ids'] ?? null]
+            $datos['motivo'] ?? 'Reprocesamiento manual', null, ['fecha_desde' => $datos['fecha_desde'], 'fecha_hasta' => $datos['fecha_hasta'], 'colaborador_ids' => $datos['colaborador_ids'] ?? null]
         );
 
         return response()->json([

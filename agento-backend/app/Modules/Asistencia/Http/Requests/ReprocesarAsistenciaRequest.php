@@ -13,6 +13,7 @@ class ReprocesarAsistenciaRequest extends FormRequest
             'fecha_hasta' => ['required', 'date', 'after_or_equal:fecha_desde', 'before_or_equal:'.now()->addYears(2)->toDateString()],
             'colaborador_ids' => ['nullable', 'array', 'max:500'],
             'colaborador_ids.*' => ['integer'],
+            'motivo' => ['nullable', 'string', 'max:500'],
         ];
     }
 

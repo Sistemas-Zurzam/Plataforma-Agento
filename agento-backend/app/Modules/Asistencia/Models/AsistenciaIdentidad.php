@@ -14,5 +14,5 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class AsistenciaIdentidad extends Model
 {
     protected $table = 'asistencia_identidades';
-    public function colaborador(): BelongsTo { return $this->belongsTo(Colaborador::class); }
+    public function colaborador(): BelongsTo { return $this->belongsTo(Colaborador::class)->withTrashed(); }
 }

@@ -37,7 +37,7 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
     fecha_fin_contrato: values.fecha_fin_contrato?.format('YYYY-MM-DD') ?? null,
   });
 
-  return <Modal title="Editar colaborador" open={open} onCancel={onCancel} onOk={() => form.submit()} okText="Guardar cambios" cancelText="Cancelar" confirmLoading={submitting} width={980} centered destroyOnHidden styles={{ body: { maxHeight: 'calc(100vh - 190px)', overflowY: 'auto', paddingRight: 8 } }}>
+  return <Modal title="Editar colaborador" open={open} onCancel={onCancel} onOk={() => form.submit()} okText="Guardar cambios" cancelText="Cancelar" confirmLoading={submitting} width={{ xs: '94%', sm: '90%', lg: 980 }} centered destroyOnHidden styles={{ body: { maxHeight: 'calc(100vh - 190px)', overflowY: 'auto', paddingRight: 8 } }}>
     <Form form={form} layout="vertical" size="small" onFinish={guardar} className="[&_.ant-form-item]:mb-3">
       <div className="grid items-start gap-4 lg:grid-cols-2">
         <Seccion icono={<IdcardOutlined />} titulo="Datos personales">

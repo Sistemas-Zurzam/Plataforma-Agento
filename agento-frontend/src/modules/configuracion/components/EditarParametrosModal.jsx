@@ -41,7 +41,7 @@ export default function EditarParametrosModal({ open, regimen, onSubmit, onCance
       confirmLoading={submitting}
       okText="Guardar cambios"
       cancelText="Cancelar"
-      width={640}
+      width={{ xs: '94%', sm: 640 }}
       centered
       destroyOnHidden
     >

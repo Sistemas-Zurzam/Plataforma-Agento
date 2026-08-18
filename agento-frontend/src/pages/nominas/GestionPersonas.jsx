@@ -7,13 +7,14 @@ import {
   UserAddOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { App, Avatar, Button, Input, Table, Tag } from 'antd';
+import { App, Avatar, Button, Input, Table } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import GestionHorarios from '../../modules/asistencia/pages/GestionHorarios';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import { TIPO_CONTRATO_OPTIONS } from '../../modules/personas/constants/opciones';
 import NuevoColaboradorModal from '../../modules/personas/components/NuevoColaboradorModal';
+import VerColaboradorModal from '../../modules/personas/components/VerColaboradorModal';
 import FichaColaborador from '../../modules/personas/components/FichaColaborador';
 import { useColaboradores } from '../../modules/personas/hooks/useColaboradores';
 import { colorForName, initialsForName } from '../../utils/avatarColor';
@@ -30,6 +31,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
   const [modalOpen, setModalOpen] = useState(false);
   const [creando, setCreando] = useState(false);
   const [colaboradorSeleccionado, setColaboradorSeleccionado] = useState(null);
+  const [verColaboradorId, setVerColaboradorId] = useState(null);
 
   const puedeVer = user?.permisos?.includes('colaboradores.ver');
   const puedeCrear = user?.permisos?.includes('colaboradores.crear');
@@ -80,6 +82,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
         onVolver={() => {
           setColaboradorSeleccionado(null);
           onVolverColaboradores?.();
+          fetchColaboradores(pagination.current, pagination.pageSize, busqueda);
         }}
       />
     );
@@ -89,43 +92,57 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
     {
       title: 'Empleado',
       key: 'colaborador',
-      width: 260,
+      width: 240,
       render: (_, colaborador) => (
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Avatar style={{ backgroundColor: colorForName(colaborador.nombre_completo) }}>
             {initialsForName(colaborador.nombre_completo)}
           </Avatar>
           <div className="min-w-0">
-            <p className="font-medium text-gray-900">{colaborador.nombre_completo}</p>
+            <p className="truncate font-semibold text-gray-900">{colaborador.nombre_completo}</p>
+            <p className="truncate text-xs text-gray-400">{colaborador.cargo ?? '—'}</p>
           </div>
         </div>
       ),
     },
-    { title: 'Legajo', dataIndex: 'legajo', width: 110 },
+    {
+      title: 'Legajo',
+      dataIndex: 'legajo',
+      width: 100,
+      render: (legajo) => (
+        <span className="font-mono text-xs font-semibold text-agento-blue-bright">{legajo}</span>
+      ),
+    },
     {
       title: 'Empresa',
       key: 'empresa',
-      width: 170,
-      render: (_, colaborador) => colaborador.empresa?.nombre ?? user?.empresa?.nombre ?? '—',
+      width: 190,
+      render: (_, colaborador) => (
+        <span className="font-semibold text-gray-900">
+          {colaborador.empresa?.nombre ?? user?.empresa?.nombre ?? '—'}
+        </span>
+      ),
     },
-    { title: 'Área', key: 'area', width: 160, render: (_, c) => c.area?.nombre ?? '—' },
-    {
-      title: 'Cargo',
-      dataIndex: 'cargo',
-      width: 160,
-      render: (cargo) => cargo ?? '—',
-    },
+    { title: 'Área', key: 'area', width: 140, render: (_, c) => c.area?.nombre ?? '—' },
     {
       title: 'Contrato',
       dataIndex: 'tipo_contrato',
-      width: 140,
+      width: 160,
       render: (v) => etiquetaTipoContrato(v),
     },
     {
       title: 'Estado',
       dataIndex: 'activo',
       width: 100,
-      render: (activo) => <Tag color={activo ? 'green' : 'default'}>{activo ? 'Activo' : 'Inactivo'}</Tag>,
+      render: (activo) => (
+        <span
+          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
+            activo ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
+          }`}
+        >
+          {activo ? 'Activo' : 'Inactivo'}
+        </span>
+      ),
     },
     {
       title: 'Ingreso',
@@ -136,7 +153,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
     {
       title: 'Acciones',
       key: 'acciones',
-      width: 120,
+      width: 110,
       fixed: 'right',
       render: (_, colaborador) => (
         <div className="flex items-center">
@@ -145,7 +162,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
             size="small"
             icon={<EyeOutlined />}
             aria-label={`Ver a ${colaborador.nombre_completo}`}
-            onClick={() => abrirColaborador(colaborador)}
+            onClick={() => setVerColaboradorId(colaborador.id)}
           />
           <Button
             type="text"
@@ -237,7 +254,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           loading={loading}
           dataSource={colaboradores}
           columns={columns}
-          scroll={{ x: 1310 }}
+          scroll={{ x: 1130 }}
           pagination={{
             current: pagination.current,
             pageSize: pagination.pageSize,
@@ -259,6 +276,11 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
         submitting={creando}
       />
 
+      <VerColaboradorModal
+        open={Boolean(verColaboradorId)}
+        colaboradorId={verColaboradorId}
+        onClose={() => setVerColaboradorId(null)}
+      />
     </div>
   );
 }

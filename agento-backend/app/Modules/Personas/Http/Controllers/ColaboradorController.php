@@ -47,6 +47,21 @@ class ColaboradorController extends Controller
         );
     }
 
+    public function calendarioDelMes(Request $request, Colaborador $colaborador): JsonResponse
+    {
+        $datos = $request->validate([
+            'anio' => ['required', 'integer', 'min:2000', 'max:2100'],
+            'mes' => ['required', 'integer', 'min:1', 'max:12'],
+        ]);
+
+        return response()->json($this->colaboradores->calendarioDelMes(
+            $request->user('api')->empresa,
+            $colaborador,
+            $datos['anio'],
+            $datos['mes'],
+        ));
+    }
+
     public function actualizarCalendario(Request $request, Colaborador $colaborador): ColaboradorResource
     {
         $datos = $request->validate([

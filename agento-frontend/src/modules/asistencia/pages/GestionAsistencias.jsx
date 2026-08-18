@@ -9,7 +9,7 @@ const { RangePicker } = DatePicker;
 const { Text, Title } = Typography;
 dayjs.locale('es');
 const ESTADOS = {
-  presente: ['P', 'Presente', 'green'], falta: ['F', 'Falta', 'red'],
+  presente: ['P', 'Presente', 'green'], tardanza: ['T', 'Tardanza', 'gold'], falta: ['F', 'Falta', 'red'],
   marcacion_incompleta: ['MI', 'Marcación incompleta', 'orange'],
   home_office: ['TR', 'Trabajo remoto', 'blue'], descanso: ['D', 'Descanso', 'default'],
   feriado: ['D', 'Feriado', 'default'], no_programado: ['—', 'Sin procesar', 'default'],
@@ -17,17 +17,145 @@ const ESTADOS = {
 };
 const duracion = (minutos) => `${Math.floor((minutos ?? 0) / 60)}h ${String((minutos ?? 0) % 60).padStart(2, '0')}m`;
 const hora = (valor) => (valor ? dayjs(valor).format('HH:mm') : '—');
+const claveEstado = (resultado) => (resultado?.estado === 'presente' && resultado?.minutos_tardanza > 0 ? 'tardanza' : resultado?.estado);
 
 function EstadoDia({ resultado }) {
-  const estado = resultado ? ESTADOS[resultado.estado] : ESTADOS.no_programado;
+  const estado = resultado ? (ESTADOS[claveEstado(resultado)] ?? ESTADOS.no_programado) : ESTADOS.no_programado;
   return <Tag color={estado[2]} title={estado[1]} className="!m-0 min-w-7 text-center">{estado[0]}</Tag>;
 }
 
-function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reprocesando }) {
+const ESTADOS_CORREGIBLES = [
+  { value: 'presente', label: 'Presente' },
+  { value: 'falta_justificada', label: 'Falta justificada' },
+  { value: 'permiso', label: 'Permiso' },
+  { value: 'home_office', label: 'Trabajo remoto' },
+  { value: 'descanso', label: 'Descanso' },
+  { value: 'feriado', label: 'Feriado' },
+];
+
+function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, reprocesando, onCorregir, corrigiendo }) {
+  const [motivo, setMotivo] = useState('');
+  const [entrada, setEntrada] = useState('');
+  const [salida, setSalida] = useState('');
+  const [estadoManual, setEstadoManual] = useState(undefined);
+
+  useEffect(() => {
+    if (open) { setMotivo(''); setEntrada(''); setSalida(''); setEstadoManual(undefined); }
+  }, [open, fecha]);
+
+  if (!fecha) return null;
+
+  const fechaTexto = fecha.format('YYYY-MM-DD');
+  const tipoProgramado = colaborador.calendario?.[fechaTexto];
+  const resultado = colaborador.resultados?.[fechaTexto];
+  const estado = resultado ? (ESTADOS[claveEstado(resultado)] ?? ESTADOS.no_programado) : ESTADOS.no_programado;
+  const marcacionesDelDia = (colaborador.marcaciones ?? []).filter((m) => m.marcado_at?.startsWith(fechaTexto));
+  const puedeCorregir = Boolean(resultado?.id);
+
+  return (
+    <Modal
+      title={`Detalle del día — ${fechaTexto}`}
+      open={open}
+      onCancel={onCerrar}
+      destroyOnHidden
+      footer={[
+        <Button key="cerrar" onClick={onCerrar}>Cerrar</Button>,
+        <Button
+          key="reprocesar"
+          icon={<ReloadOutlined />}
+          loading={reprocesando}
+          disabled={!motivo.trim()}
+          onClick={() => onReprocesar(fechaTexto, motivo.trim()).then(onCerrar).catch(() => {})}
+        >
+          Reprocesar
+        </Button>,
+        <Button
+          key="corregir"
+          type="primary"
+          loading={corrigiendo}
+          disabled={!motivo.trim() || !puedeCorregir || (!entrada && !salida && !estadoManual)}
+          onClick={() => onCorregir(resultado.id, { entrada: entrada || undefined, salida: salida || undefined, estado: estadoManual, motivo: motivo.trim() }).then(onCerrar).catch(() => {})}
+        >
+          Guardar corrección
+        </Button>,
+      ]}
+    >
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Text type="secondary" className="text-xs">Tipo programado</Text>
+          <p className="font-medium capitalize">{tipoProgramado ? tipoProgramado.replaceAll('_', ' ') : 'Sin configurar'}</p>
+        </div>
+        <div>
+          <Text type="secondary" className="text-xs">Estado real</Text>
+          <p><Tag color={estado[2]}>{estado[1]}</Tag></p>
+        </div>
+      </div>
+      <div className="mt-4">
+        <Text type="secondary" className="text-xs">Marcaciones ({marcacionesDelDia.length})</Text>
+        {marcacionesDelDia.length === 0 ? (
+          <p className="mt-1 text-sm text-gray-400">Sin marcaciones registradas</p>
+        ) : (
+          <ul className="mt-1 space-y-1 text-sm text-gray-700">
+            {marcacionesDelDia.map((m) => <li key={m.id}>{dayjs(m.marcado_at).format('HH:mm:ss')} · {m.origen}</li>)}
+          </ul>
+        )}
+      </div>
+
+      <div className="mt-5 rounded-lg border border-slate-200 p-3">
+        <Text strong className="text-sm">Corrección manual</Text>
+        <p className="mt-0.5 text-xs text-gray-500">
+          Úsalo cuando la persona sí asistió pero el biométrico no registró la marcación: escribe la hora real y, si hace falta, fuerza el estado.
+        </p>
+        {!puedeCorregir && (
+          <p className="mt-2 text-xs text-amber-600">Este día todavía no tiene un resultado procesado — usa "Reprocesar" primero para poder corregirlo.</p>
+        )}
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div>
+            <label className="text-xs text-gray-500">Entrada real</label>
+            <Input type="time" className="mt-1" value={entrada} onChange={(event) => setEntrada(event.target.value)} disabled={!puedeCorregir} />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500">Salida real</label>
+            <Input type="time" className="mt-1" value={salida} onChange={(event) => setSalida(event.target.value)} disabled={!puedeCorregir} />
+          </div>
+        </div>
+        <div className="mt-3">
+          <label className="text-xs text-gray-500">Forzar estado (opcional)</label>
+          <Select
+            className="mt-1 w-full"
+            allowClear
+            placeholder="Dejar que el cálculo lo determine"
+            options={ESTADOS_CORREGIBLES}
+            value={estadoManual}
+            onChange={setEstadoManual}
+            disabled={!puedeCorregir}
+          />
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <label className="text-xs text-gray-500">Motivo <span className="text-red-500">*</span></label>
+        <Input.TextArea
+          className="mt-1"
+          rows={2}
+          maxLength={500}
+          showCount
+          value={motivo}
+          onChange={(event) => setMotivo(event.target.value)}
+          placeholder="Ej: el trabajador llegó pero el biométrico no registró la marcación"
+        />
+      </div>
+    </Modal>
+  );
+}
+
+function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reprocesando, onReprocesarDia, reprocesandoDia, onCorregirDia, corrigiendoDia }) {
+  const [diaSeleccionado, setDiaSeleccionado] = useState(null);
+
   if (loading || !colaborador) return <Card loading className="min-h-72" />;
   const resumen = colaborador.resumen ?? {};
   const resultadoDelDia = (fecha) => colaborador.resultados?.[fecha.format('YYYY-MM-DD')];
-  const calendario = <div className="rounded-xl border border-slate-200 bg-white p-3"><Calendar fullscreen cellRender={(fecha, info) => info.type === 'date' ? <div className="mt-1"><EstadoDia resultado={resultadoDelDia(fecha)} /></div> : info.originNode} /></div>;
+  const calendario = <div className="rounded-xl border border-slate-200 bg-white p-3"><Calendar fullscreen onSelect={setDiaSeleccionado} cellRender={(fecha, info) => info.type === 'date' ? <div className="mt-1"><EstadoDia resultado={resultadoDelDia(fecha)} /></div> : info.originNode} /></div>;
   const marcaciones = <Table size="small" rowKey="id" dataSource={colaborador.marcaciones ?? []} columns={[
     { title: 'Fecha', dataIndex: 'marcado_at', render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Hora', dataIndex: 'marcado_at', render: (value) => dayjs(value).format('HH:mm:ss') },
@@ -74,6 +202,16 @@ function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reproc
       { key: 'permisos', label: 'Permisos', children: permisos },
       { key: 'historial', label: 'Historial', children: historial },
     ]} />
+    <DetalleDiaModal
+      open={Boolean(diaSeleccionado)}
+      fecha={diaSeleccionado}
+      colaborador={colaborador}
+      onCerrar={() => setDiaSeleccionado(null)}
+      onReprocesar={(fecha, motivo) => onReprocesarDia(fecha, motivo)}
+      reprocesando={reprocesandoDia}
+      onCorregir={(resultadoId, datos) => onCorregirDia(resultadoId, datos)}
+      corrigiendo={corrigiendoDia}
+    />
   </div>;
 }
 
@@ -93,6 +231,8 @@ export default function GestionAsistencias({ user, colaboradorId, onVerColaborad
   const [statsColaboradores, setStatsColaboradores] = useState({});
   const [loading, setLoading] = useState(false);
   const [reprocesando, setReprocesando] = useState(false);
+  const [reprocesandoDia, setReprocesandoDia] = useState(false);
+  const [corrigiendoDia, setCorrigiendoDia] = useState(false);
   const [perfil, setPerfil] = useState(null);
   const [permisos, setPermisos] = useState([]);
   const [estadoPermiso, setEstadoPermiso] = useState('todos');
@@ -183,6 +323,34 @@ export default function GestionAsistencias({ user, colaboradorId, onVerColaborad
       }
     } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo reprocesar la asistencia'); }
     finally { setReprocesando(false); }
+  };
+
+  const reprocesarDia = async (fecha, motivo) => {
+    setReprocesandoDia(true);
+    try {
+      await api.post('/asistencia/reprocesar', {
+        fecha_desde: fecha, fecha_hasta: fecha, colaborador_ids: [colaboradorId], motivo,
+      });
+      message.success('Día reprocesado correctamente');
+      const perfilResponse = await api.get(`/asistencia/colaboradores/${colaboradorId}`, { params: parametros });
+      setPerfil(perfilResponse.data.data ?? perfilResponse.data);
+    } catch (error) {
+      message.error(error.response?.data?.message ?? 'No se pudo reprocesar el día');
+      throw error;
+    } finally { setReprocesandoDia(false); }
+  };
+
+  const corregirDia = async (resultadoId, datos) => {
+    setCorrigiendoDia(true);
+    try {
+      await api.patch(`/asistencia/resultados/${resultadoId}`, datos);
+      message.success('Corrección guardada correctamente');
+      const perfilResponse = await api.get(`/asistencia/colaboradores/${colaboradorId}`, { params: parametros });
+      setPerfil(perfilResponse.data.data ?? perfilResponse.data);
+    } catch (error) {
+      message.error(error.response?.data?.message ?? 'No se pudo guardar la corrección');
+      throw error;
+    } finally { setCorrigiendoDia(false); }
   };
 
   const crearPermiso = async (values) => {
@@ -358,7 +526,7 @@ export default function GestionAsistencias({ user, colaboradorId, onVerColaborad
   const asistenciaDiaria = <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" columns={columnasResumen} dataSource={resultados} loading={loading} scroll={{ x: 1000 }} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay jornadas procesadas en este período" /> }} /></Card>;
 
   const vistaColaboradores = <div className="space-y-4">
-    <div className="grid min-w-[1120px] grid-cols-7 gap-2.5">{[
+    <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">{[
       ['Total', statsColaboradores.total, 'text-slate-700', 'bg-slate-100', <TeamOutlined key="total" />],
       ['Listos', statsColaboradores.listos, 'text-emerald-600', 'bg-emerald-50', <CheckCircleOutlined key="listos" />],
       ['Falta horario', statsColaboradores.falta_horario, 'text-orange-500', 'bg-orange-50', <ExclamationCircleOutlined key="horario" />],
@@ -375,7 +543,7 @@ export default function GestionAsistencias({ user, colaboradorId, onVerColaborad
       <Select size="middle" value={filtroPreparacion} onChange={setFiltroPreparacion} className="w-40 shrink-0" options={[{ value: 'todos', label: 'Todos' }, { value: 'listos', label: 'Listos' }, { value: 'sin_horario', label: 'Sin horario' }, { value: 'sin_calendario', label: 'Sin calendario' }]} />
       {(busqueda || filtroSede || filtroArea || filtroPreparacion !== 'todos') && <Button type="text" size="small" onClick={() => { setBusqueda(''); setFiltroSede(); setFiltroArea(); setFiltroPreparacion('todos'); }}>Limpiar</Button>}
     </div>
-    <div className="flex flex-wrap items-center gap-1.5 text-xs"><Text type="secondary" className="mr-1">Leyenda</Text>{Object.entries(ESTADOS).slice(0, 6).map(([key, estado]) => <Tag className="!m-0" color={estado[2]} key={key}>{estado[0]} {estado[1]}</Tag>)}<Text type="secondary" className="ml-auto">{colaboradoresFiltrados.length} colaboradores</Text></div>
+    <div className="flex flex-wrap items-center gap-1.5 text-xs"><Text type="secondary" className="mr-1">Leyenda</Text>{Object.entries(ESTADOS).map(([key, estado]) => <Tag className="!m-0" color={estado[2]} key={key}>{estado[0]} {estado[1]}</Tag>)}<Text type="secondary" className="ml-auto">{colaboradoresFiltrados.length} colaboradores</Text></div>
     <Card className="overflow-hidden border-slate-200" styles={{ body: { padding: 0 } }}><Table size="small" tableLayout="fixed" rowKey="id" columns={columnasColaboradores} dataSource={colaboradoresFiltrados} loading={loading} rowClassName="hover:bg-slate-50" pagination={{ pageSize: 25, size: 'small', showSizeChanger: false, showTotal: (total) => `${total} colaboradores` }} locale={{ emptyText: <Empty description="No hay colaboradores para los filtros seleccionados" /> }} /></Card>
   </div>;
 
@@ -475,7 +643,7 @@ export default function GestionAsistencias({ user, colaboradorId, onVerColaborad
     { key: 'gestiones-area', label: 'Gestiones del área', icon: <UsergroupAddOutlined />, children: vistaGestionesArea },
   ];
 
-  if (colaboradorId) return <PerfilAsistencia colaborador={perfil} loading={loading} onVolver={onVolver} onReprocesar={reprocesar} reprocesando={reprocesando} />;
+  if (colaboradorId) return <PerfilAsistencia colaborador={perfil} loading={loading} onVolver={onVolver} onReprocesar={reprocesar} reprocesando={reprocesando} onReprocesarDia={reprocesarDia} reprocesandoDia={reprocesandoDia} onCorregirDia={corregirDia} corrigiendoDia={corrigiendoDia} />;
 
   return <div className="space-y-4"><div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><Title level={3} className="!mb-1">Gestión de asistencias</Title><Text type="secondary">Control diario de {user?.empresa?.nombre ?? 'la empresa activa'}</Text></div><Space wrap><RangePicker value={rango} allowClear={false} format="DD/MM/YYYY" onChange={(value) => value && setRango(value)} />{puedeProcesar && <Button icon={<ReloadOutlined />} loading={reprocesando} onClick={reprocesar}>Reprocesar</Button>}</Space></div><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
     <Modal title="Nuevo permiso" open={permisoModalOpen} onCancel={() => setPermisoModalOpen(false)} footer={null} destroyOnHidden width={520}>
@@ -487,9 +655,9 @@ export default function GestionAsistencias({ user, colaboradorId, onVerColaborad
         <div className="flex justify-end gap-2"><Button onClick={() => setPermisoModalOpen(false)}>Cancelar</Button><Button type="primary" htmlType="submit" loading={guardandoPermiso}>Crear permiso</Button></div>
       </Form>
     </Modal>
-    <Modal title="Programar / Solicitar" open={solicitudModalOpen} onCancel={() => setSolicitudModalOpen(false)} footer={null} destroyOnHidden width={620}>
+    <Modal title="Programar / Solicitar" open={solicitudModalOpen} onCancel={() => setSolicitudModalOpen(false)} footer={null} destroyOnHidden width={{ xs: '94%', sm: 620 }}>
       <Form form={solicitudForm} layout="vertical" onFinish={crearSolicitudArea} initialValues={{ tipo: 'horas_extra', origen: puedeAprobarRrhh ? 'rrhh_directo' : 'responsable_area' }} requiredMark="optional">
-        <div className="grid grid-cols-2 gap-3"><Form.Item name="tipo" label="Tipo de solicitud" rules={[{ required: true }]}><Select options={[{ value: 'horas_extra', label: 'Horas extra' }, { value: 'permiso', label: 'Permiso' }, { value: 'cambio_horario', label: 'Cambio de horario' }, { value: 'trabajo_remoto', label: 'Trabajo remoto' }, { value: 'otro', label: 'Otro' }]} /></Form.Item><Form.Item name="origen" label="Origen" rules={[{ required: true }]}><Select options={puedeAprobarRrhh ? [{ value: 'rrhh_directo', label: 'RR.HH. directo' }, { value: 'responsable_area', label: 'Responsable del área' }, { value: 'colaborador', label: 'Colaborador' }] : [{ value: 'responsable_area', label: 'Responsable del área' }]} /></Form.Item></div>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2"><Form.Item name="tipo" label="Tipo de solicitud" rules={[{ required: true }]}><Select options={[{ value: 'horas_extra', label: 'Horas extra' }, { value: 'permiso', label: 'Permiso' }, { value: 'cambio_horario', label: 'Cambio de horario' }, { value: 'trabajo_remoto', label: 'Trabajo remoto' }, { value: 'otro', label: 'Otro' }]} /></Form.Item><Form.Item name="origen" label="Origen" rules={[{ required: true }]}><Select options={puedeAprobarRrhh ? [{ value: 'rrhh_directo', label: 'RR.HH. directo' }, { value: 'responsable_area', label: 'Responsable del área' }, { value: 'colaborador', label: 'Colaborador' }] : [{ value: 'responsable_area', label: 'Responsable del área' }]} /></Form.Item></div>
         <Form.Item name="fechas" label="Fechas" rules={[{ required: true, message: 'Selecciona una fecha o rango' }]}><RangePicker className="w-full" format="DD/MM/YYYY" /></Form.Item>
         <Form.Item name="colaborador_ids" label="Colaboradores" rules={[{ required: true, message: 'Selecciona al menos un colaborador' }]}><Select mode="multiple" maxTagCount="responsive" showSearch optionFilterProp="label" placeholder="Buscar por nombre o legajo" options={colaboradores.map((item) => ({ value: item.id, label: `${item.nombre_completo} · ${item.legajo} · ${item.area ?? 'Sin área'}` }))} /></Form.Item>
         <Form.Item name="motivo" label="Motivo" rules={[{ required: true, message: 'Describe el motivo' }]}><Input.TextArea rows={3} placeholder="Describe el motivo de la solicitud" /></Form.Item>

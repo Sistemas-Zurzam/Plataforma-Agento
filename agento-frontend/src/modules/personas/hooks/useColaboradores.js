@@ -38,6 +38,13 @@ export function useColaboradores() {
     return data.dias;
   }, []);
 
+  const fetchCalendarioDelMes = useCallback(async (colaboradorId, anio, mes) => {
+    const { data } = await api.get(`/colaboradores/${colaboradorId}/calendario`, {
+      params: { anio, mes },
+    });
+    return data.dias;
+  }, []);
+
   const fetchColaborador = useCallback(async (colaboradorId) => {
     const { data } = await api.get(`/colaboradores/${colaboradorId}`);
     return data.data;
@@ -90,6 +97,7 @@ export function useColaboradores() {
     fetchColaboradores,
     crearColaborador,
     fetchCalendarioDefecto,
+    fetchCalendarioDelMes,
     fetchColaborador,
     actualizarCalendario,
     actualizarHorario,

@@ -21,5 +21,5 @@ class AsistenciaHoraExtra extends Model
     }
 
     public function resultado(): BelongsTo { return $this->belongsTo(AsistenciaResultadoDiario::class, 'resultado_diario_id'); }
-    public function colaborador(): BelongsTo { return $this->belongsTo(Colaborador::class); }
+    public function colaborador(): BelongsTo { return $this->belongsTo(Colaborador::class)->withTrashed(); }
 }

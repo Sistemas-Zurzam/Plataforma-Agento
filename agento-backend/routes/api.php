@@ -90,6 +90,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/colaboradores', [ColaboradorController::class, 'store'])->middleware('permiso:colaboradores.crear');
     Route::get('/colaboradores/calendario-defecto', [ColaboradorController::class, 'calendarioDefecto'])->middleware('permiso:colaboradores.crear');
     Route::get('/colaboradores/{colaborador}', [ColaboradorController::class, 'show'])->middleware('permiso:colaboradores.ver');
+    Route::get('/colaboradores/{colaborador}/calendario', [ColaboradorController::class, 'calendarioDelMes'])->middleware('permiso:colaboradores.editar');
     Route::put('/colaboradores/{colaborador}/calendario', [ColaboradorController::class, 'actualizarCalendario'])->middleware('permiso:colaboradores.editar');
     Route::put('/colaboradores/{colaborador}/horario', [ColaboradorController::class, 'actualizarHorario'])->middleware('permiso:colaboradores.editar');
     Route::put('/colaboradores/{colaborador}', [ColaboradorController::class, 'update'])->middleware('permiso:colaboradores.editar');

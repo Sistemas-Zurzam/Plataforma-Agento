@@ -8,6 +8,7 @@ use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Sede;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Support\CalendarioMensualGenerator;
 use App\Modules\Personas\Support\FeriadosPeru;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -75,6 +76,29 @@ class ColaboradorService
         });
 
         return $this->obtenerDetalle($empresa, $colaborador);
+    }
+
+    /**
+     * Devuelve el calendario de un mes puntual de un colaborador ya
+     * existente. Si ese mes todavía no tiene filas propias (nunca se editó
+     * y no es el mes de ingreso), se genera heredando el patrón por día de
+     * semana del mes anterior con datos — ver CalendarioMensualGenerator.
+     */
+    public function calendarioDelMes(Empresa $empresa, Colaborador $colaborador, int $anio, int $mes): array
+    {
+        if ($colaborador->empresa_id !== $empresa->id) {
+            throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
+        }
+
+        $dias = CalendarioMensualGenerator::paraMes($colaborador, $anio, $mes);
+
+        return [
+            'dias' => $dias->map(fn ($dia) => [
+                'fecha' => $dia->fecha->toDateString(),
+                'tipo' => $dia->tipo,
+                'editable' => true,
+            ])->values()->all(),
+        ];
     }
 
     public function actualizarHorario(Empresa $empresa, Colaborador $colaborador, array $datos): Colaborador
@@ -320,7 +344,10 @@ class ColaboradorService
 
     private function siguienteLegajo(Empresa $empresa): string
     {
-        $ultimoNumero = Colaborador::where('empresa_id', $empresa->id)
+        // withTrashed(): un colaborador eliminado (soft delete) sigue ocupando su
+        // legajo en el índice único de la tabla — si no se cuenta acá, el próximo
+        // número generado choca contra el suyo y la inserción falla en la BD.
+        $ultimoNumero = Colaborador::withTrashed()->where('empresa_id', $empresa->id)
             ->selectRaw("MAX(CAST(SUBSTRING_INDEX(legajo, '-', -1) AS UNSIGNED)) as maximo")
             ->value('maximo');
 

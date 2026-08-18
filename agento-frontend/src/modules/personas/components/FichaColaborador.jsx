@@ -29,7 +29,7 @@ import EditarHorarioColaboradorModal from './EditarHorarioColaboradorModal';
 import EditarColaboradorModal from './EditarColaboradorModal';
 import CesarColaboradorModal from './CesarColaboradorModal';
 
-const DOCUMENTOS_REQUERIDOS = [
+export const DOCUMENTOS_REQUERIDOS = [
   { tipo: 'documento_identidad', nombre: 'Copia de documento de identidad' },
   { tipo: 'recibo_servicio', nombre: 'Recibo de luz o agua' },
   { tipo: 'contrato_firmado', nombre: 'Contrato firmado' },
@@ -171,7 +171,7 @@ function Vacaciones() {
   return <div><div className="grid gap-4 sm:grid-cols-3"><Card className="text-center"><p className="text-2xl font-semibold text-blue-600">0</p><p className="text-sm text-gray-500">Días totales</p></Card><Card className="text-center"><p className="text-2xl font-semibold">0</p><p className="text-sm text-gray-500">Días usados</p></Card><Card className="text-center"><p className="text-2xl font-semibold text-green-600">0</p><p className="text-sm text-gray-500">Días disponibles</p></Card></div><div className="mt-8"><Empty description="Sin solicitudes de vacaciones registradas" /></div></div>;
 }
 
-function Legajo({ colaborador, subiendo, viendo, onImportar, onVer }) {
+export function Legajo({ colaborador, subiendo, viendo, onImportar, onVer, soloLectura = false }) {
   const cargados = colaborador.documentos ?? [];
   const totalCargados = DOCUMENTOS_REQUERIDOS.filter(({ tipo }) => cargados.some((documento) => documento.tipo === tipo)).length;
   const porcentaje = Math.round((totalCargados / DOCUMENTOS_REQUERIDOS.length) * 100);
@@ -183,10 +183,12 @@ function Legajo({ colaborador, subiendo, viendo, onImportar, onVer }) {
       const documento = cargados.find((item) => item.tipo === tipo);
       return <Card key={tipo} size="small"><div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-3">{documento ? <CheckCircleOutlined className="text-green-600" /> : <FileTextOutlined className="text-gray-500" />}<div className="min-w-0"><p className="font-medium">{nombre}</p><p className={`truncate text-xs ${documento ? 'text-green-600' : 'text-gray-500'}`}>{documento?.nombre_original ?? 'No cargado'}</p></div></div>
-        <div className="flex items-center gap-2">
-          {documento && <Button size="small" icon={<EyeOutlined />} loading={viendo === documento.id} onClick={() => onVer(documento)}>Ver</Button>}
-          <Upload accept=".pdf,.jpg,.jpeg,.png,.webp" showUploadList={false} beforeUpload={(archivo) => { onImportar(tipo, archivo); return false; }}><Button size="small" icon={<UploadOutlined />} loading={subiendo === tipo}>{documento ? 'Reemplazar' : 'Importar'}</Button></Upload>
-        </div>
+        {!soloLectura && (
+          <div className="flex items-center gap-2">
+            {documento && <Button size="small" icon={<EyeOutlined />} loading={viendo === documento.id} onClick={() => onVer(documento)}>Ver</Button>}
+            <Upload accept=".pdf,.jpg,.jpeg,.png,.webp" showUploadList={false} beforeUpload={(archivo) => { onImportar(tipo, archivo); return false; }}><Button size="small" icon={<UploadOutlined />} loading={subiendo === tipo}>{documento ? 'Reemplazar' : 'Importar'}</Button></Upload>
+          </div>
+        )}
       </div></Card>;
     })}</div>
     <p className="mt-3 text-xs text-gray-500">Formatos permitidos: PDF, JPG, PNG y WEBP. Tamaño máximo: 10 MB por archivo.</p>
@@ -379,7 +381,7 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
     <EditarCalendarioModal open={calendarioOpen} colaborador={colaborador} submitting={guardandoCalendario} onGuardar={guardarCalendario} onCancel={() => setCalendarioOpen(false)} />
     <EditarColaboradorModal open={editarOpen} colaborador={colaborador} submitting={guardandoEdicion} onGuardar={guardarEdicion} onCancel={() => setEditarOpen(false)} />
     <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
-    <Modal title={documentoVista?.nombre ?? 'Ver documento'} open={Boolean(documentoVista)} onCancel={cerrarDocumento} footer={null} width={900} centered destroyOnHidden>
+    <Modal title={documentoVista?.nombre ?? 'Ver documento'} open={Boolean(documentoVista)} onCancel={cerrarDocumento} footer={null} width={{ xs: '95%', sm: '90%', lg: 900 }} centered destroyOnHidden>
       {documentoVista?.mimeType?.startsWith('image/') ? (
         <div className="flex max-h-[72vh] justify-center overflow-auto rounded-lg bg-gray-50 p-3">
           <img src={documentoVista.url} alt={documentoVista.nombre} className="max-w-full object-contain" />

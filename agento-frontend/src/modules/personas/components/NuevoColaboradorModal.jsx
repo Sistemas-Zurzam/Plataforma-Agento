@@ -255,17 +255,17 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
       open={open}
       onCancel={onCancel}
       footer={footer}
-      width={paso === 1 ? 1300 : 760}
+      width={paso === 1 ? { xs: '95%', sm: '92%', xl: 1300 } : { xs: '92%', sm: 760 }}
       centered
       destroyOnHidden
     >
       <Form form={form} layout="vertical" size="small">
         <div
-          className="grid max-h-[85vh] grid-cols-2 items-start gap-3 overflow-y-auto pr-1"
+          className="grid max-h-[85vh] grid-cols-1 items-start gap-3 overflow-y-auto pr-1 xl:grid-cols-2"
           style={{ display: paso === 1 ? 'grid' : 'none' }}
         >
           <Seccion icono={<IdcardOutlined />} titulo="Información personal">
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item
                 label={campoLabel('Nombres')}
                 name="nombres"
@@ -288,7 +288,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 <Select placeholder="Selecciona" options={TIPO_DOCUMENTO_OPTIONS} />
               </Form.Item>
             </div>
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item
                 label={campoLabel('Número de documento')}
                 name="numero_documento"
@@ -303,7 +303,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 <Input />
               </Form.Item>
             </div>
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item label={campoLabel('Ciudad de residencia')} name="ciudad_residencia">
                 <Input placeholder="Ej: Lima" />
               </Form.Item>
@@ -314,7 +314,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 <Input placeholder="Av. / Calle, número" />
               </Form.Item>
             </div>
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item
                 label={campoLabel('Email')}
                 name="email"
@@ -340,7 +340,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
           </Seccion>
 
           <Seccion icono={<BankOutlined />} titulo="Información de contrato" subtitulo={user?.empresa?.nombre}>
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item
                 label={campoLabel('Sede')}
                 name="sede_id"
@@ -363,7 +363,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 <Input placeholder="Ej: Analista" />
               </Form.Item>
             </div>
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item
                 label={campoLabel('Tipo de Contrato')}
                 name="tipo_contrato"
@@ -388,7 +388,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 <Select options={TIPO_TRABAJADOR_OPTIONS} placeholder="Selecciona" />
               </Form.Item>
             </div>
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item
                 label={campoLabel('Fecha de Ingreso')}
                 name="fecha_ingreso"
@@ -414,7 +414,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 <Select placeholder="Selecciona" options={periodicidadOptions} />
               </Form.Item>
             </div>
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item label={campoLabel('Salario')} required>
                 <div className="flex gap-1">
                   <Form.Item name="moneda_salario" noStyle rules={[{ required: true }]}>
@@ -443,7 +443,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
           </Seccion>
 
           <Seccion icono={<WalletOutlined />} titulo="Información remunerativa">
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item label={campoLabel('CTS')} name="cts_cuenta">
                 <Input placeholder="Cuenta / entidad CTS" />
               </Form.Item>
@@ -454,7 +454,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 <Select allowClear placeholder="Sin especificar" options={SISTEMA_PREVISIONAL_OPTIONS} />
               </Form.Item>
             </div>
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item label={campoLabel('Banco')} name="banco">
                 <Select allowClear placeholder="Selecciona banco" options={BANCO_OPTIONS} />
               </Form.Item>
@@ -465,7 +465,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 <Select allowClear placeholder="Selecciona" options={TIPO_CUENTA_OPTIONS} />
               </Form.Item>
             </div>
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item label={campoLabel('Moneda de la cuenta')} name="moneda_cuenta">
                 <Select allowClear placeholder="Selecciona" options={MONEDA_OPTIONS} />
               </Form.Item>
@@ -480,7 +480,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
           </Seccion>
 
           <Seccion icono={<ClockCircleOutlined />} titulo="Información de trabajo">
-            <div className="grid grid-cols-3 gap-x-3">
+            <div className="grid grid-cols-1 gap-x-3 sm:grid-cols-2 lg:grid-cols-3">
               <Form.Item
                 label={campoLabel('Horario asignado')}
                 name="horario_id"

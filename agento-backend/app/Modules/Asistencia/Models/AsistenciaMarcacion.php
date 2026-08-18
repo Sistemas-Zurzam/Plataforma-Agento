@@ -36,7 +36,7 @@ class AsistenciaMarcacion extends Model
 
     public function colaborador(): BelongsTo
     {
-        return $this->belongsTo(Colaborador::class);
+        return $this->belongsTo(Colaborador::class)->withTrashed();
     }
 
     public function importaciones(): BelongsToMany

@@ -281,6 +281,7 @@ export default function UsuariosRoles({ user }) {
         loading={loading}
         dataSource={usuarios}
         columns={columns}
+        scroll={{ x: 760 }}
         pagination={{
           current: pagination.current,
           pageSize: pagination.pageSize,

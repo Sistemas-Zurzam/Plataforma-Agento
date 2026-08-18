@@ -22,5 +22,5 @@ class AsistenciaSolicitudArea extends Model
     protected $table = 'asistencia_solicitudes_area';
     protected function casts(): array { return ['fecha_inicio' => 'date', 'fecha_fin' => 'date', 'responsable_at' => 'datetime', 'rrhh_at' => 'datetime']; }
     public function area(): BelongsTo { return $this->belongsTo(Area::class); }
-    public function colaboradores(): BelongsToMany { return $this->belongsToMany(Colaborador::class, 'asistencia_solicitud_colaboradores', 'solicitud_id', 'colaborador_id'); }
+    public function colaboradores(): BelongsToMany { return $this->belongsToMany(Colaborador::class, 'asistencia_solicitud_colaboradores', 'solicitud_id', 'colaborador_id')->withTrashed(); }
 }

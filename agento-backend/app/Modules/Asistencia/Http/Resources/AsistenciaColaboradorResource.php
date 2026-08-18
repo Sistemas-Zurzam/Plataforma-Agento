@@ -35,7 +35,10 @@ class AsistenciaColaboradorResource extends JsonResource
             'tiene_calendario' => $this->calendario->isNotEmpty(),
             'incidencias_pendientes' => $this->incidenciasAsistencia->where('estado', 'pendiente')->count(),
             'resumen' => $resumen,
+            'calendario' => $this->calendario->keyBy(fn ($dia) => $dia->fecha->toDateString())
+                ->map(fn ($dia) => $dia->tipo),
             'resultados' => $resultados->map(fn ($resultado) => [
+                'id' => $resultado->id,
                 'estado' => $resultado->estado,
                 'tipo_dia' => $resultado->tipo_dia,
                 'entrada' => $resultado->entrada_at?->format('Y-m-d H:i:s'),

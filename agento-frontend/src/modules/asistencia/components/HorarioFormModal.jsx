@@ -267,7 +267,7 @@ export default function HorarioFormModal({ open, horario, onSubmit, onCancel, su
       confirmLoading={submitting}
       okText={horario ? 'Guardar cambios' : 'Crear horario'}
       cancelText="Cancelar"
-      width={620}
+      width={{ xs: '94%', sm: 620 }}
       centered
       destroyOnHidden
     >

@@ -125,17 +125,32 @@ class ImportarMarcacionesService
             return $importacion;
         });
 
-        collect($filas)->filter(fn ($fila) => $colaboradores->has($fila['person_id']))
-            ->groupBy(fn ($fila) => $fila['person_id'].'|'.$fila['marcado_at']->toDateString())
-            ->each(function ($grupo) use ($colaboradores) {
-                $fila = $grupo->first();
-                $protegido = AsistenciaPeriodo::query()->where('empresa_id', $colaboradores->get($fila['person_id'])->empresa_id)
-                    ->whereIn('estado', ['cerrado', 'enviado_nomina'])
-                    ->whereDate('fecha_inicio', '<=', $fila['marcado_at']->toDateString())
-                    ->whereDate('fecha_fin', '>=', $fila['marcado_at']->toDateString())->exists();
-                if ($protegido) return;
-                $this->procesador->procesar($colaboradores->get($fila['person_id']), $fila['marcado_at']->copy()->startOfDay());
-            });
+        // Se procesa todo el rango importado (no solo los días con marcación) para
+        // cada colaborador que aparece en este archivo: así los días sin marcación
+        // esperada (home office, descanso, feriado) quedan resueltos correctamente
+        // en vez de quedarse en "Sin procesar". Solo se toca a los colaboradores
+        // presentes en este archivo — uno que todavía no tiene ninguna marcación
+        // importada (p. ej. llega en un archivo aparte) no se reprocesa acá, para
+        // no marcarle "falta" antes de que su propio archivo se importe.
+        $colaboradoresAfectados = $colaboradores->unique(fn ($colaborador) => $colaborador->id);
+        if ($importacion->fecha_minima && $importacion->fecha_maxima) {
+            $fechaDesde = Carbon::parse($importacion->fecha_minima);
+            $fechaHasta = Carbon::parse($importacion->fecha_maxima);
+
+            foreach ($colaboradoresAfectados as $colaborador) {
+                for ($fecha = $fechaDesde->copy(); $fecha->lte($fechaHasta); $fecha->addDay()) {
+                    if ($fecha->lt($colaborador->fecha_ingreso->startOfDay())) {
+                        continue;
+                    }
+                    $protegido = AsistenciaPeriodo::query()->where('empresa_id', $empresa->id)
+                        ->whereIn('estado', ['cerrado', 'enviado_nomina'])
+                        ->whereDate('fecha_inicio', '<=', $fecha->toDateString())
+                        ->whereDate('fecha_fin', '>=', $fecha->toDateString())->exists();
+                    if ($protegido) continue;
+                    $this->procesador->procesar($colaborador, $fecha->copy());
+                }
+            }
+        }
 
         $this->auditoria->registrar(
             $empresa->id, $usuarioId, 'marcaciones_importadas', $importacion, $archivo->getClientOriginalName(), null,

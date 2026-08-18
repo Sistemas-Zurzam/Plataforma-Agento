@@ -235,6 +235,7 @@ function TablaHorarios({ user, onUserRefresh }) {
         loading={loading}
         dataSource={horarios}
         columns={columns}
+        scroll={{ x: 960 }}
         pagination={{
           current: pagination.current,
           pageSize: pagination.pageSize,

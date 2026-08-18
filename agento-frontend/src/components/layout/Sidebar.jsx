@@ -111,6 +111,9 @@ export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, 
       collapsed={collapsed}
       onCollapse={onCollapse}
       width={264}
+      breakpoint="lg"
+      collapsedWidth={0}
+      zeroWidthTriggerStyle={{ top: 12 }}
       className="border-r border-gray-100"
     >
       <div className="flex items-center gap-2 overflow-hidden px-4 py-5">

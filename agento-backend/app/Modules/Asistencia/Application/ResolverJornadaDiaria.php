@@ -6,6 +6,7 @@ use App\Modules\Asistencia\Models\HorarioDia;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCalendarioDia;
 use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
+use App\Modules\Personas\Support\CalendarioMensualGenerator;
 use App\Modules\Personas\Support\FeriadosPeru;
 use Illuminate\Support\Carbon;
 
@@ -36,6 +37,17 @@ class ResolverJornadaDiaria
             ->where('colaborador_id', $colaborador->id)
             ->whereDate('fecha', $fechaTexto)
             ->first();
+
+        if ($calendario === null) {
+            // El calendario inicial solo cubre el mes de ingreso; para meses
+            // posteriores se genera aquí bajo demanda (hereda el patrón por
+            // día de semana del último mes con datos) y queda persistido.
+            CalendarioMensualGenerator::paraMes($colaborador, $fecha->year, $fecha->month);
+            $calendario = ColaboradorCalendarioDia::query()
+                ->where('colaborador_id', $colaborador->id)
+                ->whereDate('fecha', $fechaTexto)
+                ->first();
+        }
 
         $tipoDia = match (true) {
             $calendario !== null => $calendario->tipo,

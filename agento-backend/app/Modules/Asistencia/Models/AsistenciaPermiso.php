@@ -22,5 +22,5 @@ class AsistenciaPermiso extends Model
     }
 
     public function empresa(): BelongsTo { return $this->belongsTo(Empresa::class); }
-    public function colaborador(): BelongsTo { return $this->belongsTo(Colaborador::class); }
+    public function colaborador(): BelongsTo { return $this->belongsTo(Colaborador::class)->withTrashed(); }
 }

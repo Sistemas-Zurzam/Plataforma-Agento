@@ -198,6 +198,7 @@ export default function Empresas({ user }) {
         loading={loading}
         dataSource={empresas}
         columns={columns}
+        scroll={{ x: 900 }}
         pagination={{ pageSize: 10, pageSizeOptions: [10, 15], showSizeChanger: true }}
       />
 
