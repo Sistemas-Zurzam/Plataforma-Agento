@@ -11,14 +11,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[ScopedBy([EmpresaScope::class])]
-#[Fillable(['empresa_id', 'colaborador_id', 'tipo', 'fecha_inicio', 'fecha_fin', 'motivo', 'estado', 'registrado_por', 'resuelto_por', 'resuelto_at', 'observacion_resolucion'])]
+#[Fillable(['empresa_id', 'colaborador_id', 'tipo', 'con_goce', 'fecha_inicio', 'fecha_fin', 'motivo', 'estado', 'registrado_por', 'resuelto_por', 'resuelto_at', 'observacion_resolucion'])]
 class AsistenciaPermiso extends Model
 {
     protected $table = 'asistencia_permisos';
 
     protected function casts(): array
     {
-        return ['fecha_inicio' => 'date', 'fecha_fin' => 'date', 'resuelto_at' => 'datetime'];
+        return ['fecha_inicio' => 'date', 'fecha_fin' => 'date', 'resuelto_at' => 'datetime', 'con_goce' => 'boolean'];
     }
 
     public function empresa(): BelongsTo { return $this->belongsTo(Empresa::class); }

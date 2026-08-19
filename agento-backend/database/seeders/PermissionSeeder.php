@@ -49,6 +49,12 @@ class PermissionSeeder extends Seeder
             ['clave' => 'colaboradores.editar', 'nombre' => 'Editar colaboradores', 'grupo' => 'Colaboradores'],
             ['clave' => 'colaboradores.cesar', 'nombre' => 'Cesar colaboradores', 'grupo' => 'Colaboradores'],
             ['clave' => 'colaboradores.eliminar', 'nombre' => 'Eliminar colaboradores', 'grupo' => 'Colaboradores'],
+            ['clave' => 'nominas.ver', 'nombre' => 'Ver ciclos y boletas de remuneraciones', 'grupo' => 'Remuneraciones'],
+            ['clave' => 'nominas.gestionar_ciclos', 'nombre' => 'Crear y gestionar ciclos remunerativos', 'grupo' => 'Remuneraciones'],
+            ['clave' => 'nominas.calcular', 'nombre' => 'Calcular/recalcular planilla', 'grupo' => 'Remuneraciones'],
+            ['clave' => 'nominas.aprobar', 'nombre' => 'Aprobar boletas', 'grupo' => 'Remuneraciones'],
+            ['clave' => 'nominas.cerrar_periodo', 'nombre' => 'Cerrar y reabrir períodos', 'grupo' => 'Remuneraciones'],
+            ['clave' => 'nominas.pagar', 'nombre' => 'Marcar boletas como pagadas', 'grupo' => 'Remuneraciones'],
         ];
 
         foreach ($permisos as $permiso) {

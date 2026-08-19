@@ -21,6 +21,8 @@ class DatabaseSeeder extends Seeder
         $this->call(PermissionSeeder::class);
         $this->call(ParametroLaboralDefinicionSeeder::class);
         $this->call(AfpSeeder::class);
+        $this->call(ConceptoRemuneracionSeeder::class);
+        $this->call(TramoRentaSeeder::class);
 
         // User::factory(10)->create();
 

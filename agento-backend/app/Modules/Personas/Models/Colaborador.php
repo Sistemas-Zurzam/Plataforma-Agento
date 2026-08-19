@@ -22,7 +22,9 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'direccion', 'email', 'celular_colaborador', 'celular_referencia',
     'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador',
     'contabilizar_tardanzas', 'contabilizar_horas_extra', 'fecha_ingreso', 'fecha_fin_contrato', 'fecha_cese', 'motivo_cese',
-    'cts_cuenta', 'sistema_previsional', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
+    'cts_cuenta', 'sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_hijos_asignacion_familiar',
+    'tiene_suspension_renta_4ta',
+    'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
     'modalidad_trabajo', 'tolerancia_particular_minutos', 'activo',
 ])]
 class Colaborador extends Model
@@ -43,6 +45,8 @@ class Colaborador extends Model
             'fecha_cese' => 'date',
             'contabilizar_tardanzas' => 'boolean',
             'contabilizar_horas_extra' => 'boolean',
+            'tiene_hijos_asignacion_familiar' => 'boolean',
+            'tiene_suspension_renta_4ta' => 'boolean',
             'activo' => 'boolean',
         ];
     }
@@ -65,6 +69,11 @@ class Colaborador extends Model
     public function horario(): BelongsTo
     {
         return $this->belongsTo(Horario::class);
+    }
+
+    public function afp(): BelongsTo
+    {
+        return $this->belongsTo(\App\Modules\Configuracion\Models\Afp::class);
     }
 
     public function remuneraciones(): HasMany

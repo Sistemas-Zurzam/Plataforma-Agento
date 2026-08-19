@@ -4,6 +4,7 @@ import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import GestionEmpresas from '../pages/configuraciones/GestionEmpresas';
 import GestionPersonas from '../pages/nominas/GestionPersonas';
+import GestionRemuneraciones from '../pages/nominas/GestionRemuneraciones';
 import GestionAsistencias from '../modules/asistencia/pages/GestionAsistencias';
 
 const { Content } = Layout;
@@ -11,6 +12,7 @@ const { Content } = Layout;
 const SECCIONES = {
   'configuraciones-empresas': { title: 'Configuraciones', subtitle: 'Gestión de empresas' },
   'nominas-personas': { title: 'Nóminas', subtitle: 'Gestión de personas' },
+  'nominas-remuneraciones': { title: 'Nóminas', subtitle: 'Gestión de remuneraciones' },
   'nominas-asistencias': { title: 'Nóminas', subtitle: 'Gestión de asistencias' },
 };
 
@@ -28,6 +30,10 @@ function routeFromPath(pathname) {
 
   if (normalizedPath === '/nominas/personas') {
     return { section: 'nominas-personas', tab: null, colaboradorId: null };
+  }
+
+  if (normalizedPath === '/nominas/remuneraciones') {
+    return { section: 'nominas-remuneraciones', tab: null, colaboradorId: null };
   }
 
   if (normalizedPath === '/nominas/asistencias') {
@@ -80,6 +86,7 @@ export default function AppLayout({
   const handleSectionSelect = (key) => {
     const paths = {
       'nominas-personas': '/nominas/personas',
+      'nominas-remuneraciones': '/nominas/remuneraciones',
       'nominas-asistencias': '/nominas/asistencias',
     };
     navigate(paths[key] ?? '/mi-perfil');
@@ -123,6 +130,9 @@ export default function AppLayout({
               onAbrirColaborador={(id) => navigate(`/nominas/personas/${id}`)}
               onVolverColaboradores={() => navigate('/nominas/personas')}
             />
+          )}
+          {route.section === 'nominas-remuneraciones' && (
+            <GestionRemuneraciones user={user} onUserRefresh={onUserRefresh} />
           )}
           {route.section === 'nominas-asistencias' && (
             <GestionAsistencias

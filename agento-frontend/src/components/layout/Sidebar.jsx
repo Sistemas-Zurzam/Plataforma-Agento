@@ -16,20 +16,19 @@ import FileInvoiceDollarIcon from '../icons/FileInvoiceDollarIcon';
 const { Sider } = Layout;
 
 /**
- * "Gestión de remuneraciones" y "Gestión de asistencias" todavía no tienen
- * funcionalidad real detrás, así que quedan como vista previa de
- * "próximamente" para quien administra el sistema. "Gestión de personas"
- * ya tiene una funcionalidad real parcial (el botón "Gestión de horarios"
- * dentro de ella, ver GestionPersonas.jsx) — por eso se habilita para
- * cualquiera con el permiso horarios.ver, no solo para isAdmin. Gestión de
- * horarios NO tiene su propia entrada de sidebar a propósito: en Agento
- * (como en la referencia) es un botón dentro de Gestión de personas, no un
- * módulo aparte.
+ * "Gestión de personas" ya tiene una funcionalidad real parcial (el botón
+ * "Gestión de horarios" dentro de ella, ver GestionPersonas.jsx) — por eso
+ * se habilita para cualquiera con el permiso horarios.ver, no solo para
+ * isAdmin. Gestión de horarios NO tiene su propia entrada de sidebar a
+ * propósito: en Agento (como en la referencia) es un botón dentro de
+ * Gestión de personas, no un módulo aparte. "Gestión de remuneraciones" ya
+ * tiene motor de cálculo y UI real (ver GestionRemuneraciones.jsx) — se
+ * habilita con el permiso nominas.ver.
  */
-function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia) {
+function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas) {
   const items = [];
 
-  if (isAdmin || puedeVerHorarios) {
+  if (isAdmin || puedeVerHorarios || puedeVerNominas) {
     items.push({
       key: 'nominas',
       icon: <FileInvoiceDollarIcon />,
@@ -44,7 +43,7 @@ function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia) {
           key: 'nominas-remuneraciones',
           icon: <WalletOutlined />,
           label: 'Gestión de remuneraciones',
-          disabled: true,
+          disabled: !isAdmin && !puedeVerNominas,
         },
         {
           key: 'nominas-asistencias',
@@ -99,9 +98,10 @@ export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, 
   const isAdmin = user?.role === 'administrador';
   const puedeVerHorarios = user?.permisos?.includes('horarios.ver');
   const puedeVerAsistencia = user?.permisos?.includes('asistencia.ver');
+  const puedeVerNominas = user?.permisos?.includes('nominas.ver');
   const menuItems = useMemo(
-    () => buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia),
-    [isAdmin, puedeVerHorarios, puedeVerAsistencia],
+    () => buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas),
+    [isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas],
   );
 
   return (

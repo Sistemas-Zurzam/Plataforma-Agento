@@ -165,6 +165,72 @@ class ColaboradorService
         return $this->obtenerDetalle($empresa, $colaborador);
     }
 
+    /**
+     * Registra una nueva remuneración vigente. NUNCA actualiza la fila
+     * anterior — el historial remunerativo se preserva insertando siempre
+     * una fila nueva con su propia vigencia_desde (mismo patrón que
+     * parametro_laboral_valores/comisiones_afp). Una boleta calculada para
+     * agosto sigue usando el sueldo vigente en agosto aunque hoy ya haya
+     * cambiado.
+     */
+    public function actualizarRemuneracion(Empresa $empresa, Colaborador $colaborador, array $datos): Colaborador
+    {
+        if ($colaborador->empresa_id !== $empresa->id) {
+            throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
+        }
+
+        $vigente = $colaborador->remuneraciones()->orderByDesc('vigencia_desde')->orderByDesc('id')->first();
+
+        if ($vigente && $datos['vigencia_desde'] < $vigente->vigencia_desde->toDateString()) {
+            throw new AuthorizationException('La nueva vigencia no puede ser anterior a la remuneración vigente actual.');
+        }
+
+        $colaborador->remuneraciones()->create([
+            'salario' => $datos['salario'],
+            'moneda_salario' => $datos['moneda_salario'] ?? $vigente?->moneda_salario ?? 'PEN',
+            'periodicidad_pago' => $datos['periodicidad_pago'] ?? $vigente?->periodicidad_pago ?? 'mensual',
+            'asignacion_familiar' => $datos['asignacion_familiar'] ?? 0,
+            'vigencia_desde' => $datos['vigencia_desde'],
+        ]);
+
+        return $this->obtenerDetalle($empresa, $colaborador);
+    }
+
+    /**
+     * Configuración previsional del colaborador para Remuneraciones —
+     * deliberadamente SEPARADA de update() (datos personales/contractuales):
+     * este método solo toca campos propios del colaborador (ONP/AFP/tipo de
+     * comisión/CUSPP/asignación familiar), nunca parámetros legales
+     * nacionales (esos viven en ParametroLaboralValor, nunca aquí).
+     * ONP y AFP son mutuamente excluyentes; cambiar de uno a otro no borra
+     * boletas históricas porque éstas ya tienen su propio snapshot.
+     *
+     * Un locador (régimen "Locacion de Servicios") no tiene ONP/AFP — usa
+     * en su lugar tiene_suspension_renta_4ta, propio del motor de Recibos
+     * por Honorarios.
+     */
+    public function actualizarConfiguracionNomina(Empresa $empresa, Colaborador $colaborador, array $datos): Colaborador
+    {
+        if ($colaborador->empresa_id !== $empresa->id) {
+            throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
+        }
+
+        $esHonorarios = ($datos['regimen_laboral'] ?? $colaborador->regimen_laboral) === 'Locacion de Servicios';
+        $esOnp = ($datos['sistema_previsional'] ?? null) === 'onp';
+
+        $colaborador->update([
+            'regimen_laboral' => $datos['regimen_laboral'] ?? $colaborador->regimen_laboral,
+            'sistema_previsional' => $esHonorarios ? null : $datos['sistema_previsional'],
+            'afp_id' => ($esHonorarios || $esOnp) ? null : $datos['afp_id'],
+            'tipo_comision' => ($esHonorarios || $esOnp) ? null : $datos['tipo_comision'],
+            'cuspp' => ($esHonorarios || $esOnp) ? null : $datos['cuspp'],
+            'tiene_hijos_asignacion_familiar' => $esHonorarios ? false : ($datos['tiene_hijos_asignacion_familiar'] ?? false),
+            'tiene_suspension_renta_4ta' => $esHonorarios ? ($datos['tiene_suspension_renta_4ta'] ?? false) : false,
+        ]);
+
+        return $this->obtenerDetalle($empresa, $colaborador);
+    }
+
     public function cesar(Empresa $empresa, Colaborador $colaborador, string $fechaCese, string $motivo): Colaborador
     {
         if ($colaborador->empresa_id !== $empresa->id) {

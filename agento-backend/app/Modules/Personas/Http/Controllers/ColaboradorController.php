@@ -4,6 +4,7 @@ namespace App\Modules\Personas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Asistencia\Models\Horario;
+use App\Modules\Configuracion\Models\Afp;
 use App\Modules\Personas\Http\Requests\StoreColaboradorRequest;
 use App\Modules\Personas\Http\Resources\ColaboradorResource;
 use App\Modules\Personas\Models\Colaborador;
@@ -89,6 +90,47 @@ class ColaboradorController extends Controller
 
         return new ColaboradorResource(
             $this->colaboradores->actualizarHorario($request->user('api')->empresa, $colaborador, $datos),
+        );
+    }
+
+    public function actualizarRemuneracion(Request $request, Colaborador $colaborador): ColaboradorResource
+    {
+        $datos = $request->validate([
+            'salario' => ['required', 'numeric', 'min:0'],
+            'moneda_salario' => ['nullable', Rule::in(['PEN', 'USD'])],
+            'periodicidad_pago' => ['nullable', Rule::in(['mensual', 'quincenal', 'semanal'])],
+            'asignacion_familiar' => ['nullable', 'numeric', 'min:0'],
+            'vigencia_desde' => ['required', 'date'],
+        ]);
+
+        return new ColaboradorResource(
+            $this->colaboradores->actualizarRemuneracion($request->user('api')->empresa, $colaborador, $datos),
+        );
+    }
+
+    public function actualizarConfiguracionNomina(Request $request, Colaborador $colaborador): ColaboradorResource
+    {
+        $esHonorarios = $request->input('regimen_laboral') === 'Locacion de Servicios';
+
+        $datos = $request->validate([
+            'regimen_laboral' => ['nullable', Rule::in(['General', 'Micro Empresa', 'Pequeña Empresa', 'Locacion de Servicios'])],
+            // ONP/AFP no aplica a un locador (no hay relación laboral) — solo
+            // es obligatorio para regímenes de planilla dependiente.
+            'sistema_previsional' => [$esHonorarios ? 'nullable' : 'required', 'string'],
+            'afp_id' => ['nullable', 'integer', 'exists:afps,id', ...($esHonorarios ? [] : ['required_unless:sistema_previsional,onp'])],
+            'tipo_comision' => ['nullable', Rule::in(['flujo', 'mixta']), ...($esHonorarios ? [] : ['required_unless:sistema_previsional,onp'])],
+            'cuspp' => ['nullable', 'string', 'max:20', ...($esHonorarios ? [] : ['required_unless:sistema_previsional,onp'])],
+            'tiene_hijos_asignacion_familiar' => ['nullable', 'boolean'],
+            'tiene_suspension_renta_4ta' => ['nullable', 'boolean'],
+        ]);
+
+        if (! $esHonorarios && $datos['sistema_previsional'] !== 'onp') {
+            $afpValida = Afp::where('id', $datos['afp_id'])->where('clave', $datos['sistema_previsional'])->exists();
+            abort_unless($afpValida, 422, 'El sistema previsional no corresponde a la AFP seleccionada.');
+        }
+
+        return new ColaboradorResource(
+            $this->colaboradores->actualizarConfiguracionNomina($request->user('api')->empresa, $colaborador, $datos),
         );
     }
 
