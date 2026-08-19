@@ -90,7 +90,7 @@ export default function AppLayout({
   const seccion = SECCIONES[route.section] ?? SECCIONES['configuraciones-empresas'];
 
   return (
-    <Layout className="min-h-svh">
+    <Layout className="min-h-svh!">
       <Sidebar
         collapsed={collapsed}
         onCollapse={setCollapsed}
