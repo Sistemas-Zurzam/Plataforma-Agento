@@ -1,13 +1,14 @@
 import {
   ClockCircleOutlined,
   EyeOutlined,
+  IdcardOutlined,
   RightOutlined,
   TeamOutlined,
   UploadOutlined,
   UserAddOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { App, Avatar, Button, Input, Table } from 'antd';
+import { App, Avatar, Button, Input, Switch, Table } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import GestionHorarios from '../../modules/asistencia/pages/GestionHorarios';
@@ -15,6 +16,7 @@ import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaA
 import { TIPO_CONTRATO_OPTIONS } from '../../modules/personas/constants/opciones';
 import NuevoColaboradorModal from '../../modules/personas/components/NuevoColaboradorModal';
 import VerColaboradorModal from '../../modules/personas/components/VerColaboradorModal';
+import VerCarnetModal from '../../modules/personas/components/VerCarnetModal';
 import FichaColaborador from '../../modules/personas/components/FichaColaborador';
 import { useColaboradores } from '../../modules/personas/hooks/useColaboradores';
 import { colorForName, initialsForName } from '../../utils/avatarColor';
@@ -24,14 +26,16 @@ function etiquetaTipoContrato(valor) {
 }
 
 function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId, onAbrirColaborador, onVolverColaboradores }) {
-  const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador } =
+  const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador, subirFotoPerfil } =
     useColaboradores();
   const { message } = App.useApp();
   const [busqueda, setBusqueda] = useState('');
+  const [todasEmpresas, setTodasEmpresas] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [creando, setCreando] = useState(false);
   const [colaboradorSeleccionado, setColaboradorSeleccionado] = useState(null);
   const [verColaboradorId, setVerColaboradorId] = useState(null);
+  const [carnetColaborador, setCarnetColaborador] = useState(null);
 
   const puedeVer = user?.permisos?.includes('colaboradores.ver');
   const puedeCrear = user?.permisos?.includes('colaboradores.crear');
@@ -39,18 +43,29 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
 
   useEffect(() => {
     if (puedeVer) {
-      fetchColaboradores(1, pagination.pageSize, busqueda);
+      fetchColaboradores(1, pagination.pageSize, busqueda, todasEmpresas);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busqueda, user?.empresa?.id, puedeVer]);
+  }, [busqueda, user?.empresa?.id, todasEmpresas, puedeVer]);
 
-  const handleCrear = async (values) => {
+  const handleCrear = async (values, fotoPerfil) => {
     setCreando(true);
     try {
-      await crearColaborador(values);
+      const nuevoColaborador = await crearColaborador(values);
+
+      if (fotoPerfil) {
+        try {
+          await subirFotoPerfil(nuevoColaborador.id, fotoPerfil);
+        } catch {
+          // La foto es opcional — no revertimos la creación del colaborador
+          // por esto, solo avisamos que hay que subirla de nuevo después.
+          message.warning('El colaborador se creó, pero no se pudo subir la foto de perfil. Puedes subirla luego desde su ficha.');
+        }
+      }
+
       setModalOpen(false);
       message.success('Colaborador creado correctamente');
-      fetchColaboradores(pagination.current, pagination.pageSize, busqueda);
+      fetchColaboradores(pagination.current, pagination.pageSize, busqueda, todasEmpresas);
     } catch (err) {
       const fieldErrors = err.response?.data?.errors;
       if (fieldErrors) {
@@ -82,7 +97,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
         onVolver={() => {
           setColaboradorSeleccionado(null);
           onVolverColaboradores?.();
-          fetchColaboradores(pagination.current, pagination.pageSize, busqueda);
+          fetchColaboradores(pagination.current, pagination.pageSize, busqueda, todasEmpresas);
         }}
       />
     );
@@ -153,7 +168,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
     {
       title: 'Acciones',
       key: 'acciones',
-      width: 110,
+      width: 140,
       fixed: 'right',
       render: (_, colaborador) => (
         <div className="flex items-center">
@@ -163,6 +178,14 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
             icon={<EyeOutlined />}
             aria-label={`Ver a ${colaborador.nombre_completo}`}
             onClick={() => setVerColaboradorId(colaborador.id)}
+          />
+          <Button
+            type="text"
+            size="small"
+            icon={<IdcardOutlined />}
+            aria-label={`Imprimir carnet de ${colaborador.nombre_completo}`}
+            title="Carnet"
+            onClick={() => setCarnetColaborador(colaborador)}
           />
           <Button
             type="text"
@@ -180,7 +203,9 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
     <div>
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Gestión de personas</h2>
-        <p className="text-sm text-gray-500">Colaboradores de {user?.empresa?.nombre}</p>
+        <p className="text-sm text-gray-500">
+          {todasEmpresas ? 'Colaboradores de todas tus empresas' : `Colaboradores de ${user?.empresa?.nombre}`}
+        </p>
       </div>
 
       <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -225,6 +250,10 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           allowClear
         />
         <EmpresaActivaFiltro user={user} onUserRefresh={onUserRefresh} />
+        <div className="flex items-center gap-2">
+          <Switch size="small" checked={todasEmpresas} onChange={setTodasEmpresas} />
+          <span className="text-sm text-gray-600">Todas las empresas</span>
+        </div>
         {puedeVerHorarios && (
           <Button icon={<ClockCircleOutlined />} onClick={onVerHorarios}>
             Gestión de horarios
@@ -254,7 +283,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           loading={loading}
           dataSource={colaboradores}
           columns={columns}
-          scroll={{ x: 1130 }}
+          scroll={{ x: 1160 }}
           pagination={{
             current: pagination.current,
             pageSize: pagination.pageSize,
@@ -263,7 +292,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
             showSizeChanger: true,
           }}
           onChange={(paginationConfig) =>
-            fetchColaboradores(paginationConfig.current, paginationConfig.pageSize, busqueda)
+            fetchColaboradores(paginationConfig.current, paginationConfig.pageSize, busqueda, todasEmpresas)
           }
         />
       )}
@@ -281,6 +310,8 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
         colaboradorId={verColaboradorId}
         onClose={() => setVerColaboradorId(null)}
       />
+
+      <VerCarnetModal colaborador={carnetColaborador} onClose={() => setCarnetColaborador(null)} />
     </div>
   );
 }

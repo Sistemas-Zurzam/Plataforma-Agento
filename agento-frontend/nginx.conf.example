@@ -1,0 +1,62 @@
+# Ejemplo de referencia — no se usa automáticamente en ningún build ni
+# despliegue. Cópialo a tu servidor de producción como punto de partida y
+# ajusta dominio/rutas/certificados según tu hosting real.
+#
+# Sirve el build estático de `npm run build` (carpeta dist/) y resuelve el
+# ruteo del lado del cliente: AppLayout.jsx navega con
+# window.history.pushState (rutas como /nominas/remuneraciones sin recargar
+# la página) — eso funciona perfecto navegando DENTRO de la app, pero si el
+# navegador pide esa URL directamente (refresh, link compartido, favorito),
+# nginx tiene que servir igual index.html, o el usuario ve un 404 real del
+# servidor. Por eso el "try_files ... /index.html" de abajo es obligatorio
+# para esta app, no opcional.
+
+server {
+    listen 443 ssl http2;
+    server_name app.tudominio.com;
+
+    ssl_certificate     /etc/letsencrypt/live/app.tudominio.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/app.tudominio.com/privkey.pem;
+
+    root /var/www/agento-frontend/dist;
+    index index.html;
+
+    # SPA fallback: cualquier ruta que no sea un archivo real cae a index.html.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # Cachea agresivamente los assets con hash en el nombre (JS/CSS/fuentes
+    # generados por Vite) — index.html en cambio NUNCA debe cachearse fuerte,
+    # porque es el único archivo que cambia entre despliegues sin cambiar de URL.
+    location ~* \.(?:js|css|woff2?|ttf|png|jpg|jpeg|svg|ico)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    gzip on;
+    gzip_types text/plain text/css application/javascript application/json image/svg+xml;
+}
+
+# Si el backend Laravel se sirve desde el MISMO dominio bajo /api (evita
+# tener que configurar CORS): descomenta y ajusta el proxy_pass al puerto
+# real donde corre php-fpm/artisan serve/octane en el servidor.
+#
+# location /api/ {
+#     proxy_pass http://127.0.0.1:8000/api/;
+#     proxy_set_header Host $host;
+#     proxy_set_header X-Real-IP $remote_addr;
+#     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+#     proxy_set_header X-Forwarded-Proto $scheme;
+# }
+
+# Redirección HTTP -> HTTPS
+server {
+    listen 80;
+    server_name app.tudominio.com;
+    return 301 https://$host$request_uri;
+}

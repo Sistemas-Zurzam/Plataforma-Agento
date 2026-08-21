@@ -26,14 +26,11 @@ class AreaController extends Controller
      */
     public function index(Request $request, Empresa $empresa): AnonymousResourceCollection
     {
-        $tieneAcceso = $request->user('api')->empresas()
-            ->where('empresas.id', $empresa->id)
-            ->exists();
-
-        abort_unless($tieneAcceso, 403, 'No tienes acceso a esta empresa.');
+        abort_unless($request->user('api')->tieneAccesoA($empresa), 403, 'No tienes acceso a esta empresa.');
 
         $areas = Area::withoutGlobalScope(EmpresaScope::class)
             ->where('empresa_id', $empresa->id)
+            ->with('responsable')
             ->orderBy('nombre')
             ->get();
 
@@ -56,5 +53,28 @@ class AreaController extends Controller
         ]);
 
         return new AreaResource($area);
+    }
+
+    /**
+     * Responsable "por defecto" del área — distinto del rastro de
+     * aprobación por-solicitud que ya vive en asistencia_solicitudes_area.
+     */
+    public function asignarResponsable(Request $request, Empresa $empresa, Area $area): AreaResource
+    {
+        $this->empresas->autorizarAccion($empresa, $request->user('api'), 'areas.crear');
+        abort_unless($area->empresa_id === $empresa->id, 404, 'Esta área no pertenece a esta empresa.');
+
+        $datos = $request->validate([
+            'responsable_user_id' => ['nullable', 'integer', 'exists:users,id'],
+        ]);
+
+        if ($datos['responsable_user_id'] ?? null) {
+            $esDeLaEmpresa = $empresa->users()->where('users.id', $datos['responsable_user_id'])->exists();
+            abort_unless($esDeLaEmpresa, 422, 'El usuario responsable debe pertenecer a esta empresa.');
+        }
+
+        $area->update(['responsable_user_id' => $datos['responsable_user_id'] ?? null]);
+
+        return new AreaResource($area->fresh('responsable'));
     }
 }

@@ -11,7 +11,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['empresa_id', 'nombre'])]
+#[Fillable(['empresa_id', 'nombre', 'responsable_user_id'])]
 class Area extends Model
 {
     /** @use HasFactory<AreaFactory> */
@@ -39,5 +39,10 @@ class Area extends Model
     public function users(): HasMany
     {
         return $this->hasMany(User::class);
+    }
+
+    public function responsable(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'responsable_user_id');
     }
 }

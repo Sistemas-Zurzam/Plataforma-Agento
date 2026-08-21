@@ -5,6 +5,7 @@ namespace App\Modules\Personas\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Afp;
+use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Personas\Http\Requests\StoreColaboradorRequest;
 use App\Modules\Personas\Http\Resources\ColaboradorResource;
 use App\Modules\Personas\Models\Colaborador;
@@ -22,13 +23,23 @@ class ColaboradorController extends Controller
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $empresaActiva = $request->user('api')->empresa;
+        $usuario = $request->user('api');
         $perPage = max(1, min((int) $request->input('per_page', 10), 50));
 
-        $paginador = $this->colaboradores->listar($empresaActiva, $request->input('busqueda'), $perPage);
+        // "Todas las empresas" nunca acepta IDs del frontend — se resuelve
+        // acá mismo contra las empresas realmente autorizadas del usuario
+        // (empresa_usuario), salvo que sea administrador global, que ve
+        // literalmente todas las del sistema (ver User::esAdministradorGlobal).
+        $empresaIds = $request->boolean('todas_empresas')
+            ? ($usuario->esAdministradorGlobal()
+                ? Empresa::pluck('id')->all()
+                : $usuario->empresas()->pluck('empresas.id')->all())
+            : [$usuario->empresa->id];
+
+        $paginador = $this->colaboradores->listar($empresaIds, $request->input('busqueda'), $perPage);
 
         return ColaboradorResource::collection($paginador)
-            ->additional(['stats' => $this->colaboradores->estadisticas($empresaActiva)]);
+            ->additional(['stats' => $this->colaboradores->estadisticas($empresaIds)]);
     }
 
     public function store(StoreColaboradorRequest $request): ColaboradorResource
@@ -216,6 +227,29 @@ class ColaboradorController extends Controller
             [],
             'inline',
         );
+    }
+
+    public function guardarFotoPerfil(Request $request, Colaborador $colaborador): ColaboradorResource
+    {
+        $datos = $request->validate([
+            'archivo' => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ]);
+
+        return new ColaboradorResource($this->colaboradores->guardarFotoPerfil(
+            $request->user('api')->empresa,
+            $colaborador,
+            $datos['archivo'],
+            $request->user('api'),
+        ));
+    }
+
+    public function verFotoPerfil(Request $request, Colaborador $colaborador)
+    {
+        $documento = $this->colaboradores->obtenerFotoPerfil($request->user('api')->empresa, $colaborador);
+
+        abort_unless($documento && Storage::disk('local')->exists($documento->ruta), 404, 'Este colaborador no tiene foto de perfil.');
+
+        return Storage::disk('local')->response($documento->ruta, $documento->nombre_original, [], 'inline');
     }
 
     public function calendarioDefecto(Request $request): JsonResponse

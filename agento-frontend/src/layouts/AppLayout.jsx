@@ -6,6 +6,7 @@ import GestionEmpresas from '../pages/configuraciones/GestionEmpresas';
 import GestionPersonas from '../pages/nominas/GestionPersonas';
 import GestionRemuneraciones from '../pages/nominas/GestionRemuneraciones';
 import GestionAsistencias from '../modules/asistencia/pages/GestionAsistencias';
+import GestionTickets from '../pages/soporte/GestionTickets';
 
 const { Content } = Layout;
 
@@ -14,6 +15,7 @@ const SECCIONES = {
   'nominas-personas': { title: 'Nóminas', subtitle: 'Gestión de personas' },
   'nominas-remuneraciones': { title: 'Nóminas', subtitle: 'Gestión de remuneraciones' },
   'nominas-asistencias': { title: 'Nóminas', subtitle: 'Gestión de asistencias' },
+  'soporte-tickets': { title: 'Soporte', subtitle: 'Gestión de tickets' },
 };
 
 const CONFIG_PATHS = {
@@ -21,8 +23,7 @@ const CONFIG_PATHS = {
   empresas: '/Empresas',
   'usuarios-roles': '/usuarios-roles',
   permisos: '/permisos',
-  'parametros-laborales': '/parametros-laborales',
-  'comisiones-afp': '/comisiones-afp',
+  'parametros-remunerativos': '/parametros-remunerativos',
 };
 
 function routeFromPath(pathname) {
@@ -38,6 +39,10 @@ function routeFromPath(pathname) {
 
   if (normalizedPath === '/nominas/asistencias') {
     return { section: 'nominas-asistencias', tab: null, colaboradorId: null, asistenciaColaboradorId: null };
+  }
+
+  if (normalizedPath === '/soporte/tickets') {
+    return { section: 'soporte-tickets', tab: null, colaboradorId: null };
   }
 
   const detalleAsistencia = normalizedPath.match(/^\/nominas\/asistencias\/colaboradores\/(\d+)$/);
@@ -88,6 +93,7 @@ export default function AppLayout({
       'nominas-personas': '/nominas/personas',
       'nominas-remuneraciones': '/nominas/remuneraciones',
       'nominas-asistencias': '/nominas/asistencias',
+      'soporte-tickets': '/soporte/tickets',
     };
     navigate(paths[key] ?? '/mi-perfil');
   };
@@ -111,9 +117,9 @@ export default function AppLayout({
           subtitle={seccion.subtitle}
           user={user}
           onLogout={onLogout}
-          onUserRefresh={onUserRefresh}
+          onVerTickets={() => navigate('/soporte/tickets')}
         />
-        <Content className="bg-gray-50 p-6">
+        <Content className="bg-gray-50 px-4 py-5 sm:px-6 sm:py-6">
           {route.section === 'configuraciones-empresas' && (
             <GestionEmpresas
               user={user}
@@ -137,11 +143,13 @@ export default function AppLayout({
           {route.section === 'nominas-asistencias' && (
             <GestionAsistencias
               user={user}
+              onUserRefresh={onUserRefresh}
               colaboradorId={route.asistenciaColaboradorId}
               onVerColaborador={(id) => navigate(`/nominas/asistencias/colaboradores/${id}`)}
               onVolver={() => navigate('/nominas/asistencias')}
             />
           )}
+          {route.section === 'soporte-tickets' && <GestionTickets />}
         </Content>
       </Layout>
     </Layout>

@@ -54,6 +54,10 @@ class ConceptoRemuneracionSeeder extends Seeder
 
             // Aportaciones (costo del empleador — no afecta el neto del trabajador)
             ['codigo' => 'ESSALUD', 'nombre' => 'EsSalud (9%, con piso legal sobre RMV)', 'tipo' => 'aportacion'],
+            // Alternativa a ESSALUD para Micro Empresa inscrita en REMYPE
+            // (Empresa.seguro_salud = 'sis') — monto fijo mensual, nunca
+            // ambas a la vez para el mismo colaborador.
+            ['codigo' => 'SIS_APORTACION', 'nombre' => 'SIS (monto fijo mensual)', 'tipo' => 'aportacion'],
             ['codigo' => 'CTS_PROVISION', 'nombre' => 'Provisión de CTS', 'tipo' => 'aportacion'],
             ['codigo' => 'GRATIFICACION_LEGAL', 'nombre' => 'Provisión de gratificación legal (jul./dic.)', 'tipo' => 'aportacion'],
             // No remunerativa ni pensionable (Ley 30334) — pero sí es un

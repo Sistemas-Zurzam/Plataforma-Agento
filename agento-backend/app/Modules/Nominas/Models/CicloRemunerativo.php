@@ -8,7 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['empresa_id', 'nombre', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'fecha_corte_asistencia', 'fecha_pago', 'estado', 'creado_por'])]
+#[Fillable([
+    'empresa_id', 'nombre', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'fecha_corte_asistencia', 'fecha_pago', 'estado', 'creado_por',
+    'calculo_estado', 'calculo_iniciado_at', 'calculo_finalizado_at', 'calculo_resultado',
+])]
 class CicloRemunerativo extends Model
 {
     protected $table = 'ciclos_remunerativos';
@@ -20,6 +23,9 @@ class CicloRemunerativo extends Model
             'fecha_fin' => 'date',
             'fecha_corte_asistencia' => 'date',
             'fecha_pago' => 'date',
+            'calculo_iniciado_at' => 'datetime',
+            'calculo_finalizado_at' => 'datetime',
+            'calculo_resultado' => 'array',
         ];
     }
 

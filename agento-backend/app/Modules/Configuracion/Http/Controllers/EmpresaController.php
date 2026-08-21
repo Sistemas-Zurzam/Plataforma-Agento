@@ -19,7 +19,13 @@ class EmpresaController extends Controller
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $empresas = $request->user('api')->empresas()->orderBy('nombre')->get();
+        $usuario = $request->user('api');
+
+        // Un Administrador ve todas las empresas del sistema, no solo las
+        // que tiene vinculadas explícitamente — ver User::esAdministradorGlobal().
+        $empresas = $usuario->esAdministradorGlobal()
+            ? Empresa::orderBy('nombre')->get()
+            : $usuario->empresas()->orderBy('nombre')->get();
 
         return EmpresaResource::collection($empresas);
     }
@@ -63,5 +69,20 @@ class EmpresaController extends Controller
         return response()->json([
             'message' => 'Empresa activa actualizada',
         ]);
+    }
+
+    public function guardarLogo(Request $request, Empresa $empresa): EmpresaResource
+    {
+        $datos = $request->validate([
+            // 'image' no reconoce SVG (no es un raster) — se valida solo por
+            // extensión/mime para permitir logos vectoriales también. El
+            // tope es sobre el archivo ORIGINAL — EmpresaService::guardarLogo()
+            // siempre redimensiona y recomprime antes de guardar en disco.
+            'archivo' => ['required', 'file', 'mimes:jpg,jpeg,png,webp,svg', 'max:5120'],
+        ]);
+
+        $empresa = $this->empresas->guardarLogo($empresa, $datos['archivo'], $request->user('api'));
+
+        return new EmpresaResource($empresa);
     }
 }

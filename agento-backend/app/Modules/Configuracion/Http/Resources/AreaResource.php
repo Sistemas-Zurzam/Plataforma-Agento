@@ -15,6 +15,8 @@ class AreaResource extends JsonResource
         return [
             'id' => $this->id,
             'nombre' => $this->nombre,
+            'responsable_user_id' => $this->responsable_user_id,
+            'responsable_nombre' => $this->whenLoaded('responsable', fn () => $this->responsable?->name),
         ];
     }
 }

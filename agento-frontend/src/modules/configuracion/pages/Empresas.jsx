@@ -13,6 +13,7 @@ export default function Empresas({ user }) {
     createEmpresa,
     updateEmpresa,
     updateEmpresaEstado,
+    subirLogoEmpresa,
   } = useEmpresas();
   const { message, modal } = App.useApp();
   const [modalOpen, setModalOpen] = useState(false);
@@ -56,8 +57,14 @@ export default function Empresas({ user }) {
             errors,
           })),
         );
+      } else if (!err.response) {
+        // La petición ni siquiera llegó al servidor (servidor caído, sin
+        // conexión, CORS) — no confundir esto con un error de validación.
+        message.error('No se pudo conectar con el servidor. Verifica tu conexión o que el backend esté disponible.');
+      } else if (err.response.status >= 500) {
+        message.error('Ocurrió un error inesperado en el servidor. Intenta de nuevo en unos momentos.');
       } else {
-        message.error('No se pudo guardar la empresa');
+        message.error(err.response?.data?.message || 'No se pudo guardar la empresa');
       }
     } finally {
       setSubmitting(false);
@@ -99,7 +106,7 @@ export default function Empresas({ user }) {
       key: 'empresa',
       render: (_, empresa) => (
         <div className="flex items-center gap-2">
-          <Avatar style={{ backgroundColor: empresa.color ?? colorForName(empresa.nombre) }}>
+          <Avatar src={empresa.logo_url} style={{ backgroundColor: empresa.color ?? colorForName(empresa.nombre) }}>
             {initialsForName(empresa.nombre)}
           </Avatar>
           <div>
@@ -205,9 +212,11 @@ export default function Empresas({ user }) {
       <EmpresaFormModal
         open={modalOpen}
         title={editingEmpresa ? 'Editar empresa' : 'Nueva empresa'}
-        initialValues={editingEmpresa}
+        initialValues={editingEmpresa ? (empresas.find((e) => e.id === editingEmpresa.id) ?? editingEmpresa) : null}
         onSubmit={handleSubmit}
         onCancel={() => setModalOpen(false)}
+        onEstadoChange={applyToggleEstado}
+        onSubirLogo={subirLogoEmpresa}
         submitting={submitting}
         user={user}
       />

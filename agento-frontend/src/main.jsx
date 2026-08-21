@@ -18,6 +18,18 @@ createRoot(document.getElementById('root')).render(
           colorPrimary: '#014693',
           borderRadius: 8,
         },
+        components: {
+          Menu: {
+            itemBorderRadius: 10,
+            itemSelectedBg: '#1c6fe0',
+            itemSelectedColor: '#ffffff',
+            groupTitleFontSize: 11,
+            subMenuItemBg: 'transparent',
+          },
+          Layout: {
+            headerBg: '#ffffff',
+          },
+        },
       }}
     >
       <AntdApp>

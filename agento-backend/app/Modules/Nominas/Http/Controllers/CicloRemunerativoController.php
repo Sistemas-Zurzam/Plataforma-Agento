@@ -51,12 +51,24 @@ class CicloRemunerativoController extends Controller
         $empresa = $request->user('api')->empresa;
         $motivo = $request->input('motivo_recalculo');
 
-        $resultado = $this->boletas->calcularPlanilla($empresa, $ciclo, $request->user('api')->id, $motivo);
+        $this->boletas->iniciarCalculoAsync($empresa, $ciclo, $request->user('api')->id, $motivo);
 
         return response()->json([
-            'message' => "{$resultado['procesadas']} boletas calculadas correctamente.",
-            'procesadas' => $resultado['procesadas'],
-            'omitidas' => $resultado['omitidas'],
+            'message' => 'El cálculo se está procesando en segundo plano.',
+            'calculo_estado' => 'en_proceso',
+        ], 202);
+    }
+
+    public function estadoCalculo(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $empresa = $request->user('api')->empresa;
+        abort_unless($ciclo->empresa_id === $empresa->id, 403, 'Este ciclo no pertenece a la empresa activa.');
+
+        return response()->json([
+            'calculo_estado' => $ciclo->calculo_estado,
+            'calculo_iniciado_at' => $ciclo->calculo_iniciado_at?->toDateTimeString(),
+            'calculo_finalizado_at' => $ciclo->calculo_finalizado_at?->toDateTimeString(),
+            'calculo_resultado' => $ciclo->calculo_resultado,
         ]);
     }
 

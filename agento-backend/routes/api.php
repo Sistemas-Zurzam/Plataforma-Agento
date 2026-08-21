@@ -6,6 +6,7 @@ use App\Modules\Asistencia\Http\Controllers\HorarioController;
 use App\Modules\Asistencia\Http\Controllers\AsistenciaController;
 use App\Modules\Configuracion\Http\Controllers\AfpController;
 use App\Modules\Configuracion\Http\Controllers\AreaController;
+use App\Modules\Configuracion\Http\Controllers\ReglaDescuentoTardanzaController;
 use App\Modules\Configuracion\Http\Controllers\ComisionAfpController;
 use App\Modules\Configuracion\Http\Controllers\EmpresaController;
 use App\Modules\Configuracion\Http\Controllers\ParametroLaboralController;
@@ -18,6 +19,7 @@ use App\Modules\Nominas\Http\Controllers\CicloRemunerativoController;
 use App\Modules\Nominas\Http\Controllers\BoletaController;
 use App\Modules\Nominas\Http\Controllers\BeneficioSocialController;
 use App\Modules\Nominas\Http\Controllers\ConceptoRemuneracionController;
+use App\Modules\Nominas\Http\Controllers\TramoRentaController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
@@ -33,6 +35,7 @@ Route::middleware('jwt')->group(function () {
     Route::put('/empresas/{empresa}', [EmpresaController::class, 'update'])->middleware('permiso:empresas.editar');
     Route::patch('/empresas/{empresa}/estado', [EmpresaController::class, 'actualizarEstado'])->middleware('permiso:empresas.editar');
     Route::put('/empresas/{empresa}/activar', [EmpresaController::class, 'activar']);
+    Route::post('/empresas/{empresa}/logo', [EmpresaController::class, 'guardarLogo'])->middleware('permiso:empresas.editar');
 
     Route::get('/empresas/{empresa}/sedes', [SedeController::class, 'index']);
     Route::post('/empresas/{empresa}/sedes', [SedeController::class, 'store'])->middleware('permiso:sedes.crear');
@@ -40,6 +43,11 @@ Route::middleware('jwt')->group(function () {
 
     Route::get('/empresas/{empresa}/areas', [AreaController::class, 'index']);
     Route::post('/empresas/{empresa}/areas', [AreaController::class, 'store'])->middleware('permiso:areas.crear');
+    Route::patch('/empresas/{empresa}/areas/{area}/responsable', [AreaController::class, 'asignarResponsable'])->middleware('permiso:areas.crear');
+
+    Route::get('/empresas/{empresa}/reglas-tardanza', [ReglaDescuentoTardanzaController::class, 'index'])->middleware('permiso:empresas.editar');
+    Route::post('/empresas/{empresa}/reglas-tardanza', [ReglaDescuentoTardanzaController::class, 'store'])->middleware('permiso:empresas.editar');
+    Route::delete('/empresas/{empresa}/reglas-tardanza/{regla}', [ReglaDescuentoTardanzaController::class, 'destroy'])->middleware('permiso:empresas.editar');
 
     Route::get('/roles', [RoleController::class, 'index'])->middleware('permiso:usuarios.ver');
     Route::get('/usuarios', [UsuarioController::class, 'index'])->middleware('permiso:usuarios.ver');
@@ -55,6 +63,7 @@ Route::middleware('jwt')->group(function () {
 
     Route::get('/afps', [AfpController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/conceptos-remuneracion', [ConceptoRemuneracionController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::get('/tramos-renta', [TramoRentaController::class, 'index'])->middleware('permiso:parametros_laborales.ver');
     Route::get('/comisiones-afp', [ComisionAfpController::class, 'index'])->middleware('permiso:comisiones_afp.ver');
     Route::post('/comisiones-afp', [ComisionAfpController::class, 'store'])->middleware('permiso:comisiones_afp.editar');
     Route::delete('/comisiones-afp/{comision}', [ComisionAfpController::class, 'destroy'])->middleware('permiso:comisiones_afp.editar');
@@ -107,10 +116,13 @@ Route::middleware('jwt')->group(function () {
     Route::delete('/colaboradores/{colaborador}', [ColaboradorController::class, 'destroy'])->middleware('permiso:colaboradores.eliminar');
     Route::post('/colaboradores/{colaborador}/documentos', [ColaboradorController::class, 'guardarDocumento'])->middleware('permiso:colaboradores.editar');
     Route::get('/colaboradores/{colaborador}/documentos/{documento}', [ColaboradorController::class, 'verDocumento'])->middleware('permiso:colaboradores.ver');
+    Route::post('/colaboradores/{colaborador}/foto-perfil', [ColaboradorController::class, 'guardarFotoPerfil'])->middleware('permiso:colaboradores.editar');
+    Route::get('/colaboradores/{colaborador}/foto-perfil', [ColaboradorController::class, 'verFotoPerfil'])->middleware('permiso:colaboradores.ver');
 
     Route::get('/ciclos-remunerativos', [CicloRemunerativoController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos', [CicloRemunerativoController::class, 'store'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::post('/ciclos-remunerativos/{ciclo}/calcular', [CicloRemunerativoController::class, 'calcular'])->middleware('permiso:nominas.calcular');
+    Route::get('/ciclos-remunerativos/{ciclo}/estado-calculo', [CicloRemunerativoController::class, 'estadoCalculo'])->middleware('permiso:nominas.ver');
     Route::patch('/ciclos-remunerativos/{ciclo}/cerrar', [CicloRemunerativoController::class, 'cerrar'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/reabrir', [CicloRemunerativoController::class, 'reabrir'])->middleware('permiso:nominas.cerrar_periodo');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas', [BoletaController::class, 'index'])->middleware('permiso:nominas.ver');

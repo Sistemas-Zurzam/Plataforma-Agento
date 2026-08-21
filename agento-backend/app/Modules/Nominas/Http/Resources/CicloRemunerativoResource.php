@@ -19,6 +19,7 @@ class CicloRemunerativoResource extends JsonResource
             'fecha_corte_asistencia' => $this->fecha_corte_asistencia?->toDateString(),
             'fecha_pago' => $this->fecha_pago?->toDateString(),
             'estado' => $this->estado,
+            'calculo_estado' => $this->calculo_estado,
             'boletas_count' => $this->when(isset($this->boletas_count), $this->boletas_count),
             'created_at' => $this->created_at?->toDateTimeString(),
         ];

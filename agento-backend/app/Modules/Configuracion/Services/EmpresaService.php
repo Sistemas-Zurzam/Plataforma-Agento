@@ -6,7 +6,11 @@ use App\Models\User;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Role;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
+use Intervention\Image\ImageManager;
 
 class EmpresaService
 {
@@ -24,7 +28,7 @@ class EmpresaService
 
             return $empresa->setRelation(
                 'pivot',
-                $empresa->users()->find($usuario->id)->pivot,
+                $empresa->users()->find($usuario->id)?->pivot,
             );
         });
     }
@@ -64,7 +68,60 @@ class EmpresaService
 
         return $empresa->setRelation(
             'pivot',
-            $empresa->users()->find($usuario->id)->pivot,
+            $empresa->users()->find($usuario->id)?->pivot,
+        );
+    }
+
+    /**
+     * A diferencia de los documentos de colaborador (privados, servidos por
+     * descarga autenticada), el logo es información de marca sin
+     * sensibilidad — se guarda en el disco "public" con URL directa, sin
+     * necesidad de un endpoint de descarga aparte.
+     *
+     * El archivo subido NUNCA se guarda tal cual: se redimensiona (sin
+     * agrandar imágenes ya pequeñas) y se recomprime a WebP antes de tocar
+     * disco — un logo de varios MB en 4000x4000px no tiene sentido servirlo
+     * así para un avatar de 48px. SVG se guarda intacto (es vectorial).
+     *
+     * @throws AuthorizationException if the user is not an administrador of the empresa.
+     */
+    public function guardarLogo(Empresa $empresa, UploadedFile $archivo, User $usuario): Empresa
+    {
+        if (! $this->puedeEditar($empresa, $usuario)) {
+            throw new AuthorizationException('No puedes editar esta empresa.');
+        }
+
+        $rutaAnterior = $empresa->logo_path;
+        $esSvg = $archivo->getClientMimeType() === 'image/svg+xml'
+            || strtolower($archivo->getClientOriginalExtension()) === 'svg';
+
+        Storage::disk('public')->makeDirectory("empresas/{$empresa->id}");
+
+        if ($esSvg) {
+            $ruta = $archivo->store("empresas/{$empresa->id}", 'public');
+        } else {
+            $ruta = "empresas/{$empresa->id}/".Str::random(20).'.webp';
+
+            ImageManager::gd()
+                ->read($archivo->getRealPath())
+                ->scaleDown(width: 512, height: 512)
+                ->save(Storage::disk('public')->path($ruta), quality: 80);
+        }
+
+        try {
+            $empresa->update(['logo_path' => $ruta]);
+        } catch (\Throwable $exception) {
+            Storage::disk('public')->delete($ruta);
+            throw $exception;
+        }
+
+        if ($rutaAnterior && $rutaAnterior !== $ruta) {
+            Storage::disk('public')->delete($rutaAnterior);
+        }
+
+        return $empresa->setRelation(
+            'pivot',
+            $empresa->users()->find($usuario->id)?->pivot,
         );
     }
 
@@ -78,16 +135,22 @@ class EmpresaService
 
         return $empresa->setRelation(
             'pivot',
-            $empresa->users()->find($usuario->id)->pivot,
+            $empresa->users()->find($usuario->id)?->pivot,
         );
     }
 
     /**
      * Autoriza una acción usando el rol que el usuario tiene en la empresa
-     * objetivo, no el rol de la empresa que esté activa en ese momento.
+     * objetivo, no el rol de la empresa que esté activa en ese momento. Un
+     * administrador global siempre pasa, aunque no tenga una fila propia en
+     * empresa_user para esta empresa puntual (ver User::esAdministradorGlobal).
      */
     public function autorizarAccion(Empresa $empresa, User $usuario, string $permiso): void
     {
+        if ($usuario->esAdministradorGlobal()) {
+            return;
+        }
+
         $vinculo = $usuario->empresas()
             ->where('empresas.id', $empresa->id)
             ->first();
@@ -107,22 +170,20 @@ class EmpresaService
 
     public function esAdministradorEn(Empresa $empresa, User $usuario): bool
     {
-        return $usuario->empresas()
-            ->where('empresas.id', $empresa->id)
-            ->wherePivot('role_id', Role::administrador()->id)
-            ->exists();
+        return $usuario->esAdministradorGlobal()
+            || $usuario->empresas()
+                ->where('empresas.id', $empresa->id)
+                ->wherePivot('role_id', Role::administrador()->id)
+                ->exists();
     }
 
     private function tieneAcceso(Empresa $empresa, User $usuario): bool
     {
-        return $usuario->empresas()->where('empresas.id', $empresa->id)->exists();
+        return $usuario->tieneAccesoA($empresa);
     }
 
     private function puedeEditar(Empresa $empresa, User $usuario): bool
     {
-        return $usuario->empresas()
-            ->where('empresas.id', $empresa->id)
-            ->wherePivot('role_id', Role::administrador()->id)
-            ->exists();
+        return $this->esAdministradorEn($empresa, $usuario);
     }
 }

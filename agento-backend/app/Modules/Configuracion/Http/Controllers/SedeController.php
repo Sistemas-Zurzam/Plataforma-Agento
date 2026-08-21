@@ -18,11 +18,7 @@ class SedeController extends Controller
 
     public function index(Request $request, Empresa $empresa): AnonymousResourceCollection
     {
-        $tieneAcceso = $request->user('api')->empresas()
-            ->where('empresas.id', $empresa->id)
-            ->exists();
-
-        abort_unless($tieneAcceso, 403, 'No tienes acceso a esta empresa.');
+        abort_unless($request->user('api')->tieneAccesoA($empresa), 403, 'No tienes acceso a esta empresa.');
 
         $sedes = $empresa->sedes()
             ->when($request->boolean('solo_activas'), fn ($query) => $query->where('activa', true))

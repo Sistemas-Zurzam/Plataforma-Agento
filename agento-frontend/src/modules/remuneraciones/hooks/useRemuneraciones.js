@@ -41,6 +41,11 @@ export function useRemuneraciones() {
     return data;
   }, []);
 
+  const fetchEstadoCalculo = useCallback(async (cicloId) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/estado-calculo`);
+    return data;
+  }, []);
+
   const cerrarCiclo = useCallback(async (cicloId) => {
     const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/cerrar`);
     return data.data;
@@ -153,6 +158,7 @@ export function useRemuneraciones() {
     fetchCiclos,
     crearCiclo,
     calcularPlanilla,
+    fetchEstadoCalculo,
     cerrarCiclo,
     reabrirCiclo,
     boletas,

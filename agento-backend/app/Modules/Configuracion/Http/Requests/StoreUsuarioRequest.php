@@ -24,17 +24,21 @@ class StoreUsuarioRequest extends FormRequest
             'email' => ['required', 'email', 'unique:users,email'],
             'password' => ['required', 'string', 'min:6'],
             'role_id' => ['required', 'integer', 'exists:roles,id'],
-            'empresa_id' => [
-                'required',
+            // La primera empresa de la lista es la "empresa activa" inicial
+            // del usuario nuevo — para el rol Administrador basta con una
+            // sola (ver User::esAdministradorGlobal), para el resto de
+            // roles el frontend permite elegir varias.
+            'empresa_ids' => ['required', 'array', 'min:1'],
+            'empresa_ids.*' => [
                 'integer',
                 'exists:empresas,id',
                 function ($attribute, $value, $fail) {
-                    $tieneAcceso = $this->user('api')->empresas()
-                        ->where('empresas.id', $value)
-                        ->exists();
+                    $usuario = $this->user('api');
+                    $tieneAcceso = $usuario->esAdministradorGlobal()
+                        || $usuario->empresas()->where('empresas.id', $value)->exists();
 
                     if (! $tieneAcceso) {
-                        $fail('No tienes acceso a esta empresa.');
+                        $fail('No tienes acceso a una de las empresas seleccionadas.');
                     }
                 },
             ],
@@ -49,11 +53,11 @@ class StoreUsuarioRequest extends FormRequest
 
                     $perteneceAEmpresa = Area::withoutGlobalScope(EmpresaScope::class)
                         ->where('id', $value)
-                        ->where('empresa_id', $this->input('empresa_id'))
+                        ->where('empresa_id', $this->input('empresa_ids.0'))
                         ->exists();
 
                     if (! $perteneceAEmpresa) {
-                        $fail('El área seleccionada no pertenece a la empresa indicada.');
+                        $fail('El área seleccionada no pertenece a la empresa principal indicada.');
                     }
                 },
             ],

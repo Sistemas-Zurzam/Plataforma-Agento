@@ -4,6 +4,7 @@ namespace App\Modules\Personas\Http\Resources;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * @mixin \App\Modules\Personas\Models\Colaborador
@@ -15,7 +16,7 @@ class ColaboradorResource extends JsonResource
      */
     public function toArray(Request $request): array
     {
-        $remuneracionVigente = $this->remuneraciones->first();
+        $remuneracionVigente = $this->remuneracionVigente;
 
         return [
             'id' => $this->id,
@@ -33,7 +34,15 @@ class ColaboradorResource extends JsonResource
             'email' => $this->email,
             'celular_colaborador' => $this->celular_colaborador,
             'celular_referencia' => $this->celular_referencia,
-            'empresa' => $this->whenLoaded('empresa', fn () => ['id' => $this->empresa->id, 'nombre' => $this->empresa->nombre]),
+            // color/logo_url: usados por el carnet de colaborador para pintar
+            // el encabezado con la identidad de la empresa dueña, no de la
+            // plataforma.
+            'empresa' => $this->whenLoaded('empresa', fn () => [
+                'id' => $this->empresa->id,
+                'nombre' => $this->empresa->nombre,
+                'color' => $this->empresa->color,
+                'logo_url' => $this->empresa->logo_path ? Storage::disk('public')->url($this->empresa->logo_path) : null,
+            ]),
             'sede' => $this->whenLoaded('sede', fn () => ['id' => $this->sede->id, 'nombre' => $this->sede->nombre]),
             'area' => $this->whenLoaded('area', fn () => ['id' => $this->area->id, 'nombre' => $this->area->nombre]),
             'horario' => $this->whenLoaded('horario', fn () => ['id' => $this->horario->id, 'nombre' => $this->horario->nombre]),

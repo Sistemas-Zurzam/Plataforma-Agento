@@ -3,6 +3,7 @@ import {
   ApartmentOutlined,
   BankOutlined,
   CalendarOutlined,
+  CameraOutlined,
   ClockCircleOutlined,
   DeleteOutlined,
   DollarOutlined,
@@ -28,6 +29,7 @@ import EditarCalendarioModal from './EditarCalendarioModal';
 import EditarHorarioColaboradorModal from './EditarHorarioColaboradorModal';
 import EditarColaboradorModal from './EditarColaboradorModal';
 import CesarColaboradorModal from './CesarColaboradorModal';
+import VerCarnetModal from './VerCarnetModal';
 
 export const DOCUMENTOS_REQUERIDOS = [
   { tipo: 'documento_identidad', nombre: 'Copia de documento de identidad' },
@@ -200,9 +202,12 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
   const {
     fetchColaborador, actualizarCalendario, actualizarHorario,
     actualizarColaborador, cesarColaborador, eliminarColaborador, subirDocumento, verDocumento,
+    subirFotoPerfil, fetchFotoPerfil,
   } = useColaboradores();
   const [colaborador, setColaborador] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [fotoUrl, setFotoUrl] = useState(null);
+  const [subiendoFoto, setSubiendoFoto] = useState(false);
   const [calendarioOpen, setCalendarioOpen] = useState(false);
   const [guardandoCalendario, setGuardandoCalendario] = useState(false);
   const [horarioOpen, setHorarioOpen] = useState(false);
@@ -214,14 +219,44 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
   const [subiendoDocumento, setSubiendoDocumento] = useState(null);
   const [viendoDocumento, setViendoDocumento] = useState(null);
   const [documentoVista, setDocumentoVista] = useState(null);
+  const [carnetOpen, setCarnetOpen] = useState(false);
 
   useEffect(() => {
     setLoading(true);
+    setFotoUrl(null);
     fetchColaborador(colaboradorId)
       .then(setColaborador)
       .catch(() => setColaborador(null))
       .finally(() => setLoading(false));
   }, [colaboradorId, fetchColaborador]);
+
+  useEffect(() => {
+    if (!colaborador?.documentos?.some((d) => d.tipo === 'foto_perfil')) return;
+    let cancelado = false;
+    fetchFotoPerfil(colaborador.id).then((blob) => {
+      if (!cancelado && blob) setFotoUrl(URL.createObjectURL(blob));
+    });
+    return () => { cancelado = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [colaborador?.id]);
+
+  useEffect(() => () => { if (fotoUrl) URL.revokeObjectURL(fotoUrl); }, [fotoUrl]);
+
+  const subirFoto = async (archivo) => {
+    setSubiendoFoto(true);
+    try {
+      const actualizado = await subirFotoPerfil(colaborador.id, archivo);
+      setColaborador(actualizado);
+      const blob = await fetchFotoPerfil(colaborador.id);
+      setFotoUrl(blob ? URL.createObjectURL(blob) : null);
+      message.success('Foto de perfil actualizada correctamente');
+    } catch {
+      message.error('No se pudo subir la foto de perfil');
+    } finally {
+      setSubiendoFoto(false);
+    }
+    return false;
+  };
 
   const importarDocumento = async (tipo, archivo) => {
     setSubiendoDocumento(tipo);
@@ -255,7 +290,10 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
   };
 
   const cerrarDocumento = () => {
-    if (documentoVista?.url) URL.revokeObjectURL(documentoVista.url);
+    // La foto de perfil reutiliza este mismo visor, pero su URL la maneja
+    // el otro efecto (se revoca cuando cambia o se sube una nueva) — acá
+    // NUNCA hay que revocarla, o el avatar se quedaría con una imagen rota.
+    if (documentoVista?.url && documentoVista.url !== fotoUrl) URL.revokeObjectURL(documentoVista.url);
     setDocumentoVista(null);
   };
 
@@ -349,7 +387,28 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
       <div className="relative px-5 pb-5 sm:px-7">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="flex min-w-0 items-end gap-4">
-            <Avatar size={84} className="-mt-9 shrink-0 border-4 border-white text-xl font-bold shadow-md" style={{ backgroundColor: colorForName(colaborador.nombre_completo) }}>{initialsForName(colaborador.nombre_completo)}</Avatar>
+            <div className="relative -mt-9 shrink-0">
+              <Avatar
+                size={84}
+                src={fotoUrl}
+                onClick={() => fotoUrl && setDocumentoVista({ url: fotoUrl, nombre: 'Foto de perfil', mimeType: 'image/webp' })}
+                className={`border-4 border-white text-xl font-bold shadow-md ${fotoUrl ? 'cursor-pointer' : ''}`}
+                style={{ backgroundColor: colorForName(colaborador.nombre_completo) }}
+              >
+                {initialsForName(colaborador.nombre_completo)}
+              </Avatar>
+              <Upload accept="image/jpeg,image/png,image/webp" showUploadList={false} beforeUpload={subirFoto}>
+                <Button
+                  shape="circle"
+                  size="small"
+                  icon={<CameraOutlined />}
+                  loading={subiendoFoto}
+                  className="absolute right-0 bottom-0 shadow-sm"
+                  aria-label="Cambiar foto de perfil"
+                  title="Foto de perfil (opcional)"
+                />
+              </Upload>
+            </div>
             <div className="min-w-0 pb-1">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="truncate text-xl font-bold text-gray-950">{colaborador.nombre_completo}</h2>
@@ -363,6 +422,7 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
             <Button type="text" size="small" icon={<ClockCircleOutlined />} onClick={() => setHorarioOpen(true)}>Horario</Button>
             <Button type="text" size="small" icon={<CalendarOutlined />} onClick={() => setCalendarioOpen(true)}>Calendario</Button>
             <Button type="text" size="small" icon={<EditOutlined />} onClick={() => setEditarOpen(true)}>Editar datos</Button>
+            <Button type="text" size="small" icon={<IdcardOutlined />} onClick={() => setCarnetOpen(true)}>Carnet</Button>
             <span className="mx-1 hidden w-px bg-gray-200 sm:block" />
             <Button type="text" size="small" danger icon={<UserDeleteOutlined />} disabled={!colaborador.activo} onClick={() => setCeseOpen(true)}>Cesar</Button>
             <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={confirmarEliminacion}>Eliminar</Button>
@@ -381,6 +441,7 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
     <EditarCalendarioModal open={calendarioOpen} colaborador={colaborador} submitting={guardandoCalendario} onGuardar={guardarCalendario} onCancel={() => setCalendarioOpen(false)} />
     <EditarColaboradorModal open={editarOpen} colaborador={colaborador} submitting={guardandoEdicion} onGuardar={guardarEdicion} onCancel={() => setEditarOpen(false)} />
     <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
+    <VerCarnetModal colaborador={carnetOpen ? colaborador : null} onClose={() => setCarnetOpen(false)} />
     <Modal title={documentoVista?.nombre ?? 'Ver documento'} open={Boolean(documentoVista)} onCancel={cerrarDocumento} footer={null} width={{ xs: '95%', sm: '90%', lg: 900 }} centered destroyOnHidden>
       {documentoVista?.mimeType?.startsWith('image/') ? (
         <div className="flex max-h-[72vh] justify-center overflow-auto rounded-lg bg-gray-50 p-3">

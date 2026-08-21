@@ -42,6 +42,16 @@ export function useEmpresas() {
     await api.put(`/empresas/${empresaId}/activar`);
   }, []);
 
+  const subirLogoEmpresa = useCallback(async (empresaId, archivo) => {
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    const { data } = await api.post(`/empresas/${empresaId}/logo`, formData);
+    setEmpresas((prev) =>
+      prev.map((empresa) => (empresa.id === empresaId ? data.data : empresa)),
+    );
+    return data.data;
+  }, []);
+
   return {
     empresas,
     loading,
@@ -50,5 +60,6 @@ export function useEmpresas() {
     updateEmpresa,
     updateEmpresaEstado,
     activarEmpresa,
+    subirLogoEmpresa,
   };
 }

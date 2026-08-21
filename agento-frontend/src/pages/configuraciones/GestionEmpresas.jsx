@@ -8,9 +8,8 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { useEffect, useMemo } from 'react';
-import ComisionesAfp from '../../modules/configuracion/pages/ComisionesAfp';
 import Empresas from '../../modules/configuracion/pages/Empresas';
-import ParametrosLaborales from '../../modules/configuracion/pages/ParametrosLaborales';
+import ParametrosRemunerativos from '../../modules/configuracion/pages/ParametrosRemunerativos';
 import Permisos from '../../modules/configuracion/pages/Permisos';
 import UsuariosRoles from '../../modules/configuracion/pages/UsuariosRoles';
 import MiPerfil from './MiPerfil';
@@ -20,9 +19,9 @@ import MiPerfil from './MiPerfil';
  * permisos propios), así que se muestran únicamente como vista previa de
  * "próximamente" para el admin — mismo criterio que ya aplica el Sidebar
  * para Nóminas/Selección/Reportes. Para cualquier otro rol quedan
- * completamente ocultas, no solo deshabilitadas. Parámetros Laborales y
- * Comisiones AFP ya son funcionalidad real: se gatean por permiso, no por
- * isAdmin.
+ * completamente ocultas, no solo deshabilitadas. Parámetros Remunerativos
+ * ya es funcionalidad real (cada una de sus pestañas se gatea por su propio
+ * permiso dentro de ParametrosRemunerativos), no por isAdmin.
  */
 function TabItem({ tab, active, onSelect }) {
   return (
@@ -52,36 +51,31 @@ export default function GestionEmpresas({
 }) {
   const isAdmin = user?.role === 'administrador';
   const puedeVerUsuarios = user?.permisos?.includes('usuarios.ver');
-  const puedeVerParametros = user?.permisos?.includes('parametros_laborales.ver');
-  const puedeVerComisiones = user?.permisos?.includes('comisiones_afp.ver');
+  const puedeVerParametrosRemunerativos =
+    user?.permisos?.includes('parametros_laborales.ver') ||
+    user?.permisos?.includes('comisiones_afp.ver') ||
+    user?.permisos?.includes('nominas.ver') ||
+    user?.permisos?.includes('empresas.editar');
 
   const nominaTabs = useMemo(() => {
-    const tabs = [];
+    if (!puedeVerParametrosRemunerativos) return [];
 
-    if (puedeVerParametros) {
-      tabs.push({
-        key: 'parametros-laborales',
-        label: 'Parámetros Laborales',
+    return [
+      {
+        key: 'parametros-remunerativos',
+        label: 'Parámetros Remunerativos',
         icon: <FileTextOutlined />,
-      });
-    }
-
-    if (puedeVerComisiones) {
-      tabs.push({
-        key: 'comisiones-afp',
-        label: 'Comisiones AFP',
-        icon: <SafetyOutlined />,
-      });
-    }
-
-    return tabs;
-  }, [puedeVerParametros, puedeVerComisiones]);
-
-  const generalTabs = useMemo(() => {
-    const tabs = [
-      { key: 'mi-perfil', label: 'Mi Perfil', icon: <UserOutlined /> },
-      { key: 'empresas', label: 'Empresas', icon: <BankOutlined /> },
+      },
     ];
+  }, [puedeVerParametrosRemunerativos]);
+
+  const cuentaTabs = useMemo(
+    () => [{ key: 'mi-perfil', label: 'Mi Perfil', icon: <UserOutlined /> }],
+    [],
+  );
+
+  const organizacionTabs = useMemo(() => {
+    const tabs = [{ key: 'empresas', label: 'Empresas', icon: <BankOutlined /> }];
 
     if (puedeVerUsuarios) {
       tabs.push({
@@ -92,24 +86,26 @@ export default function GestionEmpresas({
     }
 
     if (isAdmin) {
-      tabs.push(
-        { key: 'permisos', label: 'Permisos', icon: <SafetyOutlined /> },
-        {
-          key: 'notificaciones',
-          label: 'Notificaciones',
-          icon: <BellOutlined />,
-          disabled: true,
-        },
-        { key: 'seguridad', label: 'Seguridad', icon: <LockOutlined />, disabled: true },
-      );
+      tabs.push({ key: 'permisos', label: 'Permisos', icon: <SafetyOutlined /> });
     }
 
     return tabs;
   }, [isAdmin, puedeVerUsuarios]);
 
+  const sistemaTabs = useMemo(() => {
+    if (!isAdmin) return [];
+
+    return [
+      { key: 'notificaciones', label: 'Notificaciones', icon: <BellOutlined />, disabled: true },
+      { key: 'seguridad', label: 'Seguridad', icon: <LockOutlined />, disabled: true },
+    ];
+  }, [isAdmin]);
+
   const availableTabs = useMemo(
-    () => [...generalTabs, ...nominaTabs].filter((tab) => !tab.disabled).map((tab) => tab.key),
-    [generalTabs, nominaTabs],
+    () => [...cuentaTabs, ...organizacionTabs, ...sistemaTabs, ...nominaTabs]
+      .filter((tab) => !tab.disabled)
+      .map((tab) => tab.key),
+    [cuentaTabs, organizacionTabs, sistemaTabs, nominaTabs],
   );
 
   useEffect(() => {
@@ -118,27 +114,25 @@ export default function GestionEmpresas({
     }
   }, [activeTab, availableTabs, onTabSelect]);
 
+  const grupos = [
+    { label: null, tabs: cuentaTabs },
+    { label: 'Organización', tabs: organizacionTabs },
+    { label: 'Sistema', tabs: sistemaTabs },
+    { label: 'Nóminas', tabs: nominaTabs },
+  ].filter((grupo) => grupo.tabs.length > 0);
+
   return (
     <div className="flex flex-col gap-6 lg:flex-row">
       <aside className="w-full shrink-0 rounded-2xl bg-white p-4 shadow-sm lg:w-64">
-        <nav className="flex flex-col gap-1">
-          {generalTabs.map((tab) => (
-            <TabItem
-              key={tab.key}
-              tab={tab}
-              active={activeTab === tab.key}
-              onSelect={onTabSelect}
-            />
-          ))}
-        </nav>
-
-        {nominaTabs.length > 0 && (
-          <>
-            <p className="mt-5 mb-2 px-3 text-xs font-semibold tracking-wide text-gray-400 uppercase">
-              Nóminas
-            </p>
+        {grupos.map((grupo, index) => (
+          <div key={grupo.label ?? 'cuenta'} className={index > 0 ? 'mt-5' : ''}>
+            {grupo.label && (
+              <p className="mb-2 px-3 text-xs font-semibold tracking-wide text-gray-400 uppercase">
+                {grupo.label}
+              </p>
+            )}
             <nav className="flex flex-col gap-1">
-              {nominaTabs.map((tab) => (
+              {grupo.tabs.map((tab) => (
                 <TabItem
                   key={tab.key}
                   tab={tab}
@@ -147,8 +141,8 @@ export default function GestionEmpresas({
                 />
               ))}
             </nav>
-          </>
-        )}
+          </div>
+        ))}
       </aside>
 
       <section className="flex-1 rounded-2xl bg-white p-6 shadow-sm">
@@ -158,10 +152,9 @@ export default function GestionEmpresas({
         {activeTab === 'empresas' && <Empresas user={user} />}
         {activeTab === 'usuarios-roles' && puedeVerUsuarios && <UsuariosRoles user={user} />}
         {activeTab === 'permisos' && isAdmin && <Permisos />}
-        {activeTab === 'parametros-laborales' && puedeVerParametros && (
-          <ParametrosLaborales user={user} />
+        {activeTab === 'parametros-remunerativos' && puedeVerParametrosRemunerativos && (
+          <ParametrosRemunerativos user={user} />
         )}
-        {activeTab === 'comisiones-afp' && puedeVerComisiones && <ComisionesAfp user={user} />}
       </section>
     </div>
   );

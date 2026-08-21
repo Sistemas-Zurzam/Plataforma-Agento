@@ -1,14 +1,13 @@
 import {
-  BankOutlined,
   BarChartOutlined,
   ClockCircleOutlined,
-  SafetyOutlined,
+  CustomerServiceOutlined,
   SettingOutlined,
   TeamOutlined,
   UserSwitchOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
-import { Layout, Menu } from 'antd';
+import { ConfigProvider, Layout, Menu } from 'antd';
 import { useMemo } from 'react';
 import agentoLogo from '../../assets/agento-logo.png';
 import FileInvoiceDollarIcon from '../icons/FileInvoiceDollarIcon';
@@ -26,10 +25,10 @@ const { Sider } = Layout;
  * habilita con el permiso nominas.ver.
  */
 function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas) {
-  const items = [];
+  const principal = [];
 
   if (isAdmin || puedeVerHorarios || puedeVerNominas) {
-    items.push({
+    principal.push({
       key: 'nominas',
       icon: <FileInvoiceDollarIcon />,
       label: 'Nóminas',
@@ -56,7 +55,7 @@ function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerN
   }
 
   if (isAdmin) {
-    items.push(
+    principal.push(
       {
         key: 'seleccion',
         icon: <UserSwitchOutlined />,
@@ -72,24 +71,38 @@ function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerN
     );
   }
 
-  items.push({
-    key: 'configuraciones',
-    icon: <SettingOutlined />,
-    label: 'Configuraciones',
-    children: [
-      {
-        key: 'configuraciones-empresas',
-        icon: <BankOutlined />,
-        label: 'Gestión de empresas',
-      },
-      {
-        key: 'configuraciones-usuarios',
-        icon: <SafetyOutlined />,
-        label: 'Gestión de usuarios',
-        disabled: true,
-      },
-    ],
-  });
+  // Configuraciones es una única pantalla (Mi Perfil/Empresas/Usuarios y
+  // Roles/Permisos/Parámetros Remunerativos viven como pestañas internas de
+  // GestionEmpresas, no como secciones de sidebar separadas) — por eso es un
+  // ítem directo, sin submenú con un solo hijo ("Gestión de empresas" ya no
+  // tiene entrada propia).
+  const sistema = [
+    {
+      key: 'configuraciones-empresas',
+      icon: <SettingOutlined />,
+      label: 'Configuraciones',
+    },
+  ];
+
+  // La tabla de gestión de tickets es una vista de triage para quien
+  // resuelve soporte, no algo que un usuario normal necesite — crear un
+  // ticket es aparte (botón "Soporte" en el Header, visible para todos).
+  // Maqueta de UI únicamente, sin backend todavía.
+  if (isAdmin) {
+    sistema.push({
+      key: 'soporte-tickets',
+      icon: <CustomerServiceOutlined />,
+      label: 'Soporte',
+    });
+  }
+
+  const items = [];
+
+  if (principal.length > 0) {
+    items.push({ key: 'grupo-principal', type: 'group', label: 'Principal', children: principal });
+  }
+
+  items.push({ key: 'grupo-sistema', type: 'group', label: 'Sistema', children: sistema });
 
   return items;
 }
@@ -114,10 +127,10 @@ export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, 
       breakpoint="lg"
       collapsedWidth={0}
       zeroWidthTriggerStyle={{ top: 12 }}
-      className="border-r border-gray-100"
+      style={{ background: 'linear-gradient(165deg, #013063 0%, #001a3d 35%, #001225 100%)' }}
     >
-      <div className="flex items-center gap-2 overflow-hidden px-4 py-5">
-        <div className="h-9 w-9 shrink-0 overflow-hidden rounded-full">
+      <div className="flex items-center gap-2.5 overflow-hidden border-b border-white/10 px-4 py-5">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-sm">
           <img
             src={agentoLogo}
             alt="Agento"
@@ -125,21 +138,80 @@ export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, 
           />
         </div>
         {!collapsed && (
-          <span className="truncate text-lg font-semibold text-agento-blue-dark">
+          <span className="truncate text-lg font-semibold tracking-tight text-white">
             Agento
           </span>
         )}
       </div>
 
-      <Menu
-        theme="light"
-        mode="inline"
-        selectedKeys={[selectedKey]}
-        defaultOpenKeys={['configuraciones']}
-        items={menuItems}
-        onClick={({ key }) => onSelect(key)}
-        style={{ borderInlineEnd: 'none' }}
-      />
+      {/* Tokens propios solo para este Menu (no globales): el fondo del
+          sidebar ya es el degradado de arriba, así que el Menu en sí debe
+          quedar transparente con texto claro — mismo mecanismo oficial de
+          ConfigProvider anidado, en vez de pelear con clases internas de
+          AntD (eso fue lo que causó el corte feo con theme="dark"). */}
+      <ConfigProvider
+        theme={{
+          token: {
+            colorText: 'rgba(255, 255, 255, 0.95)',
+            colorTextDescription: 'rgba(255, 255, 255, 0.6)',
+            colorTextDisabled: 'rgba(255, 255, 255, 0.25)',
+            colorIcon: 'rgba(255, 255, 255, 0.95)',
+            colorIconHover: '#ffffff',
+          },
+          components: {
+            Menu: {
+              itemBg: 'transparent',
+              subMenuItemBg: 'transparent',
+              itemColor: 'rgba(255, 255, 255, 0.95)',
+              itemHoverColor: '#ffffff',
+              itemHoverBg: 'rgba(255, 255, 255, 0.1)',
+              // Pill blanco de alto contraste para el ítem activo — mismo
+              // criterio que la referencia: un azul-sobre-azul se pierde,
+              // el blanco resalta de inmediato contra el degradado oscuro.
+              itemSelectedColor: '#014693',
+              itemSelectedBg: '#ffffff',
+              itemActiveBg: 'rgba(255, 255, 255, 0.1)',
+              // Debe verse claramente MÁS apagado que un ítem habilitado —
+              // si quedan parecidos, "Próximamente" deja de leerse como
+              // deshabilitado.
+              itemDisabledColor: 'rgba(255, 255, 255, 0.25)',
+              groupTitleColor: 'rgba(255, 255, 255, 0.4)',
+              groupTitleFontSize: 11,
+              itemBorderRadius: 10,
+              itemMarginBlock: 3,
+            },
+          },
+        }}
+      >
+        <Menu
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          items={menuItems}
+          onClick={({ key }) => onSelect(key)}
+          style={{ borderInlineEnd: 'none', paddingTop: 8, background: 'transparent' }}
+          className="agento-sidebar-menu px-2"
+        />
+      </ConfigProvider>
+
+      {/* Red de seguridad: si algún elemento interno de AntD no toma los
+          tokens de arriba (ej. el título de un submenú de primer nivel
+          todavía cerrado), esto fuerza el mismo blanco sin depender de eso. */}
+      <style>{`
+        .agento-sidebar-menu .ant-menu-submenu-title,
+        .agento-sidebar-menu .ant-menu-title-content,
+        .agento-sidebar-menu .ant-menu-item-icon {
+          color: rgba(255, 255, 255, 0.95) !important;
+        }
+        .agento-sidebar-menu .ant-menu-submenu-disabled > .ant-menu-submenu-title,
+        .agento-sidebar-menu .ant-menu-item-disabled .ant-menu-title-content,
+        .agento-sidebar-menu .ant-menu-item-disabled .ant-menu-item-icon {
+          color: rgba(255, 255, 255, 0.25) !important;
+        }
+        .agento-sidebar-menu .ant-menu-item-selected .ant-menu-title-content,
+        .agento-sidebar-menu .ant-menu-item-selected .ant-menu-item-icon {
+          color: #014693 !important;
+        }
+      `}</style>
     </Sider>
   );
 }

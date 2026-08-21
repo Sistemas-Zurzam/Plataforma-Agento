@@ -8,6 +8,7 @@ use App\Modules\Nominas\Domain\RegimenCalculatorFactory;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Configuracion\Models\ReglaDescuentoTardanza;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
@@ -97,7 +98,12 @@ class CalcularBoletaColaborador
             $egresos[] = $linea;
         }
 
-        $tardanza = $calculadora->calcularDescuentoTardanza($sueldoBasico, $asistencia['minutos_tardanza']);
+        $reglasDescuentoTardanza = ReglaDescuentoTardanza::where('empresa_id', $colaborador->empresa_id)
+            ->orderBy('orden')
+            ->get(['minutos_desde', 'minutos_hasta', 'tipo', 'valor'])
+            ->map(fn ($r) => $r->toArray())
+            ->all();
+        $tardanza = $calculadora->calcularDescuentoTardanza($sueldoBasico, $asistencia['minutos_tardanza'], $reglasDescuentoTardanza);
         $egresos[] = $tardanza;
 
         $renta5ta = $this->calcularRenta5ta($colaborador, $baseAfectaRenta5ta, $parametros, $fechaCorte, $cicloId);
@@ -116,7 +122,7 @@ class CalcularBoletaColaborador
         // línea a invertir (quitar "- $tardanza['monto']") si se confirma que
         // el texto es la regla correcta.
         $baseEsSalud = $baseRemunerativa - $tardanza['monto'];
-        $essalud = $calculadora->calcularEsSalud($baseEsSalud, $parametros);
+        $essalud = $calculadora->calcularEsSalud($baseEsSalud, $parametros, $colaborador->empresa->seguro_salud);
         $aportaciones[] = $essalud['linea'];
         if ($essalud['piso_activado']) {
             $alertas[] = 'Se aplicó el piso legal de EsSalud (9% de la RMV vigente) porque el cálculo sobre la base remunerativa fue menor.';

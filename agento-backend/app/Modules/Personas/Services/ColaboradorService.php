@@ -8,6 +8,7 @@ use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Sede;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Models\ColaboradorDocumento;
 use App\Modules\Personas\Support\CalendarioMensualGenerator;
 use App\Modules\Personas\Support\FeriadosPeru;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -15,32 +16,42 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Http\UploadedFile;
+use Intervention\Image\ImageManager;
 
 class ColaboradorService
 {
     /**
+     * @param  array<int, int>  $empresaIds  Ya resueltos y autorizados por el
+     *   controller (o [$empresaActiva->id], o todas las de
+     *   $usuario->empresas() en modo "todas") — este método nunca decide
+     *   autorización, solo filtra.
      * @return LengthAwarePaginator<int, Colaborador>
      */
-    public function listar(Empresa $empresa, ?string $busqueda, int $perPage = 10): LengthAwarePaginator
+    public function listar(array $empresaIds, ?string $busqueda, int $perPage = 10): LengthAwarePaginator
     {
-        return Colaborador::where('empresa_id', $empresa->id)
-            ->with(['empresa', 'sede', 'area', 'horario', 'remuneraciones' => fn ($query) => $query->limit(1)])
+        return Colaborador::whereIn('empresa_id', $empresaIds)
+            ->with(['empresa', 'sede', 'area', 'horario', 'remuneracionVigente'])
             ->when($busqueda, fn ($query) => $query->where(function ($query) use ($busqueda) {
                 $query->where('nombres', 'like', "%{$busqueda}%")
                     ->orWhere('apellidos', 'like', "%{$busqueda}%")
                     ->orWhere('legajo', 'like', "%{$busqueda}%");
             }))
-            ->orderByDesc('created_at')
+            // El legajo es el correlativo real y visible para RR.HH.; usar
+            // created_at para ordenar fallaba al sembrar/importar varios
+            // colaboradores en el mismo segundo (orden de empate arbitrario).
+            ->orderByDesc('legajo')
             ->paginate($perPage);
     }
 
     /**
+     * @param  array<int, int>  $empresaIds
      * @return array{total: int, activos: int}
      */
-    public function estadisticas(Empresa $empresa): array
+    public function estadisticas(array $empresaIds): array
     {
-        $base = Colaborador::where('empresa_id', $empresa->id);
+        $base = Colaborador::whereIn('empresa_id', $empresaIds);
 
         return [
             'total' => (clone $base)->count(),
@@ -55,7 +66,7 @@ class ColaboradorService
         }
 
         return $colaborador->load([
-            'empresa', 'sede', 'area', 'horario.dias', 'remuneraciones',
+            'empresa', 'sede', 'area', 'horario.dias', 'remuneraciones', 'remuneracionVigente',
             'calendario', 'asignacionesHorario.horario', 'documentos',
         ]);
     }
@@ -296,6 +307,60 @@ class ColaboradorService
     }
 
     /**
+     * A diferencia de los documentos del legajo (que deben conservarse
+     * fieles al original, ej. una copia de DNI escaneada), la foto de
+     * perfil SÍ se redimensiona y recomprime a WebP antes de guardarse —
+     * mismo criterio que Empresa::guardarLogo(), pero acá el archivo queda
+     * en el disco privado "local" (dato personal, servido por descarga
+     * autenticada), nunca en el disco público.
+     */
+    public function guardarFotoPerfil(Empresa $empresa, Colaborador $colaborador, UploadedFile $archivo, User $usuario): Colaborador
+    {
+        if ($colaborador->empresa_id !== $empresa->id) {
+            throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
+        }
+
+        $anterior = $colaborador->documentos()->where('tipo', 'foto_perfil')->first();
+        $carpeta = "colaboradores/{$colaborador->id}/foto_perfil";
+        $ruta = "{$carpeta}/".Str::random(20).'.webp';
+
+        Storage::disk('local')->makeDirectory($carpeta);
+
+        ImageManager::gd()
+            ->read($archivo->getRealPath())
+            ->scaleDown(width: 512, height: 512)
+            ->save(Storage::disk('local')->path($ruta), quality: 80);
+
+        try {
+            $colaborador->documentos()->updateOrCreate(['tipo' => 'foto_perfil'], [
+                'nombre_original' => 'foto_perfil.webp',
+                'ruta' => $ruta,
+                'mime_type' => 'image/webp',
+                'tamano_bytes' => Storage::disk('local')->size($ruta),
+                'subido_por' => $usuario->id,
+            ]);
+        } catch (\Throwable $exception) {
+            Storage::disk('local')->delete($ruta);
+            throw $exception;
+        }
+
+        if ($anterior && $anterior->ruta !== $ruta) {
+            Storage::disk('local')->delete($anterior->ruta);
+        }
+
+        return $this->obtenerDetalle($empresa, $colaborador);
+    }
+
+    public function obtenerFotoPerfil(Empresa $empresa, Colaborador $colaborador): ?ColaboradorDocumento
+    {
+        if ($colaborador->empresa_id !== $empresa->id) {
+            throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
+        }
+
+        return $colaborador->documentos()->where('tipo', 'foto_perfil')->first();
+    }
+
+    /**
      * Arma el calendario del mes de `fechaIngreso` con un tipo por defecto
      * por día: feriado oficial (fijo, no editable) > día de semana en
      * "descanso" según el horario > laborable presencial. Los días
@@ -403,7 +468,7 @@ class ColaboradorService
                 ]));
 
             return $colaborador->load([
-                'sede', 'area', 'horario', 'remuneraciones', 'calendario', 'asignacionesHorario',
+                'sede', 'area', 'horario', 'remuneraciones', 'remuneracionVigente', 'calendario', 'asignacionesHorario',
             ]);
         });
     }

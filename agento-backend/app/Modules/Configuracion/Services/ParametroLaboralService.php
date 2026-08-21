@@ -26,7 +26,7 @@ class ParametroLaboralService
     private const VALORES_POR_DEFECTO = [
         'General' => [
             'rmv' => 1130, 'uit' => 5500, 'vacaciones_dias' => 30,
-            'essalud_porcentaje' => 9, 'sis_porcentaje' => 0, 'onp_porcentaje' => 13,
+            'essalud_porcentaje' => 9, 'sis_porcentaje' => 0, 'sis_monto_fijo' => 0, 'onp_porcentaje' => 13,
             'afp_aporte_porcentaje' => 10, 'afp_prima_seguro_porcentaje' => 1.37, 'asignacion_familiar_porcentaje' => 10,
             'gratificacion_porcentaje' => 100, 'cts_porcentaje' => 100, 'bonificacion_extraordinaria_porcentaje' => 9,
             'horas_extra_limite_25_h' => 2, 'horas_extra_limite_35_h' => 6,
@@ -35,7 +35,14 @@ class ParametroLaboralService
         ],
         'Micro Empresa' => [
             'rmv' => 1130, 'uit' => 5500, 'vacaciones_dias' => 15,
-            'essalud_porcentaje' => 0, 'sis_porcentaje' => 100, 'onp_porcentaje' => 13,
+            // essalud_porcentaje ya NO se pone en 0 acá: la tasa legal
+            // siempre es 9%, sea cual sea el régimen — lo que decide si se
+            // aplica EsSalud o SIS es Empresa.seguro_salud (Micro + inscrita
+            // en REMYPE), no el régimen laboral por sí solo.
+            'essalud_porcentaje' => 9, 'sis_porcentaje' => 0,
+            // Valor de referencia, NO verificado — confirmar el monto SIS
+            // real vigente con tu contador antes de usarlo en producción.
+            'sis_monto_fijo' => 20, 'onp_porcentaje' => 13,
             'afp_aporte_porcentaje' => 10, 'afp_prima_seguro_porcentaje' => 1.37, 'asignacion_familiar_porcentaje' => 0,
             'gratificacion_porcentaje' => 0, 'cts_porcentaje' => 0, 'bonificacion_extraordinaria_porcentaje' => 0,
             'horas_extra_limite_25_h' => 2, 'horas_extra_limite_35_h' => 6,
@@ -44,7 +51,7 @@ class ParametroLaboralService
         ],
         'Pequeña Empresa' => [
             'rmv' => 1130, 'uit' => 5500, 'vacaciones_dias' => 15,
-            'essalud_porcentaje' => 9, 'sis_porcentaje' => 0, 'onp_porcentaje' => 13,
+            'essalud_porcentaje' => 9, 'sis_porcentaje' => 0, 'sis_monto_fijo' => 0, 'onp_porcentaje' => 13,
             'afp_aporte_porcentaje' => 10, 'afp_prima_seguro_porcentaje' => 1.37, 'asignacion_familiar_porcentaje' => 10,
             'gratificacion_porcentaje' => 50, 'cts_porcentaje' => 50, 'bonificacion_extraordinaria_porcentaje' => 9,
             'horas_extra_limite_25_h' => 2, 'horas_extra_limite_35_h' => 6,
@@ -53,7 +60,7 @@ class ParametroLaboralService
         ],
         'Locacion de Servicios' => [
             'rmv' => 1130, 'uit' => 5500, 'vacaciones_dias' => 0,
-            'essalud_porcentaje' => 0, 'sis_porcentaje' => 0, 'onp_porcentaje' => 0,
+            'essalud_porcentaje' => 0, 'sis_porcentaje' => 0, 'sis_monto_fijo' => 0, 'onp_porcentaje' => 0,
             'afp_aporte_porcentaje' => 0, 'afp_prima_seguro_porcentaje' => 0, 'asignacion_familiar_porcentaje' => 0,
             'gratificacion_porcentaje' => 0, 'cts_porcentaje' => 0, 'bonificacion_extraordinaria_porcentaje' => 0,
             'horas_extra_limite_25_h' => 0, 'horas_extra_limite_35_h' => 0,

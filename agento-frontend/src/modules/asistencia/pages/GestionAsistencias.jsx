@@ -3,6 +3,7 @@ import { Alert, App, Button, Calendar, Card, DatePicker, Empty, Form, Input, Mod
 import dayjs from 'dayjs';
 import 'dayjs/locale/es';
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import EmpresaActivaFiltro from '../../configuracion/components/EmpresaActivaFiltro';
 import api from '../../../services/api';
 
 const { RangePicker } = DatePicker;
@@ -215,7 +216,7 @@ function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reproc
   </div>;
 }
 
-export default function GestionAsistencias({ user, colaboradorId, onVerColaborador, onVolver }) {
+export default function GestionAsistencias({ user, onUserRefresh, colaboradorId, onVerColaborador, onVolver }) {
   const { message } = App.useApp();
   const [permisoForm] = Form.useForm();
   const [solicitudForm] = Form.useForm();
@@ -537,7 +538,7 @@ export default function GestionAsistencias({ user, colaboradorId, onVerColaborad
     ].map(([titulo, valor, color, fondo, icono]) => <div className="flex h-[58px] min-w-0 items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)] transition-colors hover:border-slate-300" key={titulo}><div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-sm ${fondo} ${color}`}>{icono}</div><div className="min-w-0"><div className={`text-[15px] font-semibold leading-[18px] tabular-nums ${color}`}>{valor ?? 0}</div><Text type="secondary" className="block truncate text-[11px] leading-4">{titulo}</Text></div></div>)}</div>
     <div className="flex flex-nowrap items-center gap-2 overflow-x-auto pb-1">
       <Input size="middle" prefix={<SearchOutlined />} placeholder="Buscar nombre, documento, legajo..." value={busqueda} onChange={(event) => setBusqueda(event.target.value)} className="min-w-72 flex-1" allowClear />
-      <Select size="middle" value={user?.empresa?.nombre} disabled className="w-44 shrink-0" options={[{ value: user?.empresa?.nombre, label: user?.empresa?.nombre ?? 'Empresa activa' }]} />
+      <EmpresaActivaFiltro user={user} onUserRefresh={onUserRefresh} />
       <Select size="middle" allowClear placeholder="Sede" value={filtroSede} onChange={setFiltroSede} options={opcionesSede} className="w-32 shrink-0" />
       <Select size="middle" allowClear placeholder="Área" value={filtroArea} onChange={setFiltroArea} options={opcionesArea} className="w-32 shrink-0" />
       <Select size="middle" value={filtroPreparacion} onChange={setFiltroPreparacion} className="w-40 shrink-0" options={[{ value: 'todos', label: 'Todos' }, { value: 'listos', label: 'Listos' }, { value: 'sin_horario', label: 'Sin horario' }, { value: 'sin_calendario', label: 'Sin calendario' }]} />

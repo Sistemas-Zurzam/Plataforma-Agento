@@ -64,15 +64,46 @@ class User extends Authenticatable implements JWTSubject
     }
 
     /**
-     * This user's role in their currently active empresa.
+     * This user's role in their currently active empresa. Un administrador
+     * global sigue resolviendo a Administrador acá aunque no tenga una fila
+     * propia en empresa_user para esta empresa puntual — si no, quedaría
+     * bloqueado por EnsurePermission/EnsureIsEmpresaAdmin (que leen este
+     * método) apenas cambiara a una empresa sin vínculo explícito.
      */
     public function currentRole(): ?Role
     {
-        return $this->empresas()
+        $rolEnEmpresaActiva = $this->empresas()
             ->where('empresas.id', $this->empresa_id)
             ->first()
             ?->pivot
             ?->role;
+
+        return $rolEnEmpresaActiva ?? ($this->esAdministradorGlobal() ? Role::administrador() : null);
+    }
+
+    /**
+     * Un Administrador en CUALQUIER empresa ve y opera en TODAS las
+     * empresas del sistema, sin necesitar una fila en empresa_user por
+     * cada una — así una empresa nueva queda visible de inmediato para
+     * todos los administradores existentes, sin resincronizar nada. Los
+     * demás roles siguen viendo solo las empresas donde tienen un vínculo
+     * explícito (aislamiento multiempresa normal).
+     */
+    public function esAdministradorGlobal(): bool
+    {
+        return $this->empresas()->wherePivot('role_id', Role::administrador()->id)->exists();
+    }
+
+    /**
+     * Punto único de verificación "¿puede este usuario operar en esta
+     * empresa?" — un administrador global siempre puede, sin importar si
+     * tiene o no una fila explícita en empresa_user para ESA empresa en
+     * particular.
+     */
+    public function tieneAccesoA(Empresa $empresa): bool
+    {
+        return $this->esAdministradorGlobal()
+            || $this->empresas()->where('empresas.id', $empresa->id)->exists();
     }
 
     public function getJWTIdentifier(): mixed

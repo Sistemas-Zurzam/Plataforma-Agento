@@ -22,13 +22,23 @@ interface RegimenCalculator
 
     public function calcularAsignacionFamiliar(bool $calificaPorHijos, array $parametros): ?array;
 
-    public function calcularDescuentoTardanza(float $sueldoBasico, int $minutosTardanza): array;
+    /**
+     * @param  array<int, array{minutos_desde: int, minutos_hasta: ?int, tipo: string, valor: ?float}>  $reglas
+     *   Reglas escalonadas configuradas por la empresa (vacío = usa la
+     *   fórmula plana valor_minuto × minutos, comportamiento de siempre).
+     */
+    public function calcularDescuentoTardanza(float $sueldoBasico, int $minutosTardanza, array $reglas = []): array;
 
     /** @return array<int, array> */
     public function calcularAporteAfpOnp(Colaborador $colaborador, float $baseRemunerativa, array $parametros, string $fechaCorte): array;
 
-    /** @return array{linea: array, piso_activado: bool} */
-    public function calcularEsSalud(float $baseRemunerativa, array $parametros): array;
+    /**
+     * @param  string  $seguroSalud  'essalud' | 'sis' — de Empresa::seguro_salud.
+     *   SIS es un monto fijo mensual, no un % del sueldo, así que no tiene
+     *   piso legal ni depende de la base remunerativa.
+     * @return array{linea: array, piso_activado: bool}
+     */
+    public function calcularEsSalud(float $baseRemunerativa, array $parametros, string $seguroSalud = 'essalud'): array;
 
     /** @return array<int, array> */
     public function calcularProvisiones(float $baseRemunerativaRegular, float $gratificacionesPercibidasSemestre, array $parametros): array;

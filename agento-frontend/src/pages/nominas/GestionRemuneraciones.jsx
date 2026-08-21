@@ -164,7 +164,7 @@ function DetalleBoleta({ boletaId, verBoleta }) {
 export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const { message, modal } = App.useApp();
   const {
-    ciclos, ciclosLoading, fetchCiclos, crearCiclo, calcularPlanilla, cerrarCiclo, reabrirCiclo,
+    ciclos, ciclosLoading, fetchCiclos, crearCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo,
     boletas, boletasLoading, pagination, fetchBoletas,
     resumen, fetchResumen,
     verBoleta, aprobarBoleta, pagarBoleta,
@@ -242,42 +242,82 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     }
   };
 
+  /**
+   * El cálculo ahora corre en una cola (CalcularPlanillaJob) en vez de
+   * bloquear el request — con una planilla grande, esperar la respuesta en
+   * vivo dejaría de ser viable. Aquí solo se dispara y se hace polling del
+   * estado hasta que el worker termine.
+   */
+  const pollEstadoCalculo = async (ciclo, intentos = 0) => {
+    const estado = await fetchEstadoCalculo(ciclo.id);
+
+    if (estado.calculo_estado === 'en_proceso') {
+      if (intentos > 100) {
+        message.info('El cálculo sigue en proceso. La planilla se actualizará automáticamente cuando termine — puedes seguir usando el sistema mientras tanto.');
+        setCalculando(false);
+        return;
+      }
+      setTimeout(() => pollEstadoCalculo(ciclo, intentos + 1), 3000);
+      return;
+    }
+
+    setCalculando(false);
+
+    if (estado.calculo_estado === 'error') {
+      message.error(`No se pudo calcular la planilla: ${estado.calculo_resultado?.error ?? 'error desconocido'}`);
+      return;
+    }
+
+    const resultado = estado.calculo_resultado ?? { procesadas: 0, omitidas: [] };
+    message.success(`${resultado.procesadas} boletas calculadas. ${resultado.omitidas.length} omitidas.`);
+    if (resultado.omitidas.length > 0) {
+      modal.warning({
+        title: 'Colaboradores omitidos',
+        content: (
+          <ul className="list-disc pl-4 text-xs">
+            {resultado.omitidas.map((o) => <li key={o.colaborador_id}>Colaborador #{o.colaborador_id}: {o.motivo}</li>)}
+          </ul>
+        ),
+      });
+    }
+    await fetchCiclos();
+    if (ciclo.id === cicloId) {
+      recargar();
+    } else {
+      setCicloId(ciclo.id);
+      setTabActiva('planilla');
+    }
+  };
+
   const handleCalcular = (ciclo, motivoRecalculo) => {
     modal.confirm({
       title: motivoRecalculo ? 'Recalcular planilla' : 'Calcular planilla',
-      content: 'Se calculará (o recalculará) la boleta de cada colaborador elegible de este ciclo. Las versiones anteriores se conservan en el historial.',
+      content: 'Se calculará (o recalculará) la boleta de cada colaborador elegible de este ciclo, en segundo plano. Las versiones anteriores se conservan en el historial.',
       okText: 'Confirmar',
       cancelText: 'Cancelar',
       onOk: async () => {
         setCalculando(true);
         try {
-          const resultado = await calcularPlanilla(ciclo.id, motivoRecalculo);
-          message.success(`${resultado.procesadas} boletas calculadas. ${resultado.omitidas.length} omitidas.`);
-          if (resultado.omitidas.length > 0) {
-            modal.warning({
-              title: 'Colaboradores omitidos',
-              content: (
-                <ul className="list-disc pl-4 text-xs">
-                  {resultado.omitidas.map((o) => <li key={o.colaborador_id}>Colaborador #{o.colaborador_id}: {o.motivo}</li>)}
-                </ul>
-              ),
-            });
-          }
-          await fetchCiclos();
-          if (ciclo.id === cicloId) {
-            recargar();
-          } else {
-            setCicloId(ciclo.id);
-            setTabActiva('planilla');
-          }
+          await calcularPlanilla(ciclo.id, motivoRecalculo);
+          message.info('Cálculo iniciado — esto puede tardar unos segundos según el tamaño de la planilla.');
+          pollEstadoCalculo(ciclo);
         } catch (err) {
-          message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo calcular la planilla');
-        } finally {
+          message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo iniciar el cálculo de la planilla');
           setCalculando(false);
         }
       },
     });
   };
+
+  // Si el ciclo activo ya estaba "en_proceso" (ej. lo disparó otro usuario,
+  // o se recargó la página), retoma el polling en vez de dejarlo huérfano.
+  useEffect(() => {
+    if (cicloActivo?.calculo_estado === 'en_proceso' && !calculando) {
+      setCalculando(true);
+      pollEstadoCalculo(cicloActivo);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cicloActivo?.id, cicloActivo?.calculo_estado]);
 
   const handleCerrar = (ciclo) => {
     modal.confirm({
@@ -405,8 +445,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     {
       title: 'Estado',
       dataIndex: 'estado',
-      width: 110,
-      render: (estado) => <Tag color={CICLO_ESTADO_COLOR[estado] ?? 'default'}>{estado}</Tag>,
+      width: 150,
+      render: (estado, ciclo) => (
+        <div className="flex items-center gap-1">
+          <Tag color={CICLO_ESTADO_COLOR[estado] ?? 'default'}>{estado}</Tag>
+          {ciclo.calculo_estado === 'en_proceso' && <Tag icon={<ReloadOutlined spin />} color="processing">calculando</Tag>}
+        </div>
+      ),
     },
     {
       title: 'Boletas',
@@ -422,8 +467,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         <div className="flex flex-wrap items-center gap-1">
           <Button size="small" onClick={() => { setCicloId(ciclo.id); setTabActiva('planilla'); }}>Ver planilla</Button>
           {puedeCalcular && ['abierto', 'calculado', 'reabierto'].includes(ciclo.estado) && (
-            <Tooltip title={ciclo.estado !== 'abierto' ? 'Recalcular planilla' : 'Calcular planilla'}>
-              <Button size="small" icon={<ReloadOutlined />} onClick={() => handleCalcular(ciclo, ciclo.estado !== 'abierto' ? 'Recálculo de planilla' : undefined)} />
+            <Tooltip title={ciclo.calculo_estado === 'en_proceso' ? 'Ya hay un cálculo en curso' : (ciclo.estado !== 'abierto' ? 'Recalcular planilla' : 'Calcular planilla')}>
+              <Button
+                size="small"
+                icon={<ReloadOutlined spin={ciclo.calculo_estado === 'en_proceso'} />}
+                disabled={ciclo.calculo_estado === 'en_proceso'}
+                onClick={() => handleCalcular(ciclo, ciclo.estado !== 'abierto' ? 'Recálculo de planilla' : undefined)}
+              />
             </Tooltip>
           )}
           {puedeCerrarPeriodo && ['abierto', 'calculado', 'reabierto'].includes(ciclo.estado) && (

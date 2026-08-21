@@ -9,6 +9,7 @@ use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Jobs\CalcularPlanillaJob;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -109,6 +110,42 @@ class BoletaService
         $ciclo->update(['estado' => 'calculado']);
 
         return ['procesadas' => $procesadas, 'omitidas' => $omitidas];
+    }
+
+    /**
+     * Encola el cálculo en vez de correrlo dentro del request HTTP — con
+     * una planilla de cientos de colaboradores, `calcularPlanilla()` puede
+     * tardar más de lo que un navegador espera. Valida todo lo que
+     * `calcularPlanilla()` valida ANTES de encolar (para fallar rápido con
+     * un mensaje claro), y deja el resultado real para cuando el worker
+     * termine — el frontend hace polling de `calculo_estado`.
+     */
+    public function iniciarCalculoAsync(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): CicloRemunerativo
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+
+        if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
+            throw ValidationException::withMessages([
+                'estado' => 'Este período está cerrado — no se puede recalcular. Reábrelo primero si necesitas corregirlo.',
+            ]);
+        }
+
+        if ($ciclo->calculo_estado === 'en_proceso') {
+            throw ValidationException::withMessages([
+                'calculo_estado' => 'Ya hay un cálculo en curso para este ciclo.',
+            ]);
+        }
+
+        $ciclo->update([
+            'calculo_estado' => 'en_proceso',
+            'calculo_iniciado_at' => now(),
+            'calculo_finalizado_at' => null,
+            'calculo_resultado' => null,
+        ]);
+
+        CalcularPlanillaJob::dispatch($empresa->id, $ciclo->id, $usuarioId, $motivoRecalculo);
+
+        return $ciclo;
     }
 
     private function calcularBoletaColaborador(CicloRemunerativo $ciclo, Colaborador $colaborador, int $usuarioId, ?string $motivoRecalculo): Boleta

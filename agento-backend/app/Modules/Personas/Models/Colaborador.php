@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
@@ -79,6 +80,21 @@ class Colaborador extends Model
     public function remuneraciones(): HasMany
     {
         return $this->hasMany(ColaboradorRemuneracion::class)->orderByDesc('vigencia_desde');
+    }
+
+    /**
+     * La más reciente por vigencia_desde (empate roto por id) — NUNCA usar
+     * `remuneraciones()->limit(1)` en un eager load: ese límite se aplica al
+     * resultado combinado de TODOS los colaboradores de la consulta, no uno
+     * por colaborador (bug real detectado: solo 1 colaborador de la página
+     * terminaba con remuneración cargada). `ofMany` sí resuelve "el más
+     * reciente por padre" correctamente en un solo query.
+     */
+    public function remuneracionVigente(): HasOne
+    {
+        return $this->hasOne(ColaboradorRemuneracion::class)->ofMany(
+            ['vigencia_desde' => 'max', 'id' => 'max'],
+        );
     }
 
     public function calendario(): HasMany

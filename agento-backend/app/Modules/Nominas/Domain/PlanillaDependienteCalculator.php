@@ -85,9 +85,47 @@ class PlanillaDependienteCalculator implements RegimenCalculator
         ];
     }
 
-    public function calcularDescuentoTardanza(float $sueldoBasico, int $minutosTardanza): array
+    public function calcularDescuentoTardanza(float $sueldoBasico, int $minutosTardanza, array $reglas = []): array
     {
         $valorMinuto = ($sueldoBasico / 240) / 60;
+
+        if ($minutosTardanza <= 0) {
+            return [
+                'codigo' => 'DESCUENTO_TARDANZA',
+                'monto' => 0.0,
+                'base_utilizada' => round($valorMinuto, 4),
+                'tasa_aplicada' => null,
+                'cantidad' => 0,
+                'formula_texto' => 'Sin tardanza en el período.',
+            ];
+        }
+
+        $regla = collect($reglas)->first(
+            fn (array $r) => $minutosTardanza >= $r['minutos_desde']
+                && ($r['minutos_hasta'] === null || $minutosTardanza <= $r['minutos_hasta']),
+        );
+
+        if ($regla) {
+            $monto = match ($regla['tipo']) {
+                'por_minuto' => round($valorMinuto * $regla['valor'] * $minutosTardanza, 2),
+                'monto_fijo' => round((float) $regla['valor'], 2),
+                'medio_dia' => round(($sueldoBasico / 30) / 2, 2),
+                'dia_completo' => round($sueldoBasico / 30, 2),
+                default => round($valorMinuto * $minutosTardanza, 2),
+            };
+
+            return [
+                'codigo' => 'DESCUENTO_TARDANZA',
+                'monto' => $monto,
+                'base_utilizada' => round($valorMinuto, 4),
+                'tasa_aplicada' => $regla['valor'] ?? null,
+                'cantidad' => $minutosTardanza,
+                'formula_texto' => "Regla configurada ({$regla['minutos_desde']}-".($regla['minutos_hasta'] ?? '∞')." min, {$regla['tipo']}) → {$minutosTardanza} min tarde",
+            ];
+        }
+
+        // Sin reglas configuradas para esta empresa: fórmula plana de
+        // siempre, valor_minuto × minutos — comportamiento sin cambios.
         $monto = round($valorMinuto * $minutosTardanza, 2);
 
         return [
@@ -148,8 +186,25 @@ class PlanillaDependienteCalculator implements RegimenCalculator
         ];
     }
 
-    public function calcularEsSalud(float $baseRemunerativa, array $parametros): array
+    public function calcularEsSalud(float $baseRemunerativa, array $parametros, string $seguroSalud = 'essalud'): array
     {
+        if ($seguroSalud === 'sis') {
+            // SIS es un monto fijo mensual por trabajador, no un % del
+            // sueldo — no hay piso legal que comparar contra la base
+            // remunerativa, a diferencia de EsSalud.
+            return [
+                'linea' => [
+                    'codigo' => 'SIS_APORTACION',
+                    'monto' => round($parametros['sis_monto_fijo'], 2),
+                    'base_utilizada' => null,
+                    'tasa_aplicada' => null,
+                    'cantidad' => null,
+                    'formula_texto' => "SIS — monto fijo mensual configurado (S/ {$parametros['sis_monto_fijo']}), la empresa optó por SIS en vez de EsSalud",
+                ],
+                'piso_activado' => false,
+            ];
+        }
+
         $calculado = round($baseRemunerativa * $parametros['tasa_essalud'], 2);
         $piso = round($parametros['rmv'] * $parametros['tasa_essalud'], 2);
         $monto = max($calculado, $piso);

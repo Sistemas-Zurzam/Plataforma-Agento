@@ -17,8 +17,12 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'ruc',
     'direccion',
     'color',
+    'logo_path',
     'regimen_laboral',
     'inscrita_remype',
+    'fecha_inscripcion_remype',
+    'numero_registro_remype',
+    'seguro_salud',
     'activa',
 ])]
 class Empresa extends Model
@@ -40,6 +44,7 @@ class Empresa extends Model
         return [
             'activa' => 'boolean',
             'inscrita_remype' => 'boolean',
+            'fecha_inscripcion_remype' => 'date',
         ];
     }
 
@@ -62,5 +67,10 @@ class Empresa extends Model
     public function areas(): HasMany
     {
         return $this->hasMany(Area::class);
+    }
+
+    public function reglasDescuentoTardanza(): HasMany
+    {
+        return $this->hasMany(ReglaDescuentoTardanza::class)->orderBy('orden');
     }
 }

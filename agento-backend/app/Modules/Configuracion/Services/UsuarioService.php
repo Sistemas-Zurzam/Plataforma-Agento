@@ -7,6 +7,7 @@ use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Role;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -24,29 +25,43 @@ class UsuarioService
     }
 
     /**
-     * Crea un usuario nuevo y lo adjunta a la empresa indicada (ya validada
-     * como una de las empresas del actor) con el rol y, opcionalmente, el
-     * área señalados. La contraseña la define el propio administrador.
+     * Crea un usuario nuevo y lo adjunta a TODAS las empresas indicadas (ya
+     * validadas como accesibles para el actor) con el mismo rol, y
+     * opcionalmente un área. La primera empresa de la lista queda como su
+     * "empresa activa" inicial. La contraseña la define el propio
+     * administrador.
      *
+     * Si el rol es Administrador, alcanza con una sola empresa en la lista:
+     * User::esAdministradorGlobal() ya le da acceso a todas sin necesitar
+     * una fila por cada una — es el frontend el que decide cuántas mandar
+     * según el rol elegido, este método no lo asume.
+     *
+     * @param  Collection<int, Empresa>  $empresasDestino
      * @param  array{name: string, username: string, email: string, password: string, area_id: ?int}  $datos
      */
-    public function crear(Empresa $empresaDestino, array $datos, Role $rol, User $actor): User
+    public function crear(Collection $empresasDestino, array $datos, Role $rol, User $actor): User
     {
-        $this->empresas->autorizarAccion($empresaDestino, $actor, 'usuarios.crear');
-        $this->autorizarAsignacionRol($empresaDestino, $rol, $actor);
+        foreach ($empresasDestino as $empresa) {
+            $this->empresas->autorizarAccion($empresa, $actor, 'usuarios.crear');
+            $this->autorizarAsignacionRol($empresa, $rol, $actor);
+        }
 
-        return DB::transaction(function () use ($empresaDestino, $datos, $rol) {
+        $empresaPrincipal = $empresasDestino->first();
+
+        return DB::transaction(function () use ($empresasDestino, $empresaPrincipal, $datos, $rol) {
             $usuario = User::create([
                 ...$datos,
-                'empresa_id' => $empresaDestino->id,
+                'empresa_id' => $empresaPrincipal->id,
                 'password' => Hash::make($datos['password']),
             ]);
 
-            $empresaDestino->users()->attach($usuario->id, ['role_id' => $rol->id]);
+            foreach ($empresasDestino as $empresa) {
+                $empresa->users()->attach($usuario->id, ['role_id' => $rol->id]);
+            }
 
             $usuario->setRelation(
                 'pivot',
-                $empresaDestino->users()->find($usuario->id)->pivot,
+                $empresaPrincipal->users()->find($usuario->id)->pivot,
             );
 
             return $usuario;

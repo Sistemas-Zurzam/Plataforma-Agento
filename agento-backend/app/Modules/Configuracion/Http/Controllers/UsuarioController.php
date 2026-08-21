@@ -37,19 +37,26 @@ class UsuarioController extends Controller
 
     public function store(StoreUsuarioRequest $request): JsonResponse
     {
-        $empresaDestino = Empresa::findOrFail($request->validated('empresa_id'));
+        // whereIn() no garantiza el orden de $empresaIds — se reordena a mano
+        // porque el primer id de la lista es la "empresa activa" inicial que
+        // el frontend puso en primer lugar (para Administrador, la única).
+        $empresaIds = $request->validated('empresa_ids');
+        $porId = Empresa::whereIn('id', $empresaIds)->get()->keyBy('id');
+        $empresas = collect($empresaIds)->map(fn ($id) => $porId->get($id))->filter()->values();
+
         $rol = Role::findOrFail($request->validated('role_id'));
 
         $usuario = $this->usuarios->crear(
-            $empresaDestino,
+            $empresas,
             $request->only('name', 'username', 'email', 'password', 'area_id'),
             $rol,
             $request->user('api'),
         );
 
+        $empresaPrincipal = $empresas->first();
         $usuario->setAttribute('empresaActiva', [
-            'id' => $empresaDestino->id,
-            'nombre' => $empresaDestino->nombre,
+            'id' => $empresaPrincipal->id,
+            'nombre' => $empresaPrincipal->nombre,
         ]);
 
         return (new UsuarioResource($usuario))

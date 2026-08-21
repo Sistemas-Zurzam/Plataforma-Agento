@@ -7,11 +7,16 @@ export function useColaboradores() {
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
 
-  const fetchColaboradores = useCallback(async (page = 1, perPage = 10, busqueda = '') => {
+  const fetchColaboradores = useCallback(async (page = 1, perPage = 10, busqueda = '', todasEmpresas = false) => {
     setLoading(true);
     try {
       const { data } = await api.get('/colaboradores', {
-        params: { page, per_page: perPage, busqueda: busqueda || undefined },
+        params: {
+          page,
+          per_page: perPage,
+          busqueda: busqueda || undefined,
+          todas_empresas: todasEmpresas || undefined,
+        },
       });
       setColaboradores(data.data);
       setStats(data.stats);
@@ -89,6 +94,25 @@ export function useColaboradores() {
     return data;
   }, []);
 
+  const subirFotoPerfil = useCallback(async (colaboradorId, archivo) => {
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    const { data } = await api.post(`/colaboradores/${colaboradorId}/foto-perfil`, formData);
+    return data.data;
+  }, []);
+
+  const fetchFotoPerfil = useCallback(async (colaboradorId) => {
+    try {
+      const { data } = await api.get(`/colaboradores/${colaboradorId}/foto-perfil`, {
+        responseType: 'blob',
+      });
+      return data;
+    } catch (err) {
+      if (err.response?.status === 404) return null;
+      throw err;
+    }
+  }, []);
+
   return {
     colaboradores,
     stats,
@@ -106,5 +130,7 @@ export function useColaboradores() {
     eliminarColaborador,
     subirDocumento,
     verDocumento,
+    subirFotoPerfil,
+    fetchFotoPerfil,
   };
 }

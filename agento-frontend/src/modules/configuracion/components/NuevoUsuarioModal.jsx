@@ -2,6 +2,37 @@ import { Form, Input, Modal, Select } from 'antd';
 import { useEffect } from 'react';
 import AreaSelect from './AreaSelect';
 
+/**
+ * El campo subyacente (`empresa_ids`) siempre es un array — para
+ * Administrador se comporta como un selector simple (1 empresa activa
+ * inicial, ya que el rol le da acceso a todas automáticamente) y para el
+ * resto de roles permite elegir varias.
+ */
+function EmpresaSelector({ value, onChange, empresas, multiple }) {
+  const options = empresas.map((empresa) => ({ value: empresa.id, label: empresa.nombre }));
+
+  if (multiple) {
+    return (
+      <Select
+        mode="multiple"
+        placeholder="Selecciona una o más empresas"
+        value={value}
+        onChange={onChange}
+        options={options}
+      />
+    );
+  }
+
+  return (
+    <Select
+      placeholder="Selecciona la empresa activa inicial"
+      value={value?.[0]}
+      onChange={(seleccionado) => onChange(seleccionado !== undefined ? [seleccionado] : [])}
+      options={options}
+    />
+  );
+}
+
 export default function NuevoUsuarioModal({
   open,
   roles,
@@ -12,8 +43,11 @@ export default function NuevoUsuarioModal({
   user,
 }) {
   const [form] = Form.useForm();
-  const empresaId = Form.useWatch('empresa_id', form);
-  const empresaSeleccionada = empresas.find((empresa) => empresa.id === empresaId);
+  const empresaIds = Form.useWatch('empresa_ids', form) ?? [];
+  const roleId = Form.useWatch('role_id', form);
+  const rolSeleccionado = roles.find((role) => role.id === roleId);
+  const esAdministrador = rolSeleccionado?.clave === 'administrador';
+  const empresasSeleccionadas = empresas.filter((empresa) => empresaIds.includes(empresa.id));
   const puedeCrearArea = user?.permisos?.includes('areas.crear');
 
   useEffect(() => {
@@ -21,16 +55,26 @@ export default function NuevoUsuarioModal({
       form.resetFields();
       const empresaActiva = empresas.find((empresa) => empresa.es_activa);
       if (empresaActiva) {
-        form.setFieldValue('empresa_id', empresaActiva.id);
+        form.setFieldValue('empresa_ids', [empresaActiva.id]);
       }
     }
   }, [open, form, empresas]);
 
+  // Al pasar a Administrador, solo se conserva la primera empresa elegida
+  // (el rol ya da acceso a todas — un multi-select ahí no tendría sentido).
   useEffect(() => {
-    if (open && empresaId) {
+    if (esAdministrador && empresaIds.length > 1) {
+      form.setFieldValue('empresa_ids', [empresaIds[0]]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [esAdministrador]);
+
+  useEffect(() => {
+    if (open) {
       form.setFieldValue('area_id', undefined);
     }
-  }, [open, empresaId, form]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, empresaIds.join(',')]);
 
   return (
     <Modal
@@ -88,32 +132,6 @@ export default function NuevoUsuarioModal({
         </Form.Item>
 
         <Form.Item
-          label="Empresa"
-          name="empresa_id"
-          rules={[{ required: true, message: 'Selecciona una empresa' }]}
-        >
-          <Select
-            placeholder="Selecciona una empresa"
-            options={empresas.map((empresa) => ({
-              value: empresa.id,
-              label: empresa.nombre,
-            }))}
-          />
-        </Form.Item>
-
-        <Form.Item label="Área" name="area_id">
-          <AreaSelect
-            key={empresaId ?? 'none'}
-            empresaId={empresaId}
-            disabled={!empresaId}
-            puedeCrear={puedeCrearArea}
-            onCreateError={(mensaje) =>
-              form.setFields([{ name: 'area_id', errors: [mensaje] }])
-            }
-          />
-        </Form.Item>
-
-        <Form.Item
           label="Rol"
           name="role_id"
           rules={[{ required: true, message: 'Selecciona un rol' }]}
@@ -122,12 +140,39 @@ export default function NuevoUsuarioModal({
             placeholder="Selecciona un rol"
             options={roles
               .filter(
-                (role) => role.clave !== 'administrador' || empresaSeleccionada?.role === 'administrador',
+                (role) =>
+                  role.clave !== 'administrador' ||
+                  empresasSeleccionadas.some((empresa) => empresa.role === 'administrador'),
               )
               .map((role) => ({
-              value: role.id,
-              label: role.nombre,
+                value: role.id,
+                label: role.nombre,
               }))}
+          />
+        </Form.Item>
+
+        <Form.Item
+          label="Empresa"
+          name="empresa_ids"
+          rules={[{ required: true, type: 'array', min: 1, message: 'Selecciona al menos una empresa' }]}
+          extra={
+            esAdministrador
+              ? 'Como Administrador, tendrá acceso a todas las empresas automáticamente.'
+              : undefined
+          }
+        >
+          <EmpresaSelector empresas={empresas} multiple={!esAdministrador} />
+        </Form.Item>
+
+        <Form.Item label="Área" name="area_id">
+          <AreaSelect
+            key={empresaIds[0] ?? 'none'}
+            empresaId={empresaIds[0]}
+            disabled={!empresaIds[0]}
+            puedeCrear={puedeCrearArea}
+            onCreateError={(mensaje) =>
+              form.setFields([{ name: 'area_id', errors: [mensaje] }])
+            }
           />
         </Form.Item>
       </Form>
