@@ -18,7 +18,8 @@ import {
   UnlockOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
-import { App, Avatar, Button, Empty, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
+import { App, Avatar, Button, DatePicker, Empty, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
+import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import BoletaImprimibleModal from '../../modules/remuneraciones/components/BoletaImprimibleModal';
@@ -83,6 +84,17 @@ function TarjetaStat({ icono, valor, etiqueta, color }) {
 
 function soles(valor) {
   return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Nunca renderiza un 0 de asistencia como si fuera un resultado confirmado
+ * cuando el período todavía no fue procesado por Asistencia (Sección 36).
+ */
+function celdaAsistencia(valor, asistenciaProcesada) {
+  if (!asistenciaProcesada) {
+    return <span className="text-xs text-gray-400 italic">Sin procesar</span>;
+  }
+  return valor ?? '—';
 }
 
 function BloqueConceptos({ titulo, lineas, tono }) {
@@ -173,10 +185,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo,
+    previsualizacion, previsualizacionLoading, fetchPrevisualizacion,
   } = useRemuneraciones();
 
   const [cicloId, setCicloId] = useState(null);
-  const [tabActiva, setTabActiva] = useState('ciclos');
+  const [tabActiva, setTabActiva] = useState('previsualizacion');
+  const [mesPrevisualizacion, setMesPrevisualizacion] = useState(() => dayjs());
   const [nuevoCicloOpen, setNuevoCicloOpen] = useState(false);
   const [creandoCiclo, setCreandoCiclo] = useState(false);
   const [calculando, setCalculando] = useState(false);
@@ -217,6 +231,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     fetchResumen(cicloId, tipoFiltro);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cicloId, tipoFiltro]);
+
+  useEffect(() => {
+    if (!puedeVer) return;
+    fetchPrevisualizacion(mesPrevisualizacion.year(), mesPrevisualizacion.month() + 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [puedeVer, mesPrevisualizacion, user?.empresa?.id]);
 
   const cicloActivo = ciclos.find((c) => c.id === cicloId);
 
@@ -504,7 +524,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           </Avatar>
           <div className="min-w-0">
             <p className="truncate font-semibold text-gray-900">{boleta.colaborador?.nombre_completo}</p>
-            <p className="truncate text-xs text-gray-400">{boleta.colaborador?.legajo}</p>
+            <p className="truncate text-xs text-gray-400">{boleta.colaborador?.cargo ?? boleta.colaborador?.legajo}</p>
           </div>
         </div>
       ),
@@ -521,6 +541,18 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       ),
     },
     { title: 'Sueldo base', dataIndex: 'sueldo_basico', width: 120, render: soles },
+    {
+      title: 'Faltas',
+      key: 'faltas',
+      width: 90,
+      render: (_, b) => celdaAsistencia(b.dias_falta, b.asistencia_procesada),
+    },
+    {
+      title: 'Tardanza (min)',
+      key: 'tardanza',
+      width: 110,
+      render: (_, b) => celdaAsistencia(b.minutos_tardanza, b.asistencia_procesada),
+    },
     { title: 'Total ingresos', dataIndex: 'total_ingresos', width: 130, render: (v) => <span className="text-green-600">{soles(v)}</span> },
     { title: 'Descuentos', dataIndex: 'total_egresos', width: 120, render: (v) => <span className="text-red-500">{soles(v)}</span> },
     { title: 'Neto', dataIndex: 'neto_a_pagar', width: 130, render: (v) => <span className="font-semibold text-gray-900">{soles(v)}</span> },
@@ -536,8 +568,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       width: 200,
       render: (_, boleta) => (
         <div className="flex items-center gap-1">
-          <Tooltip title="Descargar / imprimir boleta">
-            <Button size="small" type="text" icon={<DownloadOutlined />} onClick={() => setBoletaImprimirId(boleta.id)} />
+          <Tooltip title={boleta.estado === 'pagada' ? 'Descargar boleta oficial' : 'Vista previa — documento no oficial (aún no está pagada)'}>
+            <Button
+              size="small"
+              type="text"
+              icon={<DownloadOutlined />}
+              onClick={() => setBoletaImprimirId(boleta.id)}
+            />
           </Tooltip>
           <Tooltip title="Configuración de planilla">
             <Button size="small" type="text" icon={<SettingOutlined />} onClick={() => abrirConfiguracion(boleta)} disabled={!puedeGestionarCiclos} />
@@ -562,6 +599,40 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [puedeGestionarCiclos, puedeAprobar, puedePagar]);
+
+  const columnasPrevisualizacion = useMemo(() => [
+    {
+      title: 'Colaborador',
+      key: 'colaborador',
+      width: 220,
+      render: (_, fila) => (
+        <div className="flex items-center gap-3">
+          <Avatar style={{ backgroundColor: colorForName(fila.nombre) }}>{initialsForName(fila.nombre)}</Avatar>
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-gray-900">{fila.nombre}</p>
+            <p className="truncate text-xs text-gray-400">{fila.cargo ?? '—'}</p>
+          </div>
+        </div>
+      ),
+    },
+    { title: 'Sueldo base', dataIndex: 'sueldo_basico', width: 120, render: (v, f) => (f.estado === 'calculable' ? soles(v) : '—') },
+    { title: 'Faltas', key: 'faltas', width: 90, render: (_, f) => celdaAsistencia(f.dias_falta, f.asistencia_procesada) },
+    { title: 'Tardanza (min)', key: 'tardanza', width: 110, render: (_, f) => celdaAsistencia(f.minutos_tardanza, f.asistencia_procesada) },
+    { title: 'Total ingresos', dataIndex: 'total_ingresos', width: 130, render: (v, f) => (f.estado === 'calculable' ? <span className="text-green-600">{soles(v)}</span> : '—') },
+    { title: 'Descuentos', dataIndex: 'total_egresos', width: 120, render: (v, f) => (f.estado === 'calculable' ? <span className="text-red-500">{soles(v)}</span> : '—') },
+    { title: 'Neto estimado', dataIndex: 'neto_a_pagar', width: 130, render: (v, f) => (f.estado === 'calculable' ? <span className="font-semibold text-gray-900">{soles(v)}</span> : '—') },
+    {
+      title: 'Estado',
+      key: 'estado',
+      width: 220,
+      render: (_, f) => (
+        f.estado === 'calculable'
+          ? <Tag color="blue">Calculable</Tag>
+          : <Tooltip title={f.motivo}><Tag color="red">No calculable</Tag></Tooltip>
+      ),
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], []);
 
   if (!puedeVer) {
     return <Empty description="No tienes permiso para ver Gestión de Remuneraciones" className="mt-16" />;
@@ -643,6 +714,35 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         activeKey={tabActiva}
         onChange={setTabActiva}
         items={[
+          {
+            key: 'previsualizacion',
+            label: 'Previsualización mensual',
+            children: (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <DatePicker
+                    picker="month"
+                    format="MMMM YYYY"
+                    allowClear={false}
+                    value={mesPrevisualizacion}
+                    onChange={(valor) => setMesPrevisualizacion(valor ?? dayjs())}
+                  />
+                  <span className="text-xs text-gray-400">
+                    Vista preliminar del período — no crea ni modifica ningún ciclo. Corrige aquí lo que haga falta antes de calcular/cerrar el ciclo formal.
+                  </span>
+                </div>
+                <Table
+                  rowKey="colaborador_id"
+                  loading={previsualizacionLoading}
+                  dataSource={previsualizacion}
+                  columns={columnasPrevisualizacion}
+                  scroll={{ x: 1000 }}
+                  pagination={false}
+                  locale={{ emptyText: 'No hay colaboradores elegibles para este período' }}
+                />
+              </div>
+            ),
+          },
           {
             key: 'ciclos',
             label: 'Ciclos y cálculos',

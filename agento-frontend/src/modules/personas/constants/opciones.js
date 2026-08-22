@@ -39,14 +39,6 @@ export const MONEDA_OPTIONS = [
   { value: 'USD', label: 'Dólares (USD)' },
 ];
 
-export const SISTEMA_PREVISIONAL_OPTIONS = [
-  { value: 'onp', label: 'ONP' },
-  { value: 'prima', label: 'Prima AFP' },
-  { value: 'profuturo', label: 'Profuturo' },
-  { value: 'integra', label: 'Integra' },
-  { value: 'habitat', label: 'Habitat' },
-];
-
 export const BANCO_OPTIONS = [
   'BCP',
   'BBVA',

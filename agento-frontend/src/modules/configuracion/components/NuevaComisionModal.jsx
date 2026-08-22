@@ -1,16 +1,38 @@
-import { DatePicker, Form, InputNumber, Modal, Select } from 'antd';
+import { DatePicker, Form, Input, InputNumber, Modal, Select } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect } from 'react';
 
-export default function NuevaComisionModal({ open, afps, onSubmit, onCancel, submitting }) {
+/**
+ * Sirve tanto para "Nueva Comisión" (crea una vigencia nueva) como para
+ * "Editar" (corrige el registro vigente más reciente, ver
+ * ComisionAfpService::actualizar en el backend). En modo edición la AFP no
+ * puede cambiar y se exige "Motivo" — una corrección debe quedar
+ * justificada, a diferencia de registrar una vigencia nueva.
+ */
+export default function NuevaComisionModal({
+  open,
+  afps,
+  editing = false,
+  initialValues,
+  onSubmit,
+  onCancel,
+  submitting,
+}) {
   const [form] = Form.useForm();
 
   useEffect(() => {
     if (open) {
       form.resetFields();
-      form.setFieldsValue({ vigencia_desde: dayjs() });
+      if (editing && initialValues) {
+        form.setFieldsValue({
+          ...initialValues,
+          vigencia_desde: initialValues.vigencia_desde ? dayjs(initialValues.vigencia_desde) : undefined,
+        });
+      } else {
+        form.setFieldsValue({ vigencia_desde: dayjs() });
+      }
     }
-  }, [open, form]);
+  }, [open, editing, initialValues, form]);
 
   const handleFinish = (values) => {
     onSubmit({
@@ -21,7 +43,7 @@ export default function NuevaComisionModal({ open, afps, onSubmit, onCancel, sub
 
   return (
     <Modal
-      title="Nueva Comisión"
+      title={editing ? 'Editar Comisión' : 'Nueva Comisión'}
       open={open}
       onCancel={onCancel}
       onOk={() => form.submit()}
@@ -39,6 +61,7 @@ export default function NuevaComisionModal({ open, afps, onSubmit, onCancel, sub
         >
           <Select
             placeholder="Selecciona una AFP"
+            disabled={editing}
             options={afps?.map((afp) => ({ value: afp.afp_id, label: afp.nombre }))}
           />
         </Form.Item>
@@ -92,6 +115,16 @@ export default function NuevaComisionModal({ open, afps, onSubmit, onCancel, sub
             <InputNumber min={0} step={0.01} className="w-full" />
           </Form.Item>
         </div>
+
+        {editing && (
+          <Form.Item
+            label="Motivo de la corrección"
+            name="motivo"
+            rules={[{ required: true, message: 'Explica por qué se corrige este registro' }]}
+          >
+            <Input.TextArea rows={2} placeholder="Ej: se digitó mal la comisión de flujo al crearla" />
+          </Form.Item>
+        )}
       </Form>
     </Modal>
   );

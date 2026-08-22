@@ -49,15 +49,17 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
   }, [open, boletaId, verBoleta]);
 
   const conceptos = detalle?.conceptos ?? [];
+  const esOficial = detalle?.estado === 'pagada';
 
   return (
     <Modal
+      title={esOficial ? 'Boleta oficial' : 'Previsualización de boleta'}
       open={open}
       onCancel={onCancel}
       footer={[
         <Button key="cerrar" onClick={onCancel}>Cerrar</Button>,
         <Button key="imprimir" type="primary" icon={<PrinterOutlined />} onClick={() => window.print()}>
-          Imprimir / Guardar PDF
+          {esOficial ? 'Descargar boleta oficial' : 'Imprimir vista previa'}
         </Button>,
       ]}
       width={{ xs: '95%', sm: '85%', md: 640 }}
@@ -67,13 +69,18 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
         <p className="p-6 text-center text-sm text-gray-400">Cargando boleta...</p>
       ) : (
         <div id="boleta-imprimible" className="p-2">
+          {!esOficial && (
+            <div className="mb-3 rounded-lg border border-orange-200 bg-orange-50 px-3 py-2 text-center text-xs font-semibold tracking-wide text-orange-700 uppercase">
+              Previsualización — documento no oficial, sujeto a cambios hasta que la boleta se marque como pagada
+            </div>
+          )}
           <div className="mb-4 flex items-start justify-between border-b border-gray-100 pb-3">
             <div>
               <p className="text-lg font-semibold text-gray-900">{detalle.colaborador?.nombre_completo}</p>
               <p className="text-xs text-gray-500">{detalle.colaborador?.legajo} · {detalle.colaborador?.empresa}</p>
               <p className="text-xs text-gray-500">Régimen: {detalle.regimen_laboral}</p>
             </div>
-            <Tag color="blue">Versión {detalle.version}</Tag>
+            <Tag color={esOficial ? 'green' : 'orange'}>{esOficial ? 'Oficial' : `Versión ${detalle.version} — no oficial`}</Tag>
           </div>
 
           <BloqueImprimible titulo="Ingresos" lineas={conceptos.filter((c) => c.tipo === 'ingreso')} />

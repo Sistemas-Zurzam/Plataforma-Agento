@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['empresa_id', 'definicion_id', 'regimen_laboral', 'vigencia_desde', 'valor'])]
+#[Fillable(['empresa_id', 'definicion_id', 'regimen_laboral', 'vigencia_desde', 'valor', 'creado_por_id', 'motivo'])]
 class ParametroLaboralValor extends Model
 {
     /**
@@ -32,5 +32,10 @@ class ParametroLaboralValor extends Model
     public function definicion(): BelongsTo
     {
         return $this->belongsTo(ParametroLaboralDefinicion::class, 'definicion_id');
+    }
+
+    public function creadoPor(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'creado_por_id');
     }
 }

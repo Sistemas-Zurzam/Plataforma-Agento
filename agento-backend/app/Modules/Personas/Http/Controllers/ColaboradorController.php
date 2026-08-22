@@ -97,6 +97,12 @@ class ColaboradorController extends Controller
             'horario_id' => ['required', 'integer', 'exists:horarios,id'],
             'modalidad_trabajo' => ['required', 'in:presencial,remoto,hibrido'],
             'tolerancia_particular_minutos' => ['nullable', 'integer', 'min:0'],
+            // A partir de qué fecha este horario afecta el procesamiento de
+            // marcaciones (Sección 10) — no puede ser futura: eso dejaría
+            // "colaborador.horario_id" (el puntero de conveniencia al
+            // horario actual) apuntando a un horario que todavía no aplica.
+            'vigencia_desde' => ['required', 'date', 'before_or_equal:today'],
+            'vigencia_hasta' => ['nullable', 'date', 'after_or_equal:vigencia_desde'],
         ]);
 
         return new ColaboradorResource(

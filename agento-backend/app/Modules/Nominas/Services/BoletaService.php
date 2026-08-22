@@ -98,7 +98,9 @@ class BoletaService
         $procesadas = 0;
         $omitidas = [];
 
-        foreach ($this->colaboradoresElegibles($empresa, $ciclo) as $colaborador) {
+        $elegibles = $this->colaboradoresElegibles($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
+
+        foreach ($elegibles as $colaborador) {
             try {
                 $this->calcularBoletaColaborador($ciclo, $colaborador, $usuarioId, $motivoRecalculo);
                 $procesadas++;
@@ -191,6 +193,9 @@ class BoletaService
                 'regimen_laboral_snapshot' => $resultado['regimen_laboral'],
                 'sueldo_basico_snapshot' => $resultado['sueldo_basico'],
                 'dias_pagados' => $resultado['dias_pagados'],
+                'asistencia_procesada' => $resultado['asistencia_procesada'],
+                'dias_falta' => $resultado['dias_falta'],
+                'minutos_tardanza' => $resultado['minutos_tardanza'],
                 'total_ingresos' => $resultado['total_ingresos'],
                 'total_egresos' => $resultado['total_egresos'],
                 'total_aportaciones' => $resultado['total_aportaciones'],
@@ -289,17 +294,86 @@ class BoletaService
 
     /**
      * Elegibilidad (Sección 28): activos, ya ingresados a la fecha de fin
-     * del ciclo, sin cese antes del inicio. Incluye locadores (Recibos por
-     * Honorarios) — calcularBoletaColaborador() los enruta a
-     * CalcularReciboHonorarios en vez de excluirlos.
+     * del período, sin cese antes del inicio. Incluye locadores (Recibos por
+     * Honorarios) — calcularBoletaColaborador()/previsualizarPlanilla() los
+     * enrutan a CalcularReciboHonorarios en vez de excluirlos.
+     *
+     * Recibe fechas planas (no un CicloRemunerativo) para poder reutilizarse
+     * también desde previsualizarPlanilla(), que no tiene ni necesita un
+     * ciclo persistido — evita una segunda copia de este filtro (Sección 98,
+     * "no duplicar motores").
      */
-    private function colaboradoresElegibles(Empresa $empresa, CicloRemunerativo $ciclo)
+    private function colaboradoresElegibles(Empresa $empresa, string $fechaInicio, string $fechaFin)
     {
         return Colaborador::where('empresa_id', $empresa->id)
             ->where('activo', true)
-            ->whereDate('fecha_ingreso', '<=', $ciclo->fecha_fin)
-            ->where(fn ($query) => $query->whereNull('fecha_cese')->orWhereDate('fecha_cese', '>=', $ciclo->fecha_inicio))
+            ->whereDate('fecha_ingreso', '<=', $fechaFin)
+            ->where(fn ($query) => $query->whereNull('fecha_cese')->orWhereDate('fecha_cese', '>=', $fechaInicio))
             ->get();
+    }
+
+    /**
+     * Previsualización mensual continua (Sección 5 de la documentación
+     * funcional, y FEEDBACK V1: "botón de previsualización... permite
+     * realizar un cálculo hasta el momento sin la necesidad de abrir un
+     * ciclo"). Reutiliza exactamente el mismo motor que calcularPlanilla()
+     * (CalcularBoletaColaborador / CalcularReciboHonorarios), pero:
+     *   - NO requiere un CicloRemunerativo persistido (cicloId = null).
+     *   - NUNCA persiste Boleta ni BoletaConcepto — es de solo lectura.
+     *   - NUNCA se confunde con la boleta oficial (no tiene id, no se puede
+     *     aprobar/pagar/descargar).
+     *
+     * @return array<int, array{colaborador_id:int, nombre:string, cargo:?string, sueldo_basico:?float,
+     *   asistencia_procesada:bool, dias_falta:?float, minutos_tardanza:?int,
+     *   total_ingresos:?float, total_egresos:?float, neto_a_pagar:?float, estado:string, motivo:?string}>
+     */
+    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte): array
+    {
+        $filas = [];
+
+        foreach ($this->colaboradoresElegibles($empresa, $fechaInicio, $fechaFin) as $colaborador) {
+            $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios'
+                || $colaborador->regimen_laboral === 'Locacion de Servicios';
+            $calculador = $esHonorarios ? $this->calculadorHonorarios : $this->calculador;
+
+            $fila = [
+                'colaborador_id' => $colaborador->id,
+                'nombre' => trim("{$colaborador->nombres} {$colaborador->apellidos}"),
+                'cargo' => $colaborador->cargo,
+            ];
+
+            try {
+                $resultado = $calculador->calcular($colaborador, $fechaInicio, $fechaFin, $fechaCorte, null);
+
+                $filas[] = [
+                    ...$fila,
+                    'sueldo_basico' => $resultado['sueldo_basico'],
+                    'asistencia_procesada' => $resultado['asistencia_procesada'],
+                    'dias_falta' => $resultado['dias_falta'],
+                    'minutos_tardanza' => $resultado['minutos_tardanza'],
+                    'total_ingresos' => $resultado['total_ingresos'],
+                    'total_egresos' => $resultado['total_egresos'],
+                    'neto_a_pagar' => $resultado['neto_a_pagar'],
+                    'estado' => 'calculable',
+                    'motivo' => null,
+                ];
+            } catch (Throwable $e) {
+                $filas[] = [
+                    ...$fila,
+                    'sueldo_basico' => null,
+                    'asistencia_procesada' => false,
+                    'dias_falta' => null,
+                    'minutos_tardanza' => null,
+                    'total_ingresos' => null,
+                    'total_egresos' => null,
+                    'neto_a_pagar' => null,
+                    'estado' => 'no_calculable',
+                    'motivo' => $e->getMessage(),
+                ];
+            }
+        }
+
+        return $filas;
     }
 
     private function verificarPertenencia(Empresa $empresa, CicloRemunerativo $ciclo): void

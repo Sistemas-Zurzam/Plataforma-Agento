@@ -23,10 +23,10 @@ export default function ParametrosLaborales({ user }) {
     fetchParametros();
   }, [fetchParametros]);
 
-  const handleGuardar = async (regimen, vigenciaDesde, valoresPorDefinicion) => {
+  const handleGuardar = async (regimen, vigenciaDesde, valoresPorDefinicion, motivo) => {
     setGuardando(true);
     try {
-      await guardarValores(regimen, vigenciaDesde, valoresPorDefinicion);
+      await guardarValores(regimen, vigenciaDesde, valoresPorDefinicion, motivo);
       setEditando(null);
       message.success('Parámetros actualizados correctamente');
     } catch {

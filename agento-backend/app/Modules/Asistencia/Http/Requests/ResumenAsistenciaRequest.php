@@ -17,6 +17,7 @@ class ResumenAsistenciaRequest extends FormRequest
             'area' => ['nullable', 'string', 'max:150'],
             'preparacion' => ['nullable', 'in:todos,listos,sin_horario,sin_calendario'],
             'area_id' => ['nullable', 'integer'],
+            'colaborador_id' => ['nullable', 'integer'],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
         ];
     }

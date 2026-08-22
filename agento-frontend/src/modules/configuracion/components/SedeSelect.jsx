@@ -1,14 +1,27 @@
 import { Select } from 'antd';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useSedes } from '../hooks/useSedes';
 
+const CREAR_SEDE = '__crear_sede__';
+
 /**
- * Sede picker de solo lectura (a diferencia de AreaSelect, no ofrece
- * "+ Crear sede" — las sedes se gestionan desde la pantalla de Empresas).
- * Se recomienda remontar con `key={empresaId}` cuando cambie la empresa.
+ * Sede picker that doubles as "buscar o crear" (igual que AreaSelect):
+ * escribir un nombre que no coincide con ninguna sede activa existente
+ * ofrece crearla en el momento, usando la misma API oficial de Sedes de
+ * Configuraciones — sin catálogo paralelo. Remontar con `key={empresaId}`
+ * cuando cambie la empresa.
  */
-export default function SedeSelect({ empresaId, value, onChange, disabled }) {
-  const { sedes, loading, fetchSedes } = useSedes(empresaId, true);
+export default function SedeSelect({
+  empresaId,
+  value,
+  onChange,
+  disabled,
+  onCreateError,
+  puedeCrear = false,
+}) {
+  const { sedes, loading, fetchSedes, createSede } = useSedes(empresaId, true);
+  const [sedeSearch, setSedeSearch] = useState('');
+  const [creandoSede, setCreandoSede] = useState(false);
 
   useEffect(() => {
     if (empresaId) {
@@ -16,19 +29,65 @@ export default function SedeSelect({ empresaId, value, onChange, disabled }) {
     }
   }, [empresaId, fetchSedes]);
 
+  const busquedaNormalizada = sedeSearch.trim().toLowerCase();
+  const coincideExistente = sedes.some(
+    (sede) => sede.nombre.trim().toLowerCase() === busquedaNormalizada,
+  );
+
+  const sedesFiltradas = busquedaNormalizada
+    ? sedes.filter((sede) => sede.nombre.toLowerCase().includes(busquedaNormalizada))
+    : sedes;
+
+  const options = sedesFiltradas.map((sede) => ({ value: sede.id, label: sede.nombre }));
+  if (puedeCrear && busquedaNormalizada && !coincideExistente) {
+    options.push({
+      value: CREAR_SEDE,
+      label: `+ Crear sede "${sedeSearch.trim()}"`,
+    });
+  }
+
+  const handleChange = async (selected) => {
+    if (selected !== CREAR_SEDE || !puedeCrear) {
+      onChange(selected ?? undefined);
+      return;
+    }
+
+    setCreandoSede(true);
+    try {
+      const nuevaSede = await createSede({ nombre: sedeSearch.trim() });
+      onChange(nuevaSede.id);
+      setSedeSearch('');
+    } catch (err) {
+      const mensaje =
+        err.response?.data?.errors?.nombre?.[0] ??
+        err.response?.data?.message ??
+        'No se pudo crear la sede';
+      onCreateError?.(mensaje);
+    } finally {
+      setCreandoSede(false);
+    }
+  };
+
   return (
     <Select
-      placeholder={empresaId ? 'Selecciona una sede' : 'Selecciona primero una empresa'}
+      placeholder={empresaId ? 'Buscar o selecciona una sede' : 'Selecciona primero una empresa'}
+      allowClear
       showSearch
-      optionFilterProp="label"
       value={value}
-      onChange={onChange}
-      loading={loading}
+      searchValue={sedeSearch}
+      onSearch={setSedeSearch}
+      onChange={handleChange}
+      filterOption={false}
+      loading={loading || creandoSede}
       disabled={disabled}
       notFoundContent={
-        loading ? 'Buscando…' : 'Sin sedes disponibles — créalas desde Configuraciones → Gestión de empresas'
+        loading
+          ? 'Buscando…'
+          : puedeCrear
+            ? 'Escribe para crear una sede'
+            : 'Sin sedes disponibles — créalas desde Configuraciones → Gestión de empresas'
       }
-      options={sedes.map((sede) => ({ value: sede.id, label: sede.nombre }))}
+      options={options}
     />
   );
 }

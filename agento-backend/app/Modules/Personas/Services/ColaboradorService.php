@@ -112,35 +112,51 @@ class ColaboradorService
         ];
     }
 
+    /**
+     * @param  array{horario_id:int, modalidad_trabajo:string, tolerancia_particular_minutos:?int, vigencia_desde:string, vigencia_hasta:?string}  $datos
+     */
     public function actualizarHorario(Empresa $empresa, Colaborador $colaborador, array $datos): Colaborador
     {
         if ($colaborador->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
         }
 
-        $hoy = now()->toDateString();
+        $vigenciaDesde = $datos['vigencia_desde'];
+        $vigenciaHasta = $datos['vigencia_hasta'] ?? null;
+
         $horarioValido = Horario::whereKey($datos['horario_id'])
             ->where('empresa_id', $empresa->id)
             ->where('activo', true)
-            ->whereDate('vigencia_desde', '<=', $hoy)
-            ->where(fn ($query) => $query->whereNull('vigencia_hasta')->orWhereDate('vigencia_hasta', '>=', $hoy))
+            ->whereDate('vigencia_desde', '<=', $vigenciaDesde)
+            ->where(fn ($query) => $query->whereNull('vigencia_hasta')->orWhereDate('vigencia_hasta', '>=', $vigenciaDesde))
             ->exists();
 
         if (! $horarioValido) {
-            throw new AuthorizationException('El horario seleccionado no está activo o vigente para la empresa.');
+            throw new AuthorizationException('El horario seleccionado no está activo o vigente para la empresa en la fecha indicada.');
         }
 
-        DB::transaction(function () use ($colaborador, $datos, $empresa, $hoy) {
+        DB::transaction(function () use ($colaborador, $datos, $empresa, $vigenciaDesde, $vigenciaHasta) {
             if ($colaborador->horario_id !== $datos['horario_id']) {
                 $asignacionActual = $colaborador->asignacionesHorario()->whereNull('vigencia_hasta')->first();
-                if ($asignacionActual?->vigencia_desde?->toDateString() === $hoy) {
-                    $asignacionActual->update(['horario_id' => $datos['horario_id']]);
+
+                // Corrección (Sección 12): la fecha indicada no es posterior
+                // a la vigencia ya abierta -> se corrige el mismo registro
+                // en vez de fragmentar el historial con una vigencia nueva.
+                if ($asignacionActual && $vigenciaDesde <= $asignacionActual->vigencia_desde->toDateString()) {
+                    $asignacionActual->update([
+                        'horario_id' => $datos['horario_id'],
+                        'vigencia_desde' => $vigenciaDesde,
+                        'vigencia_hasta' => $vigenciaHasta,
+                    ]);
                 } else {
-                    $asignacionActual?->update(['vigencia_hasta' => now()->subDay()->toDateString()]);
+                    $asignacionActual?->update([
+                        'vigencia_hasta' => Carbon::parse($vigenciaDesde)->subDay()->toDateString(),
+                    ]);
                     $colaborador->asignacionesHorario()->create([
                         'empresa_id' => $empresa->id,
                         'horario_id' => $datos['horario_id'],
-                        'vigencia_desde' => $hoy,
+                        'vigencia_desde' => $vigenciaDesde,
+                        'vigencia_hasta' => $vigenciaHasta,
                     ]);
                 }
             }

@@ -83,6 +83,14 @@ class ColaboradorResource extends JsonResource
                 'asignacion_familiar' => $remuneracion->asignacion_familiar,
                 'vigencia_desde' => $remuneracion->vigencia_desde?->toDateString(),
             ])->values()),
+            'historial_horario' => $this->whenLoaded('asignacionesHorario', fn () => $this->asignacionesHorario
+                ->sortByDesc('vigencia_desde')
+                ->map(fn ($asignacion) => [
+                    'id' => $asignacion->id,
+                    'horario' => $asignacion->horario?->nombre,
+                    'vigencia_desde' => $asignacion->vigencia_desde?->toDateString(),
+                    'vigencia_hasta' => $asignacion->vigencia_hasta?->toDateString(),
+                ])->values()),
             'calendario' => $this->whenLoaded('calendario', fn () => $this->calendario->map(fn ($dia) => [
                 'fecha' => $dia->fecha?->toDateString(),
                 'tipo' => $dia->tipo,

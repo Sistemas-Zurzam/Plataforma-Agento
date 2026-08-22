@@ -7,12 +7,39 @@ use App\Modules\Nominas\Http\Resources\BoletaResource;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Services\BoletaService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Carbon;
 
 class BoletaController extends Controller
 {
     public function __construct(private readonly BoletaService $boletas) {}
+
+    /**
+     * Previsualización mensual continua — no requiere un ciclo creado
+     * (Sección 5/32 de la documentación funcional). Documento de solo
+     * lectura, nunca oficial: no se persiste nada.
+     */
+    public function previsualizar(Request $request): JsonResponse
+    {
+        $empresa = $request->user('api')->empresa;
+        $datos = $request->validate([
+            'anio' => ['required', 'integer', 'min:2020', 'max:2100'],
+            'mes' => ['required', 'integer', 'min:1', 'max:12'],
+        ]);
+
+        $inicioMes = Carbon::create($datos['anio'], $datos['mes'], 1);
+        $fechaInicio = $inicioMes->toDateString();
+        $fechaFin = $inicioMes->copy()->endOfMonth()->toDateString();
+        // Un mes en curso se previsualiza "hasta hoy"; un mes ya cerrado se
+        // previsualiza completo — nunca se proyecta hacia el futuro.
+        $fechaCorte = min($fechaFin, now()->toDateString());
+
+        return response()->json([
+            'data' => $this->boletas->previsualizarPlanilla($empresa, $fechaInicio, $fechaFin, $fechaCorte),
+        ]);
+    }
 
     public function index(Request $request, CicloRemunerativo $ciclo): AnonymousResourceCollection
     {

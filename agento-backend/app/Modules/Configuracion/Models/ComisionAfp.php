@@ -14,6 +14,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
     'comision_flujo_porcentaje',
     'comision_mixta_porcentaje',
     'sobre_saldo_anual_porcentaje',
+    'creado_por_id',
+    'motivo',
 ])]
 class ComisionAfp extends Model
 {
@@ -38,5 +40,10 @@ class ComisionAfp extends Model
     public function afp(): BelongsTo
     {
         return $this->belongsTo(Afp::class);
+    }
+
+    public function creadoPor(): BelongsTo
+    {
+        return $this->belongsTo(\App\Models\User::class, 'creado_por_id');
     }
 }

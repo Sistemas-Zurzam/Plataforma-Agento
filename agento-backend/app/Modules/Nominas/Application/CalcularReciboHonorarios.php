@@ -79,6 +79,13 @@ class CalcularReciboHonorarios
             // prorrateo por asistencia) — se deja en 0 porque la columna de
             // boletas no admite null, nunca debe leerse como "días trabajados".
             'dias_pagados' => 0.0,
+            // Un locador no tiene asistencia que procesar (no hay horario ni
+            // marcaciones que le apliquen) — 'true' aquí significa "no
+            // aplica", nunca "aún no procesada", así que la UI no debe
+            // mostrar "Sin procesar" para un Recibo por Honorarios.
+            'asistencia_procesada' => true,
+            'dias_falta' => 0.0,
+            'minutos_tardanza' => 0,
             'ingresos' => $ingresos,
             'egresos' => $egresos,
             'aportaciones' => [],

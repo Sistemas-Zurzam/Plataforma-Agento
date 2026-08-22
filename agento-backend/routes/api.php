@@ -60,14 +60,17 @@ Route::middleware('jwt')->group(function () {
     Route::get('/parametros-laborales', [ParametroLaboralController::class, 'index'])->middleware('permiso:parametros_laborales.ver');
     Route::post('/parametros-laborales', [ParametroLaboralController::class, 'store'])->middleware('permiso:parametros_laborales.editar');
     Route::post('/parametros-laborales/inicializar', [ParametroLaboralController::class, 'inicializar'])->middleware('permiso:parametros_laborales.editar');
+    Route::get('/parametros-laborales/{definicion}/historial', [ParametroLaboralController::class, 'historial'])->middleware('permiso:parametros_laborales.ver');
 
-    Route::get('/afps', [AfpController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::get('/afps', [AfpController::class, 'index']);
     Route::get('/conceptos-remuneracion', [ConceptoRemuneracionController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/tramos-renta', [TramoRentaController::class, 'index'])->middleware('permiso:parametros_laborales.ver');
     Route::get('/comisiones-afp', [ComisionAfpController::class, 'index'])->middleware('permiso:comisiones_afp.ver');
     Route::post('/comisiones-afp', [ComisionAfpController::class, 'store'])->middleware('permiso:comisiones_afp.editar');
+    Route::put('/comisiones-afp/{comision}', [ComisionAfpController::class, 'update'])->middleware('permiso:comisiones_afp.editar');
     Route::delete('/comisiones-afp/{comision}', [ComisionAfpController::class, 'destroy'])->middleware('permiso:comisiones_afp.editar');
     Route::post('/comisiones-afp/cargar-sbs', [ComisionAfpController::class, 'cargarSbs'])->middleware('permiso:comisiones_afp.editar');
+    Route::get('/comisiones-afp/{afp}/historial', [ComisionAfpController::class, 'historial'])->middleware('permiso:comisiones_afp.ver');
 
     Route::get('/horarios', [HorarioController::class, 'index'])->middleware('permiso:horarios.ver');
     Route::post('/horarios', [HorarioController::class, 'store'])->middleware('permiso:horarios.crear');
@@ -125,6 +128,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('/ciclos-remunerativos/{ciclo}/estado-calculo', [CicloRemunerativoController::class, 'estadoCalculo'])->middleware('permiso:nominas.ver');
     Route::patch('/ciclos-remunerativos/{ciclo}/cerrar', [CicloRemunerativoController::class, 'cerrar'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/reabrir', [CicloRemunerativoController::class, 'reabrir'])->middleware('permiso:nominas.cerrar_periodo');
+    Route::get('/planilla/previsualizar', [BoletaController::class, 'previsualizar'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas', [BoletaController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/resumen', [BoletaController::class, 'resumen'])->middleware('permiso:nominas.ver');
     Route::get('/beneficios-sociales/resumen', [BeneficioSocialController::class, 'resumen'])->middleware('permiso:nominas.ver');

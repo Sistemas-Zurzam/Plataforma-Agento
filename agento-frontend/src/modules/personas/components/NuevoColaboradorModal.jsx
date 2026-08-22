@@ -12,6 +12,7 @@ import TelefonoInput from '../../../components/TelefonoInput';
 import AreaSelect from '../../configuracion/components/AreaSelect';
 import SedeSelect from '../../configuracion/components/SedeSelect';
 import { REGIMEN_OPTIONS } from '../../configuracion/constants/regimenLaboral';
+import { useAfps } from '../../configuracion/hooks/useAfps';
 import HorarioFormModal from '../../asistencia/components/HorarioFormModal';
 import { useHorarios } from '../../asistencia/hooks/useHorarios';
 import CalendarioInicialColaborador, { siguienteTipoCiclo } from './CalendarioInicialColaborador';
@@ -21,7 +22,6 @@ import {
   MODALIDAD_TRABAJO_OPTIONS,
   MONEDA_OPTIONS,
   PERIODICIDAD_OPTIONS,
-  SISTEMA_PREVISIONAL_OPTIONS,
   TIPO_CONTRATO_OPTIONS,
   TIPO_CUENTA_OPTIONS,
   TIPO_DOCUMENTO_OPTIONS,
@@ -112,6 +112,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
   const [form] = Form.useForm();
   const { message } = App.useApp();
   const { horarios, fetchHorarios, crearHorario } = useHorarios();
+  const { afps, fetchAfps } = useAfps();
   const { fetchCalendarioDefecto } = useColaboradores();
   const [horarioModalOpen, setHorarioModalOpen] = useState(false);
   const [creandoHorario, setCreandoHorario] = useState(false);
@@ -125,6 +126,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
 
   const empresaId = user?.empresa?.id;
   const puedeCrearArea = user?.permisos?.includes('areas.crear');
+  const puedeCrearSede = user?.permisos?.includes('sedes.crear');
   const puedeCrearHorario = user?.permisos?.includes('horarios.crear');
   const tipoContrato = Form.useWatch('tipo_contrato', form);
   const periodicidadOptions = tipoContrato === 'locacion_servicios'
@@ -145,6 +147,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
         fecha_ingreso: dayjs(),
       });
       fetchHorarios(1, 100, '', 'activo');
+      fetchAfps();
       setPaso(1);
       setTabPaso1('personal');
       setCalendarioDias([]);
@@ -152,7 +155,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
       setFotoPerfil(null);
       setFotoPreview(null);
     }
-  }, [open, form, fetchHorarios]);
+  }, [open, form, fetchHorarios, fetchAfps]);
 
   useEffect(() => () => { if (fotoPreview) URL.revokeObjectURL(fotoPreview); }, [fotoPreview]);
 
@@ -392,7 +395,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                         name="sede_id"
                         rules={[{ required: true, message: 'Requerido' }]}
                       >
-                        <SedeSelect key={empresaId} empresaId={empresaId} />
+                        <SedeSelect key={empresaId} empresaId={empresaId} puedeCrear={puedeCrearSede} />
                       </Form.Item>
                       <Form.Item
                         label={campoLabel('Área')}
@@ -502,7 +505,14 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                         <InputNumber min={0} step={0.01} className="w-full" placeholder="0.00" />
                       </Form.Item>
                       <Form.Item label={campoLabel('Sistema previsional')} name="sistema_previsional">
-                        <Select allowClear placeholder="Sin especificar" options={SISTEMA_PREVISIONAL_OPTIONS} />
+                        <Select
+                          allowClear
+                          placeholder="Sin especificar"
+                          options={[
+                            { value: 'onp', label: 'ONP' },
+                            ...afps.map((afp) => ({ value: afp.clave, label: `AFP ${afp.nombre}` })),
+                          ]}
+                        />
                       </Form.Item>
                     </div>
                     <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">

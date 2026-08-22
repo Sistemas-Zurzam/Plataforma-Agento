@@ -1,18 +1,41 @@
-import { DeleteOutlined, PlusOutlined, SafetyOutlined } from '@ant-design/icons';
-import { App, Button, Select, Spin, Tag } from 'antd';
+import { DeleteOutlined, EditOutlined, HistoryOutlined, PlusOutlined, SafetyOutlined } from '@ant-design/icons';
+import { App, Button, Modal, Select, Spin, Table, Tag } from 'antd';
 import { useEffect, useState } from 'react';
 import { formatParametroValor } from '../../../utils/formatNumber';
 import NuevaComisionModal from '../components/NuevaComisionModal';
 import { useComisionesAfp } from '../hooks/useComisionesAfp';
 
+const HISTORIAL_COLUMNS = [
+  { title: 'Vigente desde', dataIndex: 'vigencia_desde' },
+  { title: 'Aporte (%)', dataIndex: 'aporte_obligatorio_porcentaje' },
+  { title: 'Prima (%)', dataIndex: 'prima_seguro_porcentaje' },
+  { title: 'Com. flujo (%)', dataIndex: 'comision_flujo_porcentaje' },
+  { title: 'Com. mixta (%)', dataIndex: 'comision_mixta_porcentaje' },
+  { title: 'Motivo', dataIndex: 'motivo', render: (motivo) => motivo ?? '—' },
+  { title: 'Registrado por', dataIndex: 'creado_por', render: (nombre) => nombre ?? '—' },
+  { title: 'Fecha de registro', dataIndex: 'creado_en' },
+];
+
 export default function ComisionesAfp({ user }) {
-  const { afps, loading, fetchComisiones, crearComision, eliminarComision, cargarSbs2024 } =
-    useComisionesAfp();
+  const {
+    afps,
+    loading,
+    fetchComisiones,
+    crearComision,
+    actualizarComision,
+    eliminarComision,
+    cargarSbs2024,
+    fetchHistorial,
+  } = useComisionesAfp();
   const { message, modal } = App.useApp();
   const [filtroAfp, setFiltroAfp] = useState('todas');
   const [modalOpen, setModalOpen] = useState(false);
+  const [afpEnEdicion, setAfpEnEdicion] = useState(null);
   const [creando, setCreando] = useState(false);
   const [cargandoSbs, setCargandoSbs] = useState(false);
+  const [historialAfp, setHistorialAfp] = useState(null);
+  const [historial, setHistorial] = useState([]);
+  const [cargandoHistorial, setCargandoHistorial] = useState(false);
 
   const puedeEditar = user?.permisos?.includes('comisiones_afp.editar');
 
@@ -25,13 +48,45 @@ export default function ComisionesAfp({ user }) {
   const handleCrear = async (values) => {
     setCreando(true);
     try {
-      await crearComision(values);
+      if (afpEnEdicion) {
+        await actualizarComision(afpEnEdicion.comision_id, values);
+        message.success('Comisión corregida correctamente');
+      } else {
+        await crearComision(values);
+        message.success('Comisión registrada correctamente');
+      }
       setModalOpen(false);
-      message.success('Comisión registrada correctamente');
-    } catch {
-      message.error('No se pudo registrar la comisión');
+      setAfpEnEdicion(null);
+    } catch (err) {
+      message.error(
+        err.response?.data?.message ?? 'No se pudo guardar la comisión',
+      );
     } finally {
       setCreando(false);
+    }
+  };
+
+  const handleAbrirCrear = () => {
+    setAfpEnEdicion(null);
+    setModalOpen(true);
+  };
+
+  const handleAbrirEditar = (afp) => {
+    setAfpEnEdicion(afp);
+    setModalOpen(true);
+  };
+
+  const handleVerHistorial = async (afp) => {
+    setHistorialAfp(afp);
+    setCargandoHistorial(true);
+    try {
+      const data = await fetchHistorial(afp.afp_id);
+      setHistorial(data);
+    } catch {
+      message.error('No se pudo cargar el historial');
+      setHistorialAfp(null);
+    } finally {
+      setCargandoHistorial(false);
     }
   };
 
@@ -93,7 +148,7 @@ export default function ComisionesAfp({ user }) {
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={() => setModalOpen(true)}
+              onClick={handleAbrirCrear}
               style={{
                 background: 'linear-gradient(135deg, #1c6fe0 0%, #014693 100%)',
                 border: 'none',
@@ -134,10 +189,24 @@ export default function ComisionesAfp({ user }) {
                       : 'Sin comisión registrada'}
                   </p>
                 </div>
-                {afp.comision_id && (
-                  <div className="flex items-center gap-1">
-                    <Tag color="blue">Flujo</Tag>
-                    {puedeEditar && (
+                <div className="flex items-center gap-1">
+                  {afp.comision_id && <Tag color="blue">Flujo</Tag>}
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={<HistoryOutlined />}
+                    aria-label={`Ver historial de ${afp.nombre}`}
+                    onClick={() => handleVerHistorial(afp)}
+                  />
+                  {puedeEditar && afp.comision_id && (
+                    <>
+                      <Button
+                        type="text"
+                        size="small"
+                        icon={<EditOutlined />}
+                        aria-label={`Editar comisión de ${afp.nombre}`}
+                        onClick={() => handleAbrirEditar(afp)}
+                      />
                       <Button
                         type="text"
                         danger
@@ -146,9 +215,9 @@ export default function ComisionesAfp({ user }) {
                         aria-label={`Eliminar comisión de ${afp.nombre}`}
                         onClick={() => handleEliminar(afp)}
                       />
-                    )}
-                  </div>
-                )}
+                    </>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-x-4 gap-y-3">
@@ -203,10 +272,34 @@ export default function ComisionesAfp({ user }) {
       <NuevaComisionModal
         open={modalOpen}
         afps={afps}
+        editing={Boolean(afpEnEdicion)}
+        initialValues={afpEnEdicion ?? undefined}
         onSubmit={handleCrear}
-        onCancel={() => setModalOpen(false)}
+        onCancel={() => {
+          setModalOpen(false);
+          setAfpEnEdicion(null);
+        }}
         submitting={creando}
       />
+
+      <Modal
+        title={historialAfp ? `Historial — ${historialAfp.nombre}` : 'Historial'}
+        open={Boolean(historialAfp)}
+        onCancel={() => setHistorialAfp(null)}
+        footer={null}
+        width={800}
+        destroyOnHidden
+      >
+        <Table
+          rowKey="id"
+          size="small"
+          loading={cargandoHistorial}
+          dataSource={historial}
+          columns={HISTORIAL_COLUMNS}
+          pagination={false}
+          locale={{ emptyText: 'Sin comisiones registradas para esta AFP' }}
+        />
+      </Modal>
     </div>
   );
 }

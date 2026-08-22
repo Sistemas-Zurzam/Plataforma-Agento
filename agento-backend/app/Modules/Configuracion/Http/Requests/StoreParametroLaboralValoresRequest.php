@@ -27,6 +27,7 @@ class StoreParametroLaboralValoresRequest extends FormRequest
             'vigencia_desde' => ['required', 'date'],
             'valores' => ['required', 'array', 'min:1'],
             'valores.*' => ['numeric', 'min:0'],
+            'motivo' => ['nullable', 'string', 'max:255'],
         ];
     }
 

@@ -2,6 +2,7 @@
 
 namespace App\Modules\Configuracion\Services;
 
+use App\Models\User;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\ParametroLaboralDefinicion;
 use App\Modules\Configuracion\Models\ParametroLaboralValor;
@@ -71,16 +72,23 @@ class ParametroLaboralService
 
     /**
      * Arma la vista de tarjetas por régimen: para cada régimen y cada
-     * definición, el valor vigente es la fila con mayor vigencia_desde. El
+     * definición, el valor vigente es la fila con mayor vigencia_desde que
+     * ya haya entrado en vigor a `$fecha` (por defecto hoy) — una vigencia
+     * registrada con fecha futura todavía no debe mostrarse como "vigente".
+     * Debe usar el mismo criterio de corte que
+     * `Nominas\Support\ParametrosVigentesResolver::paraRegimen()`, que sí
+     * filtra por fecha; antes de este fix ambos podían divergir. El
      * régimen se marca "completo" cuando las 20 definiciones tienen valor.
      *
      * @return array{regimenes: array<int, array{regimen: string, completo: bool, parametros: array<int, array>}>}
      */
-    public function listar(Empresa $empresa): array
+    public function listar(Empresa $empresa, ?string $fecha = null): array
     {
+        $fecha ??= now()->toDateString();
         $definiciones = ParametroLaboralDefinicion::orderBy('orden')->get();
 
         $valoresPorRegimenYDefinicion = ParametroLaboralValor::where('empresa_id', $empresa->id)
+            ->whereDate('vigencia_desde', '<=', $fecha)
             ->orderByDesc('vigencia_desde')
             ->orderByDesc('id')
             ->get()
@@ -118,7 +126,7 @@ class ParametroLaboralService
      * existente: el historial se preserva insertando siempre una fila
      * nueva (regla de auditoría de CLAUDE.md).
      */
-    public function crearValor(Empresa $empresa, array $datos): ParametroLaboralValor
+    public function crearValor(Empresa $empresa, array $datos, ?User $usuario = null): ParametroLaboralValor
     {
         return ParametroLaboralValor::create([
             'empresa_id' => $empresa->id,
@@ -126,6 +134,8 @@ class ParametroLaboralService
             'regimen_laboral' => $datos['regimen_laboral'],
             'vigencia_desde' => $datos['vigencia_desde'],
             'valor' => $datos['valor'],
+            'creado_por_id' => $usuario?->id,
+            'motivo' => $datos['motivo'] ?? null,
         ]);
     }
 
@@ -137,9 +147,9 @@ class ParametroLaboralService
      *
      * @param  array<int, float>  $valoresPorDefinicion  definicion_id => valor
      */
-    public function crearValores(Empresa $empresa, string $regimen, string $vigenciaDesde, array $valoresPorDefinicion): void
+    public function crearValores(Empresa $empresa, string $regimen, string $vigenciaDesde, array $valoresPorDefinicion, ?User $usuario = null, ?string $motivo = null): void
     {
-        DB::transaction(function () use ($empresa, $regimen, $vigenciaDesde, $valoresPorDefinicion) {
+        DB::transaction(function () use ($empresa, $regimen, $vigenciaDesde, $valoresPorDefinicion, $usuario, $motivo) {
             $vigentesActuales = ParametroLaboralValor::where('empresa_id', $empresa->id)
                 ->where('regimen_laboral', $regimen)
                 ->whereIn('definicion_id', array_keys($valoresPorDefinicion))
@@ -162,9 +172,39 @@ class ParametroLaboralService
                     'regimen_laboral' => $regimen,
                     'vigencia_desde' => $vigenciaDesde,
                     'valor' => $valor,
+                    'creado_por_id' => $usuario?->id,
+                    'motivo' => $motivo,
                 ]);
             }
         });
+    }
+
+    /**
+     * Historial completo (todas las vigencias, más reciente primero) de una
+     * definición para un régimen de la empresa — incluye quién y por qué
+     * cuando se registró con esos datos.
+     *
+     * @return array<int, array>
+     */
+    public function historial(Empresa $empresa, ParametroLaboralDefinicion $definicion, string $regimen): array
+    {
+        return ParametroLaboralValor::where('empresa_id', $empresa->id)
+            ->where('definicion_id', $definicion->id)
+            ->where('regimen_laboral', $regimen)
+            ->with('creadoPor:id,name')
+            ->orderByDesc('vigencia_desde')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (ParametroLaboralValor $valor) => [
+                'id' => $valor->id,
+                'valor' => $valor->valor,
+                'vigencia_desde' => $valor->vigencia_desde->toDateString(),
+                'motivo' => $valor->motivo,
+                'creado_por' => $valor->creadoPor?->name,
+                'creado_en' => $valor->created_at->toDateTimeString(),
+            ])
+            ->values()
+            ->all();
     }
 
     /**
@@ -172,9 +212,9 @@ class ParametroLaboralService
      * empresa todavía no tiene ningún valor registrado. Idempotente: no
      * toca combinaciones que ya tengan al menos un valor.
      */
-    public function inicializarValoresPorDefecto(Empresa $empresa): void
+    public function inicializarValoresPorDefecto(Empresa $empresa, ?User $usuario = null): void
     {
-        DB::transaction(function () use ($empresa) {
+        DB::transaction(function () use ($empresa, $usuario) {
             $definicionesPorClave = ParametroLaboralDefinicion::all()->keyBy('clave');
 
             $existentes = ParametroLaboralValor::where('empresa_id', $empresa->id)
@@ -198,6 +238,8 @@ class ParametroLaboralService
                         'regimen_laboral' => $regimen,
                         'vigencia_desde' => $hoy,
                         'valor' => $valorPorDefecto,
+                        'creado_por_id' => $usuario?->id,
+                        'motivo' => 'Inicialización de valores por defecto',
                     ]);
                 }
             }

@@ -18,6 +18,9 @@ export function useRemuneraciones() {
   const [resumenBeneficio, setResumenBeneficio] = useState(null);
   const [resumenBeneficioLoading, setResumenBeneficioLoading] = useState(false);
 
+  const [previsualizacion, setPrevisualizacion] = useState([]);
+  const [previsualizacionLoading, setPrevisualizacionLoading] = useState(false);
+
   const fetchCiclos = useCallback(async () => {
     setCiclosLoading(true);
     try {
@@ -152,6 +155,21 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  /**
+   * Previsualización mensual continua — no requiere ciclo (Sección 5/32 de
+   * la documentación funcional). Nunca persiste nada en el backend.
+   */
+  const fetchPrevisualizacion = useCallback(async (anio, mes) => {
+    setPrevisualizacionLoading(true);
+    try {
+      const { data } = await api.get('/planilla/previsualizar', { params: { anio, mes } });
+      setPrevisualizacion(data.data);
+      return data.data;
+    } finally {
+      setPrevisualizacionLoading(false);
+    }
+  }, []);
+
   return {
     ciclos,
     ciclosLoading,
@@ -183,5 +201,8 @@ export function useRemuneraciones() {
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo,
     registrarConceptoPeriodo,
+    previsualizacion,
+    previsualizacionLoading,
+    fetchPrevisualizacion,
   };
 }

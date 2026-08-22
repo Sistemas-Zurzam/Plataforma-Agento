@@ -248,6 +248,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const [archivoPendiente, setArchivoPendiente] = useState(null);
   const [previsualizacion, setPrevisualizacion] = useState(null);
   const [incidencias, setIncidencias] = useState([]);
+  const [filtroEstadoIncidencia, setFiltroEstadoIncidencia] = useState('todos');
+  const [colaboradorFiltroIncidencia, setColaboradorFiltroIncidencia] = useState(null);
   const [horasExtra, setHorasExtra] = useState([]);
   const [importaciones, setImportaciones] = useState([]);
   const [periodos, setPeriodos] = useState([]);
@@ -271,13 +273,12 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      const [resumenResponse, colaboradoresResponse, permisosResponse, solicitudesResponse, noAsociadasResponse, incidenciasResponse, horasExtraResponse, importacionesResponse, periodosResponse, auditoriaResponse] = await Promise.all([
+      const [resumenResponse, colaboradoresResponse, permisosResponse, solicitudesResponse, noAsociadasResponse, horasExtraResponse, importacionesResponse, periodosResponse, auditoriaResponse] = await Promise.all([
         api.get('/asistencia/resumen', { params: parametros }),
         api.get('/asistencia/colaboradores', { params: parametros }),
         api.get('/asistencia/permisos', { params: parametros }),
         api.get('/asistencia/gestiones-area', { params: parametros }),
         api.get('/asistencia/marcaciones-no-asociadas', { params: parametros }),
-        api.get('/asistencia/incidencias', { params: parametros }),
         api.get('/asistencia/horas-extra', { params: parametros }),
         api.get('/asistencia/importaciones', { params: parametros }),
         api.get('/asistencia/periodos', { params: parametros }),
@@ -290,7 +291,6 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       setPermisos(permisosResponse.data.data ?? []);
       setSolicitudesArea(solicitudesResponse.data.data ?? []);
       setNoAsociadas(noAsociadasResponse.data.data ?? []);
-      setIncidencias(incidenciasResponse.data.data ?? []);
       setHorasExtra(horasExtraResponse.data.data ?? []);
       setImportaciones(importacionesResponse.data.data ?? []);
       setPeriodos(periodosResponse.data.data ?? []);
@@ -301,6 +301,30 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   }, [message, parametros]);
 
   useEffect(() => { cargar(); }, [cargar, user?.empresa?.id]);
+
+  /**
+   * Separado del Promise.all de cargar(): Incidencias necesita su propio
+   * filtro de estado y, opcionalmente, quedar preseleccionado a un
+   * colaborador (al hacer click en el contador de incidencias de la tabla
+   * de Colaboradores) — sin afectar el resto de tabs que comparten
+   * `parametros`.
+   */
+  const cargarIncidencias = useCallback(async () => {
+    try {
+      const { data } = await api.get('/asistencia/incidencias', {
+        params: {
+          ...parametros,
+          estado: filtroEstadoIncidencia === 'todos' ? undefined : filtroEstadoIncidencia,
+          colaborador_id: colaboradorFiltroIncidencia ?? undefined,
+        },
+      });
+      setIncidencias(data.data ?? []);
+    } catch (error) {
+      message.error(error.response?.data?.message ?? 'No se pudo cargar las incidencias');
+    }
+  }, [colaboradorFiltroIncidencia, filtroEstadoIncidencia, message, parametros]);
+
+  useEffect(() => { cargarIncidencias(); }, [cargarIncidencias, user?.empresa?.id]);
 
   useEffect(() => {
     if (!colaboradorId) { setPerfil(null); return; }
@@ -427,6 +451,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
         await api.patch(endpoint, { accion, motivo: motivo.trim(), ...extra });
         message.success('Decisión registrada con trazabilidad');
         await cargar();
+        if (endpoint.includes('/asistencia/incidencias/')) await cargarIncidencias();
       },
     });
   };
@@ -482,7 +507,25 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Área', dataIndex: 'area', width: 115, responsive: ['md'], ellipsis: true, render: (value) => value ?? '—' },
     { title: 'Horario', dataIndex: 'horario', width: 165, responsive: ['md'], ellipsis: true, render: (value) => value ?? <Text type="danger">Sin asignar</Text> },
     { title: 'Preparación', width: 72, responsive: ['sm'], align: 'center', render: (_, row) => <Tag className="!m-0" color={row.tiene_horario && row.tiene_calendario ? 'green' : 'red'}>{row.tiene_horario && row.tiene_calendario ? 'OK' : 'HC'}</Tag> },
-    { title: 'Incid.', dataIndex: 'incidencias_pendientes', width: 48, responsive: ['md'], align: 'center' },
+    {
+      title: 'Incid.',
+      dataIndex: 'incidencias_pendientes',
+      width: 48,
+      responsive: ['md'],
+      align: 'center',
+      render: (valor, row) => (
+        valor > 0 ? (
+          <button
+            type="button"
+            className="font-semibold text-red-500 underline-offset-2 hover:underline"
+            title={`Ver incidencias de ${row.nombre_completo}`}
+            onClick={() => { setColaboradorFiltroIncidencia(row.id); setFiltroEstadoIncidencia('todos'); setActiveTab('incidencias'); }}
+          >
+            {valor}
+          </button>
+        ) : valor
+      ),
+    },
     ...fechasVisibles.map((fecha, index) => ({ title: <div className="text-center text-[10px] capitalize leading-3">{fecha.format('dd').slice(0, 2)}<br />{fecha.format('DD')}</div>, key: fecha.format('YYYY-MM-DD'), width: 36, responsive: index < fechasVisibles.length - 3 ? ['lg'] : undefined, align: 'center', render: (_, row) => <EstadoDia resultado={row.resultados?.[fecha.format('YYYY-MM-DD')]} /> })),
     { title: 'Acciones', key: 'acciones', width: 66, align: 'center', render: (_, row) => <Button type="text" size="small" icon={<EyeOutlined />} aria-label={`Ver asistencia de ${row.nombre_completo}`} title="Ver perfil de asistencia" onClick={() => onVerColaborador?.(row.id)} /> },
   ], [fechasVisibles, onVerColaborador]);
@@ -599,14 +642,28 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     ]} pagination={{ pageSize: 15 }} locale={{ emptyText: <Empty description="No hay solicitudes registradas" /> }} /></Card>
   </div>;
 
-  const vistaIncidencias = <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={incidencias} columns={[
-    { title: 'Fecha', dataIndex: 'fecha', width: 110, render: (value) => dayjs(value).format('DD/MM/YYYY') },
-    { title: 'Colaborador', render: (_, row) => `${row.colaborador?.nombres ?? ''} ${row.colaborador?.apellidos ?? ''}`.trim() },
-    { title: 'Tipo', dataIndex: 'tipo', width: 170, render: (value) => value.replaceAll('_', ' ') },
-    { title: 'Descripción', dataIndex: 'descripcion', ellipsis: true },
-    { title: 'Estado', dataIndex: 'estado', width: 115, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'resuelta' ? 'green' : 'red'}>{value}</Tag> },
-    { title: 'Acciones', width: 160, render: (_, row) => row.estado === 'pendiente' && puedeResolverIncidencias ? <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Resolver incidencia', `/asistencia/incidencias/${row.id}`, 'aprobar')}>Resolver</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar incidencia', `/asistencia/incidencias/${row.id}`, 'rechazar')}>Rechazar</Button></Space> : '—' },
-  ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay incidencias en el período" /> }} /></Card>;
+  const vistaIncidencias = <div className="space-y-2">
+    <div className="flex flex-wrap items-center gap-2">
+      <Select size="small" className="w-40" value={filtroEstadoIncidencia} onChange={setFiltroEstadoIncidencia} options={[
+        { value: 'todos', label: 'Todos los estados' }, { value: 'pendiente', label: 'Pendiente' },
+        { value: 'resuelta', label: 'Resuelta' }, { value: 'rechazada', label: 'Rechazada' }, { value: 'observada', label: 'Observada' },
+      ]} />
+      <Text type="secondary" className="text-xs">Búsqueda, sede y área usan los filtros de la pestaña Colaboradores.</Text>
+      {colaboradorFiltroIncidencia && (
+        <Tag closable onClose={() => setColaboradorFiltroIncidencia(null)} color="blue">
+          Filtrando por colaborador #{colaboradorFiltroIncidencia}
+        </Tag>
+      )}
+    </div>
+    <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={incidencias} columns={[
+      { title: 'Fecha', dataIndex: 'fecha', width: 110, render: (value) => dayjs(value).format('DD/MM/YYYY') },
+      { title: 'Colaborador', render: (_, row) => `${row.colaborador?.nombres ?? ''} ${row.colaborador?.apellidos ?? ''}`.trim() },
+      { title: 'Tipo', dataIndex: 'tipo', width: 170, render: (value) => value.replaceAll('_', ' ') },
+      { title: 'Descripción', dataIndex: 'descripcion', ellipsis: true },
+      { title: 'Estado', dataIndex: 'estado', width: 115, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'resuelta' ? 'green' : 'red'}>{value}</Tag> },
+      { title: 'Acciones', width: 160, render: (_, row) => row.estado === 'pendiente' && puedeResolverIncidencias ? <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Resolver incidencia', `/asistencia/incidencias/${row.id}`, 'aprobar')}>Resolver</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar incidencia', `/asistencia/incidencias/${row.id}`, 'rechazar')}>Rechazar</Button></Space> : '—' },
+    ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay incidencias en el período" /> }} /></Card>
+  </div>;
 
   const vistaHorasExtra = <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={horasExtra} columns={[
     { title: 'Fecha', dataIndex: 'fecha', width: 110, render: (value) => dayjs(value).format('DD/MM/YYYY') },

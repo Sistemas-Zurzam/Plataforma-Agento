@@ -16,11 +16,12 @@ export function useParametrosLaborales() {
     }
   }, []);
 
-  const guardarValores = useCallback(async (regimen, vigenciaDesde, valoresPorDefinicion) => {
+  const guardarValores = useCallback(async (regimen, vigenciaDesde, valoresPorDefinicion, motivo) => {
     const { data } = await api.post('/parametros-laborales', {
       regimen_laboral: regimen,
       vigencia_desde: vigenciaDesde,
       valores: valoresPorDefinicion,
+      motivo: motivo || undefined,
     });
     setRegimenes(data.regimenes);
     return data;
@@ -32,5 +33,19 @@ export function useParametrosLaborales() {
     return data;
   }, []);
 
-  return { regimenes, loading, fetchParametros, guardarValores, inicializarPorDefecto };
+  const fetchHistorial = useCallback(async (definicionId, regimenLaboral) => {
+    const { data } = await api.get(`/parametros-laborales/${definicionId}/historial`, {
+      params: { regimen_laboral: regimenLaboral },
+    });
+    return data.data;
+  }, []);
+
+  return {
+    regimenes,
+    loading,
+    fetchParametros,
+    guardarValores,
+    inicializarPorDefecto,
+    fetchHistorial,
+  };
 }

@@ -31,6 +31,7 @@ class CalcularBoletaColaborador
      *   contexto de prueba manual sin ciclo real todavía creado.
      * @return array{
      *   regimen_laboral: string, sueldo_basico: float, dias_pagados: float,
+     *   asistencia_procesada: bool, dias_falta: float, minutos_tardanza: int,
      *   ingresos: array<int, array>, egresos: array<int, array>, aportaciones: array<int, array>,
      *   total_ingresos: float, total_egresos: float, total_aportaciones: float, neto_a_pagar: float,
      *   snapshot_parametros_version: string, snapshot_reglas_version: string, alertas: array<int, string>,
@@ -56,6 +57,14 @@ class CalcularBoletaColaborador
         $asistencia = $this->obtenerAsistenciaDelPeriodo($colaborador, $fechaInicio, $fechaFin);
 
         $alertas = [];
+        if (! $asistencia['asistencia_procesada']) {
+            // El básico/tardanza de este cálculo se basan en 0 faltas y 0
+            // minutos de tardanza porque Asistencia todavía no procesó el
+            // período — NO porque el colaborador tenga asistencia perfecta.
+            // La UI debe mostrar "Sin procesar", nunca el número como si
+            // fuera un resultado confirmado.
+            $alertas[] = 'Asistencia del período aún no procesada — el cálculo asume 0 faltas y 0 minutos de tardanza hasta que se procese.';
+        }
         $ingresos = [];
         $egresos = [];
         $aportaciones = [];
@@ -141,6 +150,9 @@ class CalcularBoletaColaborador
             'regimen_laboral' => $regimen,
             'sueldo_basico' => $sueldoBasico,
             'dias_pagados' => $diasPagados,
+            'asistencia_procesada' => $asistencia['asistencia_procesada'],
+            'dias_falta' => $asistencia['dias_falta'],
+            'minutos_tardanza' => $asistencia['minutos_tardanza'],
             'ingresos' => $ingresos,
             'egresos' => $egresos,
             'aportaciones' => $aportaciones,
@@ -309,6 +321,7 @@ class CalcularBoletaColaborador
             });
 
         return [
+            'asistencia_procesada' => $resultados->isNotEmpty(),
             'dias_falta' => (float) $resultados->where('estado', 'falta')->count(),
             'horas_permiso_sin_goce' => (float) $horasPermisoSinGoce,
             'minutos_tardanza' => (int) $resultados->sum('minutos_tardanza'),

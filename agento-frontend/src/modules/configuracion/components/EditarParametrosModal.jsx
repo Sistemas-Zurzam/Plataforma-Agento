@@ -1,4 +1,4 @@
-import { DatePicker, Form, InputNumber, Modal } from 'antd';
+import { DatePicker, Form, Input, InputNumber, Modal } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect } from 'react';
 import { agruparParametros } from '../utils/agruparParametros';
@@ -21,7 +21,7 @@ export default function EditarParametrosModal({ open, regimen, onSubmit, onCance
   }, [open, regimen, form]);
 
   const handleFinish = (values) => {
-    const { vigencia_desde: vigenciaDesde, ...campos } = values;
+    const { vigencia_desde: vigenciaDesde, motivo, ...campos } = values;
     const valoresPorDefinicion = {};
     regimen.parametros.forEach((parametro) => {
       const valor = campos[campoValor(parametro.definicion_id)];
@@ -29,7 +29,7 @@ export default function EditarParametrosModal({ open, regimen, onSubmit, onCance
         valoresPorDefinicion[parametro.definicion_id] = valor;
       }
     });
-    onSubmit(regimen.regimen, vigenciaDesde.format('YYYY-MM-DD'), valoresPorDefinicion);
+    onSubmit(regimen.regimen, vigenciaDesde.format('YYYY-MM-DD'), valoresPorDefinicion, motivo);
   };
 
   return (
@@ -92,6 +92,10 @@ export default function EditarParametrosModal({ open, regimen, onSubmit, onCance
           style={{ marginBottom: 16 }}
         >
           <DatePicker className="w-full" format="DD/MM/YYYY" />
+        </Form.Item>
+
+        <Form.Item label="Motivo (opcional)" name="motivo" style={{ marginBottom: 0 }}>
+          <Input placeholder="Ej: actualización anual de RMV/UIT" />
         </Form.Item>
       </Form>
     </Modal>
