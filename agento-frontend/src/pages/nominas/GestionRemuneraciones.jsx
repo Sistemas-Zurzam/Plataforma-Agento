@@ -41,9 +41,25 @@ const ESTADO_COLOR = {
 const CICLO_ESTADO_COLOR = {
   abierto: 'blue',
   calculado: 'gold',
+  validado: 'cyan',
   cerrado: 'default',
   reabierto: 'orange',
   pagado: 'green',
+};
+
+/** "Validado" no es un estado persistido — es una lectura derivada de que
+ * todas las boletas vigentes del ciclo ya fueron aprobadas/pagadas, la
+ * misma señal que ya exige cerrar() para permitir el cierre. Evita crear
+ * una segunda fuente de verdad que habría que mantener sincronizada. */
+const estadoVisualCiclo = (ciclo) => {
+  if (
+    ['calculado', 'reabierto'].includes(ciclo.estado)
+    && ciclo.boletas_count > 0
+    && ciclo.boletas_pendientes_aprobacion_count === 0
+  ) {
+    return 'validado';
+  }
+  return ciclo.estado;
 };
 
 /** Botones que el mockup de referencia muestra pero que no tienen todavía
@@ -176,7 +192,7 @@ function DetalleBoleta({ boletaId, verBoleta }) {
 export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const { message, modal } = App.useApp();
   const {
-    ciclos, ciclosLoading, fetchCiclos, crearCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo,
+    ciclos, ciclosLoading, fetchCiclos, crearCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas,
     resumen, fetchResumen,
     verBoleta, aprobarBoleta, pagarBoleta,
@@ -375,6 +391,24 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     });
   };
 
+  const handleMarcarPagado = (ciclo) => {
+    modal.confirm({
+      title: 'Marcar período como pagado',
+      content: 'Esto formaliza el período como pagado y ya no se podrá reabrir. Requiere que todas las boletas del ciclo estén pagadas.',
+      okText: 'Marcar como pagado',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        try {
+          await marcarCicloPagado(ciclo.id);
+          message.success('Período marcado como pagado');
+          fetchCiclos();
+        } catch (err) {
+          message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo marcar el período como pagado');
+        }
+      },
+    });
+  };
+
   const handleAprobar = async (boleta) => {
     try {
       await aprobarBoleta(boleta.id);
@@ -468,7 +502,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       width: 150,
       render: (estado, ciclo) => (
         <div className="flex items-center gap-1">
-          <Tag color={CICLO_ESTADO_COLOR[estado] ?? 'default'}>{estado}</Tag>
+          <Tag color={CICLO_ESTADO_COLOR[estadoVisualCiclo(ciclo)] ?? 'default'}>{estadoVisualCiclo(ciclo)}</Tag>
           {ciclo.calculo_estado === 'en_proceso' && <Tag icon={<ReloadOutlined spin />} color="processing">calculando</Tag>}
         </div>
       ),
@@ -506,11 +540,16 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
               <Button size="small" icon={<UnlockOutlined />} onClick={() => handleReabrir(ciclo)} />
             </Tooltip>
           )}
+          {puedePagar && ciclo.estado === 'cerrado' && (
+            <Tooltip title="Marcar como pagado">
+              <Button size="small" icon={<DollarCircleOutlined />} onClick={() => handleMarcarPagado(ciclo)} />
+            </Tooltip>
+          )}
         </div>
       ),
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [puedeCalcular, puedeCerrarPeriodo, cicloId]);
+  ], [puedeCalcular, puedeCerrarPeriodo, puedePagar, cicloId]);
 
   const columnas = useMemo(() => [
     {
@@ -655,7 +694,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
               label: (
                 <span className="flex items-center gap-2">
                   {c.nombre}
-                  <Tag color={CICLO_ESTADO_COLOR[c.estado] ?? 'default'} className="!m-0">{c.estado}</Tag>
+                  <Tag color={CICLO_ESTADO_COLOR[estadoVisualCiclo(c)] ?? 'default'} className="!m-0">{estadoVisualCiclo(c)}</Tag>
                 </span>
               ),
             }))}
@@ -687,6 +726,9 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             )}
             {puedeCerrarPeriodo && cicloActivo.estado === 'cerrado' && (
               <Button icon={<UnlockOutlined />} onClick={() => handleReabrir(cicloActivo)}>Reabrir período</Button>
+            )}
+            {puedePagar && cicloActivo.estado === 'cerrado' && (
+              <Button icon={<DollarCircleOutlined />} onClick={() => handleMarcarPagado(cicloActivo)}>Marcar como pagado</Button>
             )}
           </div>
         )}

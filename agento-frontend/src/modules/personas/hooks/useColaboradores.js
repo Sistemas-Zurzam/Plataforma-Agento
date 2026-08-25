@@ -36,6 +36,11 @@ export function useColaboradores() {
     return data.data;
   }, []);
 
+  const restaurarColaborador = useCallback(async (colaboradorId) => {
+    const { data } = await api.patch(`/colaboradores/${colaboradorId}/restaurar`);
+    return data.data;
+  }, []);
+
   const fetchCalendarioDefecto = useCallback(async (horarioId, fechaIngreso) => {
     const { data } = await api.get('/colaboradores/calendario-defecto', {
       params: { horario_id: horarioId, fecha_ingreso: fechaIngreso },
@@ -67,6 +72,11 @@ export function useColaboradores() {
 
   const actualizarColaborador = useCallback(async (colaboradorId, values) => {
     const { data } = await api.put(`/colaboradores/${colaboradorId}`, values);
+    return data.data;
+  }, []);
+
+  const actualizarRemuneracion = useCallback(async (colaboradorId, values) => {
+    const { data } = await api.put(`/colaboradores/${colaboradorId}/remuneracion`, values);
     return data.data;
   }, []);
 
@@ -120,12 +130,14 @@ export function useColaboradores() {
     pagination,
     fetchColaboradores,
     crearColaborador,
+    restaurarColaborador,
     fetchCalendarioDefecto,
     fetchCalendarioDelMes,
     fetchColaborador,
     actualizarCalendario,
     actualizarHorario,
     actualizarColaborador,
+    actualizarRemuneracion,
     cesarColaborador,
     eliminarColaborador,
     subirDocumento,

@@ -201,7 +201,7 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
   const { message, modal } = App.useApp();
   const {
     fetchColaborador, actualizarCalendario, actualizarHorario,
-    actualizarColaborador, cesarColaborador, eliminarColaborador, subirDocumento, verDocumento,
+    actualizarColaborador, actualizarRemuneracion, cesarColaborador, eliminarColaborador, subirDocumento, verDocumento,
     subirFotoPerfil, fetchFotoPerfil,
   } = useColaboradores();
   const [colaborador, setColaborador] = useState(null);
@@ -334,10 +334,33 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
     }
   };
 
-  const guardarEdicion = async (values) => {
+  /**
+   * onGuardar(datosBasicos, remuneracion) — EditarColaboradorModal decide
+   * si `remuneracion` viene o no según si el usuario realmente tocó el
+   * sueldo/moneda/periodicidad/asignación familiar (comparado contra lo que
+   * ya estaba cargado). Si no viene, NO se toca colaborador_remuneraciones
+   * — no tiene sentido crear una fila de historial cuando nada cambió.
+   */
+  const guardarEdicion = async (values, remuneracion) => {
     setGuardandoEdicion(true);
     try {
-      const actualizado = await actualizarColaborador(colaborador.id, values);
+      let actualizado = await actualizarColaborador(colaborador.id, values);
+
+      if (remuneracion) {
+        try {
+          actualizado = await actualizarRemuneracion(colaborador.id, remuneracion);
+        } catch (error) {
+          setColaborador(actualizado);
+          setEditarOpen(false);
+          message.warning(
+            error.response?.data?.errors?.vigencia_desde?.[0] ??
+              error.response?.data?.message ??
+              'Los datos se guardaron, pero no se pudo actualizar la remuneración.',
+          );
+          return;
+        }
+      }
+
       setColaborador(actualizado);
       setEditarOpen(false);
       message.success('Colaborador actualizado correctamente');

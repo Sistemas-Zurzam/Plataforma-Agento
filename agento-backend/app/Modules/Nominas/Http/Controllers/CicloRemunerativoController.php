@@ -86,6 +86,13 @@ class CicloRemunerativoController extends Controller
         return new CicloRemunerativoResource($this->ciclos->reabrir($empresa, $ciclo));
     }
 
+    public function marcarPagado(Request $request, CicloRemunerativo $ciclo): CicloRemunerativoResource
+    {
+        $empresa = $request->user('api')->empresa;
+
+        return new CicloRemunerativoResource($this->ciclos->marcarPagado($empresa, $ciclo));
+    }
+
     public function listarConceptos(Request $request, CicloRemunerativo $ciclo, Colaborador $colaborador): AnonymousResourceCollection
     {
         $empresa = $request->user('api')->empresa;

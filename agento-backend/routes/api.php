@@ -117,6 +117,7 @@ Route::middleware('jwt')->group(function () {
     Route::put('/colaboradores/{colaborador}', [ColaboradorController::class, 'update'])->middleware('permiso:colaboradores.editar');
     Route::patch('/colaboradores/{colaborador}/cesar', [ColaboradorController::class, 'cesar'])->middleware('permiso:colaboradores.cesar');
     Route::delete('/colaboradores/{colaborador}', [ColaboradorController::class, 'destroy'])->middleware('permiso:colaboradores.eliminar');
+    Route::patch('/colaboradores/{colaborador}/restaurar', [ColaboradorController::class, 'restaurar'])->middleware('empresa.admin');
     Route::post('/colaboradores/{colaborador}/documentos', [ColaboradorController::class, 'guardarDocumento'])->middleware('permiso:colaboradores.editar');
     Route::get('/colaboradores/{colaborador}/documentos/{documento}', [ColaboradorController::class, 'verDocumento'])->middleware('permiso:colaboradores.ver');
     Route::post('/colaboradores/{colaborador}/foto-perfil', [ColaboradorController::class, 'guardarFotoPerfil'])->middleware('permiso:colaboradores.editar');
@@ -128,6 +129,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('/ciclos-remunerativos/{ciclo}/estado-calculo', [CicloRemunerativoController::class, 'estadoCalculo'])->middleware('permiso:nominas.ver');
     Route::patch('/ciclos-remunerativos/{ciclo}/cerrar', [CicloRemunerativoController::class, 'cerrar'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/reabrir', [CicloRemunerativoController::class, 'reabrir'])->middleware('permiso:nominas.cerrar_periodo');
+    Route::patch('/ciclos-remunerativos/{ciclo}/marcar-pagado', [CicloRemunerativoController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
     Route::get('/planilla/previsualizar', [BoletaController::class, 'previsualizar'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas', [BoletaController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/resumen', [BoletaController::class, 'resumen'])->middleware('permiso:nominas.ver');

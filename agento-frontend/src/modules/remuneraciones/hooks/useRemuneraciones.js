@@ -59,6 +59,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const marcarCicloPagado = useCallback(async (cicloId) => {
+    const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/marcar-pagado`);
+    return data.data;
+  }, []);
+
   const fetchBoletas = useCallback(async (cicloId, page = 1, perPage = 25, tipo = null) => {
     setBoletasLoading(true);
     try {
@@ -179,6 +184,7 @@ export function useRemuneraciones() {
     fetchEstadoCalculo,
     cerrarCiclo,
     reabrirCiclo,
+    marcarCicloPagado,
     boletas,
     boletasLoading,
     pagination,

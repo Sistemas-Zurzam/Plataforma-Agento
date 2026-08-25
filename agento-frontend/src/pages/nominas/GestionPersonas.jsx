@@ -4,6 +4,7 @@ import {
   IdcardOutlined,
   RightOutlined,
   TeamOutlined,
+  UndoOutlined,
   UploadOutlined,
   UserAddOutlined,
   UserOutlined,
@@ -26,9 +27,9 @@ function etiquetaTipoContrato(valor) {
 }
 
 function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId, onAbrirColaborador, onVolverColaboradores }) {
-  const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador, subirFotoPerfil } =
+  const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador, restaurarColaborador, subirFotoPerfil } =
     useColaboradores();
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [busqueda, setBusqueda] = useState('');
   const [todasEmpresas, setTodasEmpresas] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
@@ -40,6 +41,8 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
   const puedeVer = user?.permisos?.includes('colaboradores.ver');
   const puedeCrear = user?.permisos?.includes('colaboradores.crear');
   const puedeVerHorarios = user?.permisos?.includes('horarios.ver');
+  const isAdmin = user?.role === 'administrador';
+  const [restaurandoId, setRestaurandoId] = useState(null);
 
   useEffect(() => {
     if (puedeVer) {
@@ -67,6 +70,28 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
       message.success('Colaborador creado correctamente');
       fetchColaboradores(pagination.current, pagination.pageSize, busqueda, todasEmpresas);
     } catch (err) {
+      const colaboradorEliminado = err.response?.status === 409 ? err.response.data?.colaborador_eliminado : null;
+
+      if (colaboradorEliminado) {
+        modal.confirm({
+          title: 'Este colaborador ya existe, pero está eliminado',
+          content: `${colaboradorEliminado.nombre_completo} (legajo ${colaboradorEliminado.legajo}) fue eliminado el ${colaboradorEliminado.eliminado_at}. Puedes restaurarlo con todo su historial en vez de crear uno nuevo.`,
+          okText: 'Restaurar',
+          cancelText: 'Cancelar',
+          onOk: async () => {
+            try {
+              await restaurarColaborador(colaboradorEliminado.id);
+              setModalOpen(false);
+              message.success('Colaborador restaurado correctamente');
+              fetchColaboradores(pagination.current, pagination.pageSize, busqueda, todasEmpresas);
+            } catch {
+              message.error('No se pudo restaurar el colaborador');
+            }
+          },
+        });
+        return;
+      }
+
       const fieldErrors = err.response?.data?.errors;
       if (fieldErrors) {
         message.error(Object.values(fieldErrors)[0]?.[0] ?? 'No se pudo crear el colaborador');
@@ -76,6 +101,27 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
     } finally {
       setCreando(false);
     }
+  };
+
+  const handleRestaurar = (colaborador) => {
+    modal.confirm({
+      title: '¿Restaurar este colaborador?',
+      content: `${colaborador.nombre_completo} (legajo ${colaborador.legajo}) volverá a estar activo, con todo su historial.`,
+      okText: 'Restaurar',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        setRestaurandoId(colaborador.id);
+        try {
+          await restaurarColaborador(colaborador.id);
+          message.success('Colaborador restaurado correctamente');
+          fetchColaboradores(pagination.current, pagination.pageSize, busqueda, todasEmpresas);
+        } catch {
+          message.error('No se pudo restaurar el colaborador');
+        } finally {
+          setRestaurandoId(null);
+        }
+      },
+    });
   };
 
   const colaboradorActivo = colaboradorId
@@ -110,11 +156,15 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
       width: 240,
       render: (_, colaborador) => (
         <div className="flex items-center gap-3">
-          <Avatar style={{ backgroundColor: colorForName(colaborador.nombre_completo) }}>
+          <Avatar
+            style={{ backgroundColor: colaborador.eliminado ? '#d1d5db' : colorForName(colaborador.nombre_completo) }}
+          >
             {initialsForName(colaborador.nombre_completo)}
           </Avatar>
           <div className="min-w-0">
-            <p className="truncate font-semibold text-gray-900">{colaborador.nombre_completo}</p>
+            <p className={`truncate font-semibold ${colaborador.eliminado ? 'text-gray-400' : 'text-gray-900'}`}>
+              {colaborador.nombre_completo}
+            </p>
             <p className="truncate text-xs text-gray-400">{colaborador.cargo ?? '—'}</p>
           </div>
         </div>
@@ -147,15 +197,19 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
     },
     {
       title: 'Estado',
-      dataIndex: 'activo',
+      key: 'estado',
       width: 100,
-      render: (activo) => (
+      render: (_, colaborador) => (
         <span
           className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${
-            activo ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'
+            colaborador.eliminado
+              ? 'bg-gray-100 text-gray-400'
+              : colaborador.activo
+                ? 'bg-green-50 text-green-700'
+                : 'bg-gray-100 text-gray-500'
           }`}
         >
-          {activo ? 'Activo' : 'Inactivo'}
+          {colaborador.eliminado ? 'Eliminado' : colaborador.activo ? 'Activo' : 'Inactivo'}
         </span>
       ),
     },
@@ -170,32 +224,51 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
       key: 'acciones',
       width: 140,
       fixed: 'right',
-      render: (_, colaborador) => (
-        <div className="flex items-center">
-          <Button
-            type="text"
-            size="small"
-            icon={<EyeOutlined />}
-            aria-label={`Ver a ${colaborador.nombre_completo}`}
-            onClick={() => setVerColaboradorId(colaborador.id)}
-          />
-          <Button
-            type="text"
-            size="small"
-            icon={<IdcardOutlined />}
-            aria-label={`Imprimir carnet de ${colaborador.nombre_completo}`}
-            title="Carnet"
-            onClick={() => setCarnetColaborador(colaborador)}
-          />
-          <Button
-            type="text"
-            size="small"
-            icon={<RightOutlined />}
-            aria-label={`Abrir ficha de ${colaborador.nombre_completo}`}
-            onClick={() => abrirColaborador(colaborador)}
-          />
-        </div>
-      ),
+      render: (_, colaborador) => {
+        if (colaborador.eliminado) {
+          return isAdmin ? (
+            <Button
+              type="text"
+              size="small"
+              icon={<UndoOutlined />}
+              loading={restaurandoId === colaborador.id}
+              aria-label={`Restaurar a ${colaborador.nombre_completo}`}
+              onClick={() => handleRestaurar(colaborador)}
+            >
+              Restaurar
+            </Button>
+          ) : (
+            <span className="text-xs text-gray-300">—</span>
+          );
+        }
+
+        return (
+          <div className="flex items-center">
+            <Button
+              type="text"
+              size="small"
+              icon={<EyeOutlined />}
+              aria-label={`Ver a ${colaborador.nombre_completo}`}
+              onClick={() => setVerColaboradorId(colaborador.id)}
+            />
+            <Button
+              type="text"
+              size="small"
+              icon={<IdcardOutlined />}
+              aria-label={`Imprimir carnet de ${colaborador.nombre_completo}`}
+              title="Carnet"
+              onClick={() => setCarnetColaborador(colaborador)}
+            />
+            <Button
+              type="text"
+              size="small"
+              icon={<RightOutlined />}
+              aria-label={`Abrir ficha de ${colaborador.nombre_completo}`}
+              onClick={() => abrirColaborador(colaborador)}
+            />
+          </div>
+        );
+      },
     },
   ];
 
@@ -283,6 +356,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           loading={loading}
           dataSource={colaboradores}
           columns={columns}
+          rowClassName={(colaborador) => (colaborador.eliminado ? 'bg-gray-50' : '')}
           scroll={{ x: 1160 }}
           pagination={{
             current: pagination.current,

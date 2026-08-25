@@ -36,6 +36,8 @@ export default function PoliticasTardanzaGlobal({ user }) {
           onChange={setEmpresaId}
           className="w-64"
           placeholder="Selecciona una empresa"
+          showSearch
+          optionFilterProp="label"
           options={empresas.map((empresa) => ({ value: empresa.id, label: empresa.nombre }))}
         />
       </div>
