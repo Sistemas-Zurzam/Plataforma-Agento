@@ -120,7 +120,12 @@ class ParametrosVigentesResolver
             'tasa_bonificacion_extraordinaria' => $valor('bonificacion_extraordinaria_porcentaje', 0.0) / 100,
             'horas_extra_tasa_x25' => $valor('horas_extra_tasa_x25', 1.25),
             'horas_extra_tasa_x35' => $valor('horas_extra_tasa_x35', 1.35),
-            'horas_extra_tasa_nocturna' => $valor('horas_extra_tasa_nocturna', 2.0),
+            // 1.0 = 100% adicional: el día feriado/descanso ya está pagado
+            // dentro del sueldo mensual (calcularBasico() nunca lo resta de
+            // dias_pagados); si además se trabaja, este 100% extra sobre la
+            // hora es lo que completa el "doble" (200% total), no 2.0 —
+            // eso pagaría 300%.
+            'horas_extra_tasa_nocturna' => $valor('horas_extra_tasa_nocturna', 1.0),
             'deduccion_5ta_uit' => $valor('deduccion_5ta_uit', 7),
             'tramos_renta_5ta' => self::tramosVigentes('quinta', $fechaCorte),
             // Recibos por Honorarios (renta de 4ta categoría) — resueltos

@@ -31,7 +31,7 @@ class ParametroLaboralService
             'afp_aporte_porcentaje' => 10, 'afp_prima_seguro_porcentaje' => 1.37, 'asignacion_familiar_porcentaje' => 10,
             'gratificacion_porcentaje' => 100, 'cts_porcentaje' => 100, 'bonificacion_extraordinaria_porcentaje' => 9,
             'horas_extra_limite_25_h' => 2, 'horas_extra_limite_35_h' => 6,
-            'horas_extra_tasa_x25' => 1.25, 'horas_extra_tasa_x35' => 1.35, 'horas_extra_tasa_nocturna' => 2,
+            'horas_extra_tasa_x25' => 1.25, 'horas_extra_tasa_x35' => 1.35, 'horas_extra_tasa_nocturna' => 1,
             'renta_4ta_tasa' => 8, 'renta_4ta_umbral' => 3500, 'deduccion_5ta_uit' => 7,
         ],
         'Micro Empresa' => [
@@ -47,7 +47,7 @@ class ParametroLaboralService
             'afp_aporte_porcentaje' => 10, 'afp_prima_seguro_porcentaje' => 1.37, 'asignacion_familiar_porcentaje' => 0,
             'gratificacion_porcentaje' => 0, 'cts_porcentaje' => 0, 'bonificacion_extraordinaria_porcentaje' => 0,
             'horas_extra_limite_25_h' => 2, 'horas_extra_limite_35_h' => 6,
-            'horas_extra_tasa_x25' => 1.25, 'horas_extra_tasa_x35' => 1.35, 'horas_extra_tasa_nocturna' => 2,
+            'horas_extra_tasa_x25' => 1.25, 'horas_extra_tasa_x35' => 1.35, 'horas_extra_tasa_nocturna' => 1,
             'renta_4ta_tasa' => 8, 'renta_4ta_umbral' => 3500, 'deduccion_5ta_uit' => 7,
         ],
         'Pequeña Empresa' => [
@@ -56,7 +56,7 @@ class ParametroLaboralService
             'afp_aporte_porcentaje' => 10, 'afp_prima_seguro_porcentaje' => 1.37, 'asignacion_familiar_porcentaje' => 10,
             'gratificacion_porcentaje' => 50, 'cts_porcentaje' => 50, 'bonificacion_extraordinaria_porcentaje' => 9,
             'horas_extra_limite_25_h' => 2, 'horas_extra_limite_35_h' => 6,
-            'horas_extra_tasa_x25' => 1.25, 'horas_extra_tasa_x35' => 1.35, 'horas_extra_tasa_nocturna' => 2,
+            'horas_extra_tasa_x25' => 1.25, 'horas_extra_tasa_x35' => 1.35, 'horas_extra_tasa_nocturna' => 1,
             'renta_4ta_tasa' => 8, 'renta_4ta_umbral' => 3500, 'deduccion_5ta_uit' => 7,
         ],
         'Locacion de Servicios' => [

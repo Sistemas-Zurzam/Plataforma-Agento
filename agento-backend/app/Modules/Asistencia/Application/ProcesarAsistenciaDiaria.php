@@ -148,11 +148,16 @@ class ProcesarAsistenciaDiaria
 
     private function resolverEstado(string $tipoDia, int $cantidadMarcaciones): string
     {
-        if ($cantidadMarcaciones === 1) {
-            return 'marcacion_incompleta';
-        }
         if ($cantidadMarcaciones >= 2) {
             return 'presente';
+        }
+        if ($cantidadMarcaciones === 1) {
+            // Un feriado no exige asistencia, así que una sola marcación
+            // suelta ahí no es una "incidencia" que corregir — sigue
+            // siendo feriado. Con 2+ marcaciones sí cuenta como trabajado
+            // (rama de arriba), que es lo que necesita el motor de nómina
+            // para pagar el recargo por feriado trabajado.
+            return $tipoDia === 'feriado' ? 'feriado' : 'marcacion_incompleta';
         }
         if ($tipoDia === 'home_office') {
             return 'home_office';

@@ -36,9 +36,16 @@ export default function VerCarnetModal({ colaborador, onClose }) {
    * Clona TODOS los <style>/<link rel="stylesheet"> del documento actual
    * hacia una ventana nueva — así el carnet impreso mantiene exactamente
    * los mismos estilos (Tailwind incluido) sin depender de adivinar rutas
-   * de build. @page fuerza el tamaño físico real de una tarjeta CR-80 en
-   * vertical (53.98 × 85.6 mm) para que salga bien alineado en bandejas
-   * de PVC.
+   * de build. @page fuerza el tamaño físico real de la tarjeta para
+   * impresora de PVC tipo Epson L8050 (54 × 86 mm).
+   *
+   * En vez de sobreescribir el width/height del carnet directamente (lo
+   * que dejaba a los hijos con sus tamaños en px fijos sin escalar,
+   * recortando contenido si la proporción no calzaba exacto), se escala
+   * el diseño completo con `transform: scale()` — el mismo diseño que se
+   * ve en pantalla (260×414px, ya en proporción 54:86) se reduce
+   * uniformemente al tamaño físico exacto, así ningún elemento interno se
+   * desalinea ni se corta.
    */
   const imprimirCarnet = () => {
     const contenedor = document.getElementById('carnet-colaborador-imprimible');
@@ -60,12 +67,18 @@ export default function VerCarnetModal({ colaborador, onClose }) {
           <title>Carnet — ${colaborador.nombre_completo}</title>
           ${estilos}
           <style>
-            @page { size: 53.98mm 85.6mm; margin: 0; }
-            html, body { margin: 0; padding: 0; display: flex; align-items: center; justify-content: center; }
-            #carnet-colaborador-imprimible { width: 53.98mm !important; height: 85.6mm !important; box-shadow: none !important; border-radius: 0 !important; }
+            @page { size: 54mm 86mm; margin: 0; }
+            html, body { margin: 0; padding: 0; }
+            #carnet-imprimible-pagina { width: 54mm; height: 86mm; overflow: hidden; }
+            #carnet-colaborador-imprimible {
+              transform: scale(calc(54mm / 260px));
+              transform-origin: top left;
+              box-shadow: none !important;
+              border-radius: 0 !important;
+            }
           </style>
         </head>
-        <body>${contenedor.outerHTML}</body>
+        <body><div id="carnet-imprimible-pagina">${contenedor.outerHTML}</div></body>
       </html>`);
     ventana.document.close();
     ventana.onload = () => {
