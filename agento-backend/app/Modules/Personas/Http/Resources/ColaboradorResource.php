@@ -69,6 +69,8 @@ class ColaboradorResource extends JsonResource
             'moneda_cuenta' => $this->moneda_cuenta,
             'cci' => $this->cci,
             'activo' => $this->activo,
+            'eliminado' => $this->trashed(),
+            'eliminado_at' => $this->deleted_at?->toDateString(),
             'remuneracion' => $remuneracionVigente ? [
                 'salario' => $remuneracionVigente->salario,
                 'moneda_salario' => $remuneracionVigente->moneda_salario,

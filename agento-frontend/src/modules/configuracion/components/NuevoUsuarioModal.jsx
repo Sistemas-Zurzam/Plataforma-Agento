@@ -18,6 +18,8 @@ function EmpresaSelector({ value, onChange, empresas, multiple }) {
         placeholder="Selecciona una o más empresas"
         value={value}
         onChange={onChange}
+        showSearch
+        optionFilterProp="label"
         options={options}
       />
     );
@@ -28,6 +30,8 @@ function EmpresaSelector({ value, onChange, empresas, multiple }) {
       placeholder="Selecciona la empresa activa inicial"
       value={value?.[0]}
       onChange={(seleccionado) => onChange(seleccionado !== undefined ? [seleccionado] : [])}
+      showSearch
+      optionFilterProp="label"
       options={options}
     />
   );

@@ -42,12 +42,46 @@ class ColaboradorController extends Controller
             ->additional(['stats' => $this->colaboradores->estadisticas($empresaIds)]);
     }
 
-    public function store(StoreColaboradorRequest $request): ColaboradorResource
+    public function store(StoreColaboradorRequest $request): JsonResponse|ColaboradorResource
     {
         $empresaActiva = $request->user('api')->empresa;
-        $colaborador = $this->colaboradores->crear($empresaActiva, $request->validated());
+        $datos = $request->validated();
+
+        // El unique de (empresa_id, tipo_documento, numero_documento) en BD
+        // no distingue soft-deleted — si no se detecta acá antes, un
+        // colaborador eliminado con el mismo documento revienta el insert
+        // con un error de base de datos genérico en vez de una respuesta
+        // clara con la opción de restaurarlo.
+        $eliminado = Colaborador::onlyTrashed()
+            ->where('empresa_id', $empresaActiva->id)
+            ->where('tipo_documento', $datos['tipo_documento'])
+            ->where('numero_documento', $datos['numero_documento'])
+            ->first();
+
+        if ($eliminado) {
+            return response()->json([
+                'message' => 'Ya existe un colaborador eliminado con este documento en esta empresa.',
+                'colaborador_eliminado' => [
+                    'id' => $eliminado->id,
+                    'nombre_completo' => "{$eliminado->nombres} {$eliminado->apellidos}",
+                    'legajo' => $eliminado->legajo,
+                    'fecha_ingreso' => $eliminado->fecha_ingreso?->toDateString(),
+                    'eliminado_at' => $eliminado->deleted_at?->toDateString(),
+                ],
+            ], 409);
+        }
+
+        $colaborador = $this->colaboradores->crear($empresaActiva, $datos);
 
         return new ColaboradorResource($colaborador);
+    }
+
+    public function restaurar(Request $request, int $colaborador): ColaboradorResource
+    {
+        $empresaActiva = $request->user('api')->empresa;
+        $colaboradorRestaurado = $this->colaboradores->restaurar($empresaActiva, $colaborador);
+
+        return new ColaboradorResource($colaboradorRestaurado);
     }
 
     public function show(Request $request, Colaborador $colaborador): ColaboradorResource

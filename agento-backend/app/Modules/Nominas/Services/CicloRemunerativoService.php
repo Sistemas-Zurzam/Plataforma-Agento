@@ -19,7 +19,12 @@ class CicloRemunerativoService
     public function listar(Empresa $empresa, int $perPage = 15): LengthAwarePaginator
     {
         return CicloRemunerativo::where('empresa_id', $empresa->id)
-            ->withCount(['boletas' => fn ($query) => $query->where('es_version_vigente', true)])
+            ->withCount([
+                'boletas' => fn ($query) => $query->where('es_version_vigente', true),
+                'boletas as boletas_pendientes_aprobacion_count' => fn ($query) => $query
+                    ->where('es_version_vigente', true)
+                    ->whereNotIn('estado', ['aprobada', 'pagada']),
+            ])
             ->orderByDesc('fecha_inicio')
             ->paginate($perPage);
     }
@@ -90,6 +95,38 @@ class CicloRemunerativoService
         }
 
         $ciclo->update(['estado' => 'reabierto']);
+
+        return $ciclo;
+    }
+
+    /**
+     * Cierra la transición Cerrado → Pagado (Sección 10 de la documentación
+     * funcional): un período cerrado con todas sus boletas vigentes ya
+     * pagadas queda formalizado como pagado. Antes de esto no existía
+     * ningún camino de código que asignara 'pagado' a un ciclo — solo
+     * reabrir() lo verificaba para bloquear la reapertura.
+     *
+     * @throws ValidationException
+     */
+    public function marcarPagado(Empresa $empresa, CicloRemunerativo $ciclo): CicloRemunerativo
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+
+        if ($ciclo->estado !== 'cerrado') {
+            throw ValidationException::withMessages([
+                'estado' => 'Solo se puede marcar como pagado un período cerrado.',
+            ]);
+        }
+
+        $sinPagar = $ciclo->boletas()->where('es_version_vigente', true)
+            ->where('estado', '!=', 'pagada')->exists();
+        if ($sinPagar) {
+            throw ValidationException::withMessages([
+                'estado' => 'No se puede marcar el período como pagado: hay boletas aprobadas pendientes de pago.',
+            ]);
+        }
+
+        $ciclo->update(['estado' => 'pagado']);
 
         return $ciclo;
     }

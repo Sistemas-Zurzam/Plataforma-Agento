@@ -31,16 +31,21 @@ class ColaboradorService
      */
     public function listar(array $empresaIds, ?string $busqueda, int $perPage = 10): LengthAwarePaginator
     {
-        return Colaborador::whereIn('empresa_id', $empresaIds)
+        return Colaborador::withTrashed()
+            ->whereIn('empresa_id', $empresaIds)
             ->with(['empresa', 'sede', 'area', 'horario', 'remuneracionVigente'])
             ->when($busqueda, fn ($query) => $query->where(function ($query) use ($busqueda) {
                 $query->where('nombres', 'like', "%{$busqueda}%")
                     ->orWhere('apellidos', 'like', "%{$busqueda}%")
                     ->orWhere('legajo', 'like', "%{$busqueda}%");
             }))
+            // Los eliminados van SIEMPRE al final (sin importar su legajo) —
+            // "deleted_at IS NOT NULL" da 0 para activos y 1 para eliminados,
+            // así que ordenar ascendente por eso agrupa primero los activos.
             // El legajo es el correlativo real y visible para RR.HH.; usar
             // created_at para ordenar fallaba al sembrar/importar varios
             // colaboradores en el mismo segundo (orden de empate arbitrario).
+            ->orderByRaw('deleted_at IS NOT NULL')
             ->orderByDesc('legajo')
             ->paginate($perPage);
     }
@@ -286,6 +291,37 @@ class ColaboradorService
         }
 
         $colaborador->delete();
+    }
+
+    /**
+     * Trae de vuelta a un colaborador eliminado (soft delete) — recupera
+     * TODO su historial (legajo, remuneraciones, boletas) porque nunca se
+     * borró de verdad. Se trata como si la persona regresara a trabajar:
+     * también lo reactiva y limpia cualquier cese previo, en vez de dejarlo
+     * restaurado pero inactivo.
+     *
+     * @throws AuthorizationException
+     */
+    public function restaurar(Empresa $empresa, int $colaboradorId): Colaborador
+    {
+        $colaborador = Colaborador::onlyTrashed()
+            ->where('empresa_id', $empresa->id)
+            ->find($colaboradorId);
+
+        if (! $colaborador) {
+            throw new AuthorizationException('No hay ningún colaborador eliminado con ese id en esta empresa.');
+        }
+
+        DB::transaction(function () use ($colaborador) {
+            $colaborador->restore();
+            $colaborador->update([
+                'activo' => true,
+                'fecha_cese' => null,
+                'motivo_cese' => null,
+            ]);
+        });
+
+        return $this->obtenerDetalle($empresa, $colaborador);
     }
 
     public function guardarDocumento(

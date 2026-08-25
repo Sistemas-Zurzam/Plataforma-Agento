@@ -21,6 +21,7 @@ class CicloRemunerativoResource extends JsonResource
             'estado' => $this->estado,
             'calculo_estado' => $this->calculo_estado,
             'boletas_count' => $this->when(isset($this->boletas_count), $this->boletas_count),
+            'boletas_pendientes_aprobacion_count' => $this->when(isset($this->boletas_pendientes_aprobacion_count), $this->boletas_pendientes_aprobacion_count),
             'created_at' => $this->created_at?->toDateTimeString(),
         ];
     }
