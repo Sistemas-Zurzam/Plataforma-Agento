@@ -50,6 +50,13 @@ class TransactionXlsxReader
                 }
 
                 $personId = trim((string) ($valores[$encabezados['Person ID']] ?? ''));
+                // Si la columna "Person ID" quedó como celda numérica en el
+                // Excel, el XML no puede conservar el cero inicial de un DNI
+                // (09642096 se guarda como 9642096) — se rellena a 8 dígitos
+                // para que el match contra numero_documento no falle en silencio.
+                if ($personId !== '' && ctype_digit($personId) && strlen($personId) < 8) {
+                    $personId = str_pad($personId, 8, '0', STR_PAD_LEFT);
+                }
                 $serial = $valores[$encabezados['Punch Time']] ?? null;
                 if ($personId === '' || ! is_numeric($serial)) {
                     $this->filasInvalidas++;

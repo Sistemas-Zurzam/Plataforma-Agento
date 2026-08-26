@@ -31,7 +31,7 @@ class ProcesarAsistenciaDiaria
         $jornada = $this->resolverJornada->resolver($colaborador, $fecha);
         $horarioDia = $jornada['horario_dia'];
         [$inicioProgramado, $finProgramado] = $this->limitesProgramados($fecha, $horarioDia);
-        $marcaciones = $this->obtenerMarcaciones($colaborador, $fecha, $inicioProgramado, $finProgramado);
+        $marcaciones = $this->obtenerMarcaciones($colaborador, $fecha, $inicioProgramado, $finProgramado, (bool) $horarioDia?->jornada_nocturna);
 
         $entrada = $marcaciones->first()?->marcado_at;
         $salida = $marcaciones->count() > 1 ? $marcaciones->last()?->marcado_at : null;
@@ -129,10 +129,20 @@ class ProcesarAsistenciaDiaria
         Colaborador $colaborador,
         Carbon $fecha,
         ?Carbon $inicio,
-        ?Carbon $fin
+        ?Carbon $fin,
+        bool $jornadaNocturna
     ) {
         $desde = $inicio?->copy()->subHours(6) ?? $fecha->copy()->startOfDay();
         $hasta = $fin?->copy()->addHours(6) ?? $fecha->copy()->endOfDay();
+        if (! $jornadaNocturna) {
+            // Sin jornada nocturna, ninguna marcación del turno siguiente debe
+            // poder sustituir la salida de hoy — protege contra un
+            // finProgramado corrido a mañana (p. ej. hora_salida mal
+            // configurada, <= hora_entrada) que de otro modo "roba" la
+            // marcación de entrada del día siguiente como si fuera la salida
+            // de hoy, inflando horas extra/tardanza de forma masiva.
+            $hasta = $hasta->minimum($fecha->copy()->endOfDay());
+        }
 
         return AsistenciaMarcacion::query()
             ->where('empresa_id', $colaborador->empresa_id)
