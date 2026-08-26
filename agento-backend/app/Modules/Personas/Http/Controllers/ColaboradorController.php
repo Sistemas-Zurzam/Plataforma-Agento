@@ -6,20 +6,28 @@ use App\Http\Controllers\Controller;
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Afp;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Personas\Http\Requests\ImportarColaboradoresRequest;
 use App\Modules\Personas\Http\Requests\StoreColaboradorRequest;
 use App\Modules\Personas\Http\Resources\ColaboradorResource;
+use App\Modules\Personas\Infrastructure\ColaboradorPlantillaGenerator;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorDocumento;
 use App\Modules\Personas\Services\ColaboradorService;
+use App\Modules\Personas\Services\ImportarColaboradoresService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Validation\Rule;
 use Illuminate\Support\Facades\Storage;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ColaboradorController extends Controller
 {
-    public function __construct(private readonly ColaboradorService $colaboradores) {}
+    public function __construct(
+        private readonly ColaboradorService $colaboradores,
+        private readonly ImportarColaboradoresService $importador,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
@@ -305,5 +313,37 @@ class ColaboradorController extends Controller
         return response()->json(
             $this->colaboradores->calendarioPorDefecto($empresaActiva, $horario, $datos['fecha_ingreso']),
         );
+    }
+
+    public function plantillaImportacion(): StreamedResponse
+    {
+        $libro = (new ColaboradorPlantillaGenerator)->generar();
+        $escritor = new Xlsx($libro);
+
+        return response()->streamDownload(function () use ($escritor) {
+            $escritor->save('php://output');
+        }, 'plantilla-colaboradores.xlsx', [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
+    }
+
+    public function previsualizarImportacion(ImportarColaboradoresRequest $request): JsonResponse
+    {
+        $empresaActiva = $request->user('api')->empresa;
+
+        return response()->json([
+            'data' => $this->importador->previsualizar($empresaActiva, $request->file('archivo')),
+        ]);
+    }
+
+    public function importarColaboradores(ImportarColaboradoresRequest $request): JsonResponse
+    {
+        $empresaActiva = $request->user('api')->empresa;
+        $resultado = $this->importador->importar($empresaActiva, $request->file('archivo'));
+
+        return response()->json([
+            'message' => "{$resultado['creados']} colaboradores creados.",
+            'data' => $resultado,
+        ]);
     }
 }

@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import GestionHorarios from '../../modules/asistencia/pages/GestionHorarios';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import { TIPO_CONTRATO_OPTIONS } from '../../modules/personas/constants/opciones';
+import ImportarColaboradoresModal from '../../modules/personas/components/ImportarColaboradoresModal';
 import NuevoColaboradorModal from '../../modules/personas/components/NuevoColaboradorModal';
 import VerColaboradorModal from '../../modules/personas/components/VerColaboradorModal';
 import VerCarnetModal from '../../modules/personas/components/VerCarnetModal';
@@ -37,6 +38,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
   const [colaboradorSeleccionado, setColaboradorSeleccionado] = useState(null);
   const [verColaboradorId, setVerColaboradorId] = useState(null);
   const [carnetColaborador, setCarnetColaborador] = useState(null);
+  const [importarModalOpen, setImportarModalOpen] = useState(false);
 
   const puedeVer = user?.permisos?.includes('colaboradores.ver');
   const puedeCrear = user?.permisos?.includes('colaboradores.crear');
@@ -332,9 +334,11 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
             Gestión de horarios
           </Button>
         )}
-        <Button icon={<UploadOutlined />} disabled>
-          Importar
-        </Button>
+        {puedeCrear && (
+          <Button icon={<UploadOutlined />} onClick={() => setImportarModalOpen(true)}>
+            Importar
+          </Button>
+        )}
         {puedeCrear && (
           <Button
             type="primary"
@@ -377,6 +381,15 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
         onSubmit={handleCrear}
         onCancel={() => setModalOpen(false)}
         submitting={creando}
+      />
+
+      <ImportarColaboradoresModal
+        open={importarModalOpen}
+        onCancel={() => setImportarModalOpen(false)}
+        onImportado={() => {
+          setImportarModalOpen(false);
+          fetchColaboradores(pagination.current, pagination.pageSize, busqueda, todasEmpresas);
+        }}
       />
 
       <VerColaboradorModal

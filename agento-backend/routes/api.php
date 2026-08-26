@@ -77,6 +77,9 @@ Route::middleware('jwt')->group(function () {
     Route::put('/horarios/{horario}', [HorarioController::class, 'update'])->middleware('permiso:horarios.editar');
     Route::post('/horarios/{horario}/duplicar', [HorarioController::class, 'duplicar'])->middleware('permiso:horarios.crear');
     Route::patch('/horarios/{horario}/estado', [HorarioController::class, 'cambiarEstado'])->middleware('permiso:horarios.editar');
+    Route::get('/horarios/plantilla-importacion', [HorarioController::class, 'plantillaImportacion'])->middleware('permiso:horarios.crear');
+    Route::post('/horarios/importar/previsualizar', [HorarioController::class, 'previsualizarImportacion'])->middleware('permiso:horarios.crear');
+    Route::post('/horarios/importar', [HorarioController::class, 'importar'])->middleware('permiso:horarios.crear');
 
     Route::get('/asistencia/resumen', [AsistenciaController::class, 'index'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/colaboradores', [AsistenciaController::class, 'colaboradores'])->middleware('permiso:asistencia.ver');
@@ -108,6 +111,9 @@ Route::middleware('jwt')->group(function () {
     Route::get('/colaboradores', [ColaboradorController::class, 'index'])->middleware('permiso:colaboradores.ver');
     Route::post('/colaboradores', [ColaboradorController::class, 'store'])->middleware('permiso:colaboradores.crear');
     Route::get('/colaboradores/calendario-defecto', [ColaboradorController::class, 'calendarioDefecto'])->middleware('permiso:colaboradores.crear');
+    Route::get('/colaboradores/plantilla-importacion', [ColaboradorController::class, 'plantillaImportacion'])->middleware('permiso:colaboradores.crear');
+    Route::post('/colaboradores/importar/previsualizar', [ColaboradorController::class, 'previsualizarImportacion'])->middleware('permiso:colaboradores.crear');
+    Route::post('/colaboradores/importar', [ColaboradorController::class, 'importarColaboradores'])->middleware('permiso:colaboradores.crear');
     Route::get('/colaboradores/{colaborador}', [ColaboradorController::class, 'show'])->middleware('permiso:colaboradores.ver');
     Route::get('/colaboradores/{colaborador}/calendario', [ColaboradorController::class, 'calendarioDelMes'])->middleware('permiso:colaboradores.editar');
     Route::put('/colaboradores/{colaborador}/calendario', [ColaboradorController::class, 'actualizarCalendario'])->middleware('permiso:colaboradores.editar');

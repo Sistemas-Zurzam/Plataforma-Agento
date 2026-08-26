@@ -4,6 +4,7 @@ import {
   ClockCircleOutlined,
   CopyOutlined,
   EditOutlined,
+  ImportOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
   PlusOutlined,
@@ -12,6 +13,7 @@ import { App, Button, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
 import EmpresaActivaFiltro from '../../configuracion/components/EmpresaActivaFiltro';
 import HorarioFormModal from '../components/HorarioFormModal';
+import ImportarHorariosModal from '../components/ImportarHorariosModal';
 import { useHorarios } from '../hooks/useHorarios';
 
 function TarjetaStat({ icono, valor, etiqueta, color }) {
@@ -46,6 +48,7 @@ function TablaHorarios({ user, onUserRefresh }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editando, setEditando] = useState(null);
   const [guardando, setGuardando] = useState(false);
+  const [importarModalOpen, setImportarModalOpen] = useState(false);
 
   const puedeCrear = user?.permisos?.includes('horarios.crear');
   const puedeEditar = user?.permisos?.includes('horarios.editar');
@@ -213,6 +216,11 @@ function TablaHorarios({ user, onUserRefresh }) {
         />
         <EmpresaActivaFiltro user={user} onUserRefresh={onUserRefresh} />
         {puedeCrear && (
+          <Button icon={<ImportOutlined />} onClick={() => setImportarModalOpen(true)}>
+            Importar horarios
+          </Button>
+        )}
+        {puedeCrear && (
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -257,6 +265,15 @@ function TablaHorarios({ user, onUserRefresh }) {
           setEditando(null);
         }}
         submitting={guardando}
+      />
+
+      <ImportarHorariosModal
+        open={importarModalOpen}
+        onCancel={() => setImportarModalOpen(false)}
+        onImportado={() => {
+          setImportarModalOpen(false);
+          fetchHorarios(pagination.current, pagination.pageSize, busqueda, estadoFiltro);
+        }}
       />
     </div>
   );

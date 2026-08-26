@@ -46,6 +46,36 @@ export function useHorarios() {
     return data.data;
   }, []);
 
+  const descargarPlantilla = useCallback(async () => {
+    const { data } = await api.get('/horarios/plantilla-importacion', { responseType: 'blob' });
+    const url = window.URL.createObjectURL(data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = 'plantilla-horarios.xlsx';
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
+  const previsualizarImportacion = useCallback(async (archivo) => {
+    const formulario = new FormData();
+    formulario.append('archivo', archivo);
+    const { data } = await api.post('/horarios/importar/previsualizar', formulario, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data.data;
+  }, []);
+
+  const confirmarImportacion = useCallback(async (archivo) => {
+    const formulario = new FormData();
+    formulario.append('archivo', archivo);
+    const { data } = await api.post('/horarios/importar', formulario, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data.data;
+  }, []);
+
   return {
     horarios,
     stats,
@@ -56,5 +86,8 @@ export function useHorarios() {
     actualizarHorario,
     duplicarHorario,
     cambiarEstado,
+    descargarPlantilla,
+    previsualizarImportacion,
+    confirmarImportacion,
   };
 }
