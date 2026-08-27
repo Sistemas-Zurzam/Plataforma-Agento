@@ -4,6 +4,7 @@ namespace App\Modules\Asistencia\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Asistencia\Application\ProcesarAsistenciaDiaria;
+use App\Modules\Asistencia\Application\ReprocesarAsistenciaRango;
 use App\Modules\Asistencia\Http\Requests\ReprocesarAsistenciaRequest;
 use App\Modules\Asistencia\Http\Requests\ResumenAsistenciaRequest;
 use App\Modules\Asistencia\Http\Requests\StoreAsistenciaPermisoRequest;
@@ -34,7 +35,6 @@ use App\Modules\Asistencia\Models\AsistenciaSolicitudArea;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class AsistenciaController extends Controller
@@ -48,6 +48,7 @@ class AsistenciaController extends Controller
         private readonly AsistenciaDecisionService $decisiones,
         private readonly AsistenciaOperacionService $operaciones,
         private readonly AsistenciaPeriodoService $periodos,
+        private readonly ReprocesarAsistenciaRango $reprocesador,
     ) {}
 
     public function index(ResumenAsistenciaRequest $request): AnonymousResourceCollection
@@ -252,48 +253,23 @@ class AsistenciaController extends Controller
 
     public function reprocesar(ReprocesarAsistenciaRequest $request): JsonResponse
     {
-        $empresa = $request->user('api')->empresa;
         $datos = $request->validated();
-        $this->periodos->asegurarRangoEditable($empresa->id, $datos['fecha_desde'], $datos['fecha_hasta']);
-        $colaboradores = Colaborador::query()
-            ->where('empresa_id', $empresa->id)
-            ->where('activo', true)
-            ->when($datos['colaborador_ids'] ?? null, fn ($query, $ids) => $query->whereIn('id', $ids))
-            ->get();
 
-        $inicio = Carbon::parse($datos['fecha_desde']);
-        $fin = Carbon::parse($datos['fecha_hasta']);
-        $procesados = 0;
-        $omitidosSinRolRotativo = 0;
-
-        foreach ($colaboradores as $colaborador) {
-            for ($fecha = $inicio->copy(); $fecha->lte($fin); $fecha->addDay()) {
-                if ($fecha->lt($colaborador->fecha_ingreso->startOfDay())) {
-                    continue;
-                }
-                try {
-                    $this->procesador->procesar($colaborador, $fecha);
-                    $procesados++;
-                } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
-                    // Horario rotativo sin rol declarado para esta fecha —
-                    // se omite ese día puntual, no se aborta el resto del
-                    // reprocesamiento (Sección: rotativos, cero inferencia).
-                    $omitidosSinRolRotativo++;
-                }
-            }
-        }
-
-        app(\App\Modules\Asistencia\Services\AsistenciaAuditoriaService::class)->registrar(
-            $empresa->id, $request->user('api')->id, 'asistencia_reprocesada', 'rango_asistencia',
-            $datos['motivo'] ?? 'Reprocesamiento manual', null, ['fecha_desde' => $datos['fecha_desde'], 'fecha_hasta' => $datos['fecha_hasta'], 'colaborador_ids' => $datos['colaborador_ids'] ?? null]
+        $resultado = $this->reprocesador->ejecutar(
+            $request->user('api')->empresa,
+            $request->user('api')->id,
+            $datos['fecha_desde'],
+            $datos['fecha_hasta'],
+            $datos['colaborador_ids'] ?? null,
+            $datos['motivo'] ?? null,
         );
 
         return response()->json([
-            'message' => $omitidosSinRolRotativo > 0
-                ? "Asistencia reprocesada. {$omitidosSinRolRotativo} día(s) omitidos por horario rotativo sin rol declarado."
+            'message' => $resultado['omitidos_sin_rol_rotativo'] > 0
+                ? "Asistencia reprocesada. {$resultado['omitidos_sin_rol_rotativo']} día(s) omitidos por horario rotativo sin rol declarado."
                 : 'Asistencia reprocesada correctamente.',
-            'resultados_procesados' => $procesados,
-            'omitidos_sin_rol_rotativo' => $omitidosSinRolRotativo,
+            'resultados_procesados' => $resultado['procesados'],
+            'omitidos_sin_rol_rotativo' => $resultado['omitidos_sin_rol_rotativo'],
         ]);
     }
 }

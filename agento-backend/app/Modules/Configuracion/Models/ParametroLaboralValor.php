@@ -2,10 +2,13 @@
 
 namespace App\Modules\Configuracion\Models;
 
+use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\ScopedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+#[ScopedBy([EmpresaScope::class])]
 #[Fillable(['empresa_id', 'definicion_id', 'regimen_laboral', 'vigencia_desde', 'valor', 'creado_por_id', 'motivo'])]
 class ParametroLaboralValor extends Model
 {

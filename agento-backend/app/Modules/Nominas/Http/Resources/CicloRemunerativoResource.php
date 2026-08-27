@@ -12,6 +12,10 @@ class CicloRemunerativoResource extends JsonResource
         return [
             'id' => $this->id,
             'empresa_id' => $this->empresa_id,
+            'empresa' => $this->whenLoaded('empresa', fn () => [
+                'id' => $this->empresa->id,
+                'nombre_comercial' => $this->empresa->nombre_comercial,
+            ]),
             'nombre' => $this->nombre,
             'periodicidad' => $this->periodicidad,
             'fecha_inicio' => $this->fecha_inicio?->toDateString(),

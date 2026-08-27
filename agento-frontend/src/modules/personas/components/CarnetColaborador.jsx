@@ -99,11 +99,11 @@ export default function CarnetColaborador({ colaborador, fotoUrl }) {
             <img src={logo} alt="" className="h-11 w-11 rounded-xl bg-white/20 object-contain p-1.5" />
           ) : (
             <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/20 text-xl font-black text-white">
-              {colaborador.empresa?.nombre?.[0] ?? '?'}
+              {colaborador.empresa?.nombre_comercial?.[0] ?? '?'}
             </span>
           )}
           <span className="line-clamp-2 text-center text-[15px] leading-tight font-extrabold tracking-wide text-white uppercase">
-            {colaborador.empresa?.nombre ?? 'Empresa'}
+            {colaborador.empresa?.nombre_comercial ?? 'Empresa'}
           </span>
         </div>
       </div>

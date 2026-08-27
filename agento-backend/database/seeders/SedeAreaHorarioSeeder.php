@@ -24,7 +24,7 @@ class SedeAreaHorarioSeeder extends Seeder
     public function run(): void
     {
         foreach (self::EMPRESAS as $nombre) {
-            $empresa = Empresa::where('nombre', 'like', "%{$nombre}%")->first();
+            $empresa = Empresa::where('nombre_comercial', 'like', "%{$nombre}%")->first();
 
             if (! $empresa) {
                 $this->command?->warn("SedeAreaHorarioSeeder: no se encontró ninguna empresa similar a \"{$nombre}\" — se omite.");

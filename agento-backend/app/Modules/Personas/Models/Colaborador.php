@@ -128,4 +128,41 @@ class Colaborador extends Model
     {
         return $this->hasMany(AsistenciaMarcacion::class);
     }
+
+    /**
+     * A diferencia de otros modelos con empresa_id, Colaborador NO usa
+     * #[ScopedBy([EmpresaScope::class])]: ColaboradorService::listar() /
+     * estadisticas() / colaboradoresRotativosSinRol() y la importación Excel
+     * consultan legítimamente colaboradores de VARIAS empresas autorizadas a
+     * la vez (modo "todas las empresas" de un admin, o un archivo con filas
+     * de distintas empresas del mismo grupo) — un scope global filtraría
+     * eso al vuelo a una sola empresa y rompería ambas funcionalidades.
+     *
+     * En su lugar, se protege acá específicamente la resolución implícita
+     * de {colaborador} en rutas (Route::model binding), que es el vector
+     * real que un nuevo endpoint podría olvidar verificar manualmente: si
+     * el id no pertenece a ninguna empresa autorizada del usuario, el
+     * binding ya falla con 404 antes de llegar al controller, sin afectar
+     * ninguna consulta explícita del resto del código (que sigue filtrando
+     * por empresa_id a mano).
+     *
+     * Se valida contra TODAS las empresas autorizadas (empresa_usuario), no
+     * solo la empresa activa — igual que resolverEmpresaIds() en
+     * ColaboradorController: rutas como "conceptos de un ciclo de otra
+     * empresa autorizada" (ver CicloRemunerativoController) referencian un
+     * colaborador que puede no pertenecer a la empresa activa de la sesión.
+     * Un administrador global no necesita fila en empresa_user por cada
+     * empresa (ver User::esAdministradorGlobal), así que no se filtra.
+     */
+    public function resolveRouteBinding($value, $field = null)
+    {
+        $usuario = auth('api')->user();
+        $query = $this->where($field ?? $this->getRouteKeyName(), $value);
+
+        if ($usuario && ! $usuario->esAdministradorGlobal()) {
+            $query->whereIn('empresa_id', $usuario->empresas()->pluck('empresas.id'));
+        }
+
+        return $query->firstOrFail();
+    }
 }

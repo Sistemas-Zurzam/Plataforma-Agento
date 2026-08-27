@@ -38,14 +38,14 @@ export default function PoliticasTardanzaGlobal({ user }) {
           placeholder="Selecciona una empresa"
           showSearch
           optionFilterProp="label"
-          options={empresas.map((empresa) => ({ value: empresa.id, label: empresa.nombre }))}
+          options={empresas.map((empresa) => ({ value: empresa.id, label: empresa.nombre_comercial }))}
         />
       </div>
 
       {empresaSeleccionada && (
         <EmpresaReglasTardanza
           empresaId={empresaSeleccionada.id}
-          empresaNombre={empresaSeleccionada.nombre}
+          empresaNombre={empresaSeleccionada.nombre_comercial}
           user={user}
         />
       )}

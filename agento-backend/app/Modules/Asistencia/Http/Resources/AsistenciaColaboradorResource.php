@@ -26,7 +26,7 @@ class AsistenciaColaboradorResource extends JsonResource
             'documento' => $this->numero_documento,
             'legajo' => $this->legajo,
             'person_id' => $this->marcacionesAsistencia->first()?->person_id,
-            'empresa' => $this->empresa?->nombre,
+            'empresa' => $this->empresa?->nombre_comercial,
             'sede' => $this->sede?->nombre,
             'area' => $this->area?->nombre,
             'cargo' => $this->cargo,

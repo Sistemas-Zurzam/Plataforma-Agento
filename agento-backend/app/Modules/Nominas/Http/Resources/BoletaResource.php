@@ -17,7 +17,18 @@ class BoletaResource extends JsonResource
                 'nombre_completo' => trim(($this->colaborador?->nombres ?? '').' '.($this->colaborador?->apellidos ?? '')),
                 'legajo' => $this->colaborador?->legajo,
                 'cargo' => $this->colaborador?->cargo,
-                'empresa' => $this->colaborador?->empresa?->nombre,
+                'empresa' => $this->colaborador?->empresa?->nombre_comercial,
+                // Necesarios para precargar ConfiguracionNominaModal desde
+                // Planilla mensual — sin estos, el modal siempre mostraba sus
+                // valores por defecto (ej. la suspensión de renta de 4ta
+                // aparecía desmarcada aunque estuviera guardada).
+                'regimen_laboral' => $this->colaborador?->regimen_laboral,
+                'sistema_previsional' => $this->colaborador?->sistema_previsional,
+                'afp_id' => $this->colaborador?->afp_id,
+                'tipo_comision' => $this->colaborador?->tipo_comision,
+                'cuspp' => $this->colaborador?->cuspp,
+                'tiene_hijos_asignacion_familiar' => $this->colaborador?->tiene_hijos_asignacion_familiar,
+                'tiene_suspension_renta_4ta' => $this->colaborador?->tiene_suspension_renta_4ta,
             ],
             'version' => $this->version,
             'regimen_laboral' => $this->regimen_laboral_snapshot,

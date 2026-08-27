@@ -106,12 +106,13 @@ export default function Empresas({ user }) {
       key: 'empresa',
       render: (_, empresa) => (
         <div className="flex items-center gap-2">
-          <Avatar src={empresa.logo_url} style={{ backgroundColor: empresa.color ?? colorForName(empresa.nombre) }}>
-            {initialsForName(empresa.nombre)}
+          <Avatar src={empresa.logo_url} style={{ backgroundColor: empresa.color ?? colorForName(empresa.nombre_comercial) }}>
+            {initialsForName(empresa.nombre_comercial)}
           </Avatar>
           <div>
-            <p className="font-medium text-gray-900">{empresa.nombre}</p>
+            <p className="font-medium text-gray-900">{empresa.nombre_comercial}</p>
             {empresa.grupo && <p className="text-xs text-gray-500">{empresa.grupo}</p>}
+            {empresa.razon_social && <p className="text-xs text-gray-400">{empresa.razon_social}</p>}
           </div>
         </div>
       ),

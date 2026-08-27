@@ -14,7 +14,7 @@ const ESTADO_COLOR = { sin_calcular: 'default', calculado: 'gold', pagado: 'gree
 const ESTADO_LABEL = { sin_calcular: 'Sin calcular', calculado: 'Calculado', pagado: 'Pagado' };
 
 function soles(valor) {
-  return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function TarjetaStat({ icono, valor, etiqueta, color }) {

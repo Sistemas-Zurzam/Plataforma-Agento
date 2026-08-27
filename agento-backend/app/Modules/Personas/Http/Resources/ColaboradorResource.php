@@ -39,7 +39,7 @@ class ColaboradorResource extends JsonResource
             // plataforma.
             'empresa' => $this->whenLoaded('empresa', fn () => [
                 'id' => $this->empresa->id,
-                'nombre' => $this->empresa->nombre,
+                'nombre_comercial' => $this->empresa->nombre_comercial,
                 'color' => $this->empresa->color,
                 'logo_url' => $this->empresa->logo_path ? Storage::disk('public')->url($this->empresa->logo_path) : null,
             ]),

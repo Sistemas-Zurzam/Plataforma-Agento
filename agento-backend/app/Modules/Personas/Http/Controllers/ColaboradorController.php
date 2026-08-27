@@ -75,6 +75,24 @@ class ColaboradorController extends Controller
             : [$usuario->empresa->id];
     }
 
+    /**
+     * Igual que CicloRemunerativoController::empresaAutorizadaDelCiclo(): el
+     * binding de {colaborador} (ver Colaborador::resolveRouteBinding) ya
+     * permite resolver cualquier colaborador de las empresas que el usuario
+     * realmente administra, no solo la empresa activa — por ejemplo, al
+     * editar la configuración de nómina de un colaborador cuyo ciclo
+     * remunerativo pertenece a otra empresa autorizada (ver selector de
+     * "Planilla mensual"). Los métodos que operan sobre un colaborador ya
+     * resuelto deben usar SU empresa, no la activa de la sesión.
+     */
+    private function empresaAutorizadaDelColaborador(Request $request, Colaborador $colaborador): Empresa
+    {
+        $empresa = $colaborador->empresa;
+        abort_unless($request->user('api')->tieneAccesoA($empresa), 403, 'No tienes acceso a la empresa de este colaborador.');
+
+        return $empresa;
+    }
+
     public function store(StoreColaboradorRequest $request): JsonResponse|ColaboradorResource
     {
         $empresaActiva = $request->user('api')->empresa;
@@ -119,10 +137,10 @@ class ColaboradorController extends Controller
 
     public function show(Request $request, Colaborador $colaborador): ColaboradorResource
     {
-        $empresaActiva = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDelColaborador($request, $colaborador);
 
         return new ColaboradorResource(
-            $this->colaboradores->obtenerDetalle($empresaActiva, $colaborador),
+            $this->colaboradores->obtenerDetalle($empresa, $colaborador),
         );
     }
 
@@ -134,7 +152,7 @@ class ColaboradorController extends Controller
         ]);
 
         return response()->json($this->colaboradores->calendarioDelMes(
-            $request->user('api')->empresa,
+            $this->empresaAutorizadaDelColaborador($request, $colaborador),
             $colaborador,
             $datos['anio'],
             $datos['mes'],
@@ -151,7 +169,7 @@ class ColaboradorController extends Controller
 
         return new ColaboradorResource(
             $this->colaboradores->actualizarCalendario(
-                $request->user('api')->empresa,
+                $this->empresaAutorizadaDelColaborador($request, $colaborador),
                 $colaborador,
                 $datos['dias'],
             ),
@@ -181,7 +199,7 @@ class ColaboradorController extends Controller
         }
 
         return new ColaboradorResource(
-            $this->colaboradores->actualizarHorario($request->user('api')->empresa, $colaborador, $datos),
+            $this->colaboradores->actualizarHorario($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos),
         );
     }
 
@@ -196,7 +214,7 @@ class ColaboradorController extends Controller
         ]);
 
         return new ColaboradorResource(
-            $this->colaboradores->actualizarRemuneracion($request->user('api')->empresa, $colaborador, $datos),
+            $this->colaboradores->actualizarRemuneracion($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos),
         );
     }
 
@@ -222,7 +240,7 @@ class ColaboradorController extends Controller
         }
 
         return new ColaboradorResource(
-            $this->colaboradores->actualizarConfiguracionNomina($request->user('api')->empresa, $colaborador, $datos),
+            $this->colaboradores->actualizarConfiguracionNomina($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos),
         );
     }
 
@@ -252,7 +270,7 @@ class ColaboradorController extends Controller
         ]);
 
         return new ColaboradorResource(
-            $this->colaboradores->actualizar($request->user('api')->empresa, $colaborador, $datos),
+            $this->colaboradores->actualizar($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos),
         );
     }
 
@@ -264,13 +282,13 @@ class ColaboradorController extends Controller
         ]);
 
         return new ColaboradorResource(
-            $this->colaboradores->cesar($request->user('api')->empresa, $colaborador, $datos['fecha_cese'], $datos['motivo_cese']),
+            $this->colaboradores->cesar($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos['fecha_cese'], $datos['motivo_cese']),
         );
     }
 
     public function destroy(Request $request, Colaborador $colaborador): JsonResponse
     {
-        $this->colaboradores->eliminar($request->user('api')->empresa, $colaborador);
+        $this->colaboradores->eliminar($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador);
 
         return response()->json(['message' => 'Colaborador eliminado correctamente.']);
     }
@@ -283,7 +301,7 @@ class ColaboradorController extends Controller
         ]);
 
         return new ColaboradorResource($this->colaboradores->guardarDocumento(
-            $request->user('api')->empresa,
+            $this->empresaAutorizadaDelColaborador($request, $colaborador),
             $colaborador,
             $datos['tipo'],
             $datos['archivo'],
@@ -294,7 +312,7 @@ class ColaboradorController extends Controller
     public function verDocumento(Request $request, Colaborador $colaborador, ColaboradorDocumento $documento)
     {
         if (
-            $colaborador->empresa_id !== $request->user('api')->empresa_id
+            ! $request->user('api')->tieneAccesoA($colaborador->empresa)
             || $documento->colaborador_id !== $colaborador->id
         ) {
             abort(404);
@@ -317,7 +335,7 @@ class ColaboradorController extends Controller
         ]);
 
         return new ColaboradorResource($this->colaboradores->guardarFotoPerfil(
-            $request->user('api')->empresa,
+            $this->empresaAutorizadaDelColaborador($request, $colaborador),
             $colaborador,
             $datos['archivo'],
             $request->user('api'),
@@ -326,7 +344,7 @@ class ColaboradorController extends Controller
 
     public function verFotoPerfil(Request $request, Colaborador $colaborador)
     {
-        $documento = $this->colaboradores->obtenerFotoPerfil($request->user('api')->empresa, $colaborador);
+        $documento = $this->colaboradores->obtenerFotoPerfil($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador);
 
         abort_unless($documento && Storage::disk('local')->exists($documento->ruta), 404, 'Este colaborador no tiene foto de perfil.');
 
@@ -355,7 +373,7 @@ class ColaboradorController extends Controller
         // (mismo criterio que empresasAutorizadas()), para que la columna
         // "empresa" nunca deje escribir a mano una empresa ajena.
         $nombresHorarios = Horario::where('activo', true)->orderBy('nombre')->pluck('nombre')->all();
-        $nombresEmpresas = $this->empresasAutorizadas($request)->pluck('nombre')->sort()->values()->all();
+        $nombresEmpresas = $this->empresasAutorizadas($request)->pluck('nombre_comercial')->sort()->values()->all();
         $libro = (new ColaboradorPlantillaGenerator)->generar($nombresHorarios, $nombresEmpresas);
         $escritor = new Xlsx($libro);
 

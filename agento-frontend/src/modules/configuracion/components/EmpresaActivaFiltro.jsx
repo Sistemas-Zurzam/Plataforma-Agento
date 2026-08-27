@@ -35,7 +35,7 @@ export default function EmpresaActivaFiltro({ user, onUserRefresh }) {
       optionFilterProp="label"
       options={empresas
         .filter((empresa) => empresa.activa)
-        .map((empresa) => ({ value: empresa.id, label: empresa.nombre }))}
+        .map((empresa) => ({ value: empresa.id, label: empresa.nombre_comercial }))}
     />
   );
 }

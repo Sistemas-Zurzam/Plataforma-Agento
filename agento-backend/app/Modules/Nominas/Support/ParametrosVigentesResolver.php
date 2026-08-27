@@ -97,7 +97,7 @@ class ParametrosVigentesResolver
             }
 
             throw new RuntimeException(
-                "Falta configurar el parámetro \"{$clave}\" para el régimen \"{$regimenLaboral}\" de {$empresa->nombre}, vigente a {$fechaCorte}. ".
+                "Falta configurar el parámetro \"{$clave}\" para el régimen \"{$regimenLaboral}\" de {$empresa->nombre_comercial}, vigente a {$fechaCorte}. ".
                 'Configúralo en Configuración → Parámetros Laborales antes de calcular la planilla.'
             );
         };

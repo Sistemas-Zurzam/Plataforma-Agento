@@ -9,7 +9,7 @@ import AreaSelect from './AreaSelect';
  * resto de roles permite elegir varias.
  */
 function EmpresaSelector({ value, onChange, empresas, multiple }) {
-  const options = empresas.map((empresa) => ({ value: empresa.id, label: empresa.nombre }));
+  const options = empresas.map((empresa) => ({ value: empresa.id, label: empresa.nombre_comercial }));
 
   if (multiple) {
     return (

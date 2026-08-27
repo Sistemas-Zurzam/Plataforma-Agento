@@ -14,11 +14,19 @@ use Illuminate\Validation\ValidationException;
 class CicloRemunerativoService
 {
     /**
+     * Lista los ciclos de TODAS las empresas autorizadas del usuario (no
+     * solo la empresa activa) — el selector de "Planilla mensual" del
+     * frontend los agrupa por empresa. $empresaIds ya viene resuelto y
+     * autorizado por el controller (ver CicloRemunerativoController::
+     * resolverEmpresaIds), este método nunca decide autorización.
+     *
+     * @param  array<int, int>  $empresaIds
      * @return LengthAwarePaginator<int, CicloRemunerativo>
      */
-    public function listar(Empresa $empresa, int $perPage = 15): LengthAwarePaginator
+    public function listar(array $empresaIds, int $perPage = 15): LengthAwarePaginator
     {
-        return CicloRemunerativo::where('empresa_id', $empresa->id)
+        return CicloRemunerativo::whereIn('empresa_id', $empresaIds)
+            ->with('empresa:id,nombre_comercial')
             ->withCount([
                 'boletas' => fn ($query) => $query->where('es_version_vigente', true),
                 'boletas as boletas_pendientes_aprobacion_count' => fn ($query) => $query

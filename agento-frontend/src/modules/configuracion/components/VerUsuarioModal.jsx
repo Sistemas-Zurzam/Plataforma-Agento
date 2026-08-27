@@ -15,7 +15,7 @@ export default function VerUsuarioModal({ open, usuario, onCancel }) {
           <Descriptions.Item label="Nombre completo">{usuario.name}</Descriptions.Item>
           <Descriptions.Item label="Usuario">{usuario.username}</Descriptions.Item>
           <Descriptions.Item label="Email">{usuario.email}</Descriptions.Item>
-          <Descriptions.Item label="Empresa">{usuario.empresa?.nombre}</Descriptions.Item>
+          <Descriptions.Item label="Empresa">{usuario.empresa?.nombre_comercial}</Descriptions.Item>
           <Descriptions.Item label="Área">{usuario.area?.nombre ?? 'Sin asignar'}</Descriptions.Item>
           <Descriptions.Item label="Rol">{usuario.role?.nombre}</Descriptions.Item>
           <Descriptions.Item label="Estado">

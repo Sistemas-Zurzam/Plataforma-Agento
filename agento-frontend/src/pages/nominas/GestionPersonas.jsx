@@ -196,7 +196,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
       width: 190,
       render: (_, colaborador) => (
         <span className="font-semibold text-gray-900">
-          {colaborador.empresa?.nombre ?? user?.empresa?.nombre ?? '—'}
+          {colaborador.empresa?.nombre_comercial ?? user?.empresa?.nombre_comercial ?? '—'}
         </span>
       ),
     },
@@ -289,7 +289,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-gray-900">Gestión de personas</h2>
         <p className="text-sm text-gray-500">
-          {todasEmpresas ? 'Colaboradores de todas tus empresas' : `Colaboradores de ${user?.empresa?.nombre}`}
+          {todasEmpresas ? 'Colaboradores de todas tus empresas' : `Colaboradores de ${user?.empresa?.nombre_comercial}`}
         </p>
       </div>
 

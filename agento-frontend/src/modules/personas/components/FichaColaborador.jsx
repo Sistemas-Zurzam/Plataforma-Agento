@@ -101,7 +101,7 @@ function Resumen({ colaborador }) {
         </Card>
         <Card title={<span><TeamOutlined /> Datos laborales</span>}>
           <div className="grid gap-5 sm:grid-cols-2">
-            <Dato label="Empresa">{colaborador.empresa?.nombre}</Dato>
+            <Dato label="Empresa">{colaborador.empresa?.nombre_comercial}</Dato>
             <Dato label="Área">{colaborador.area?.nombre}</Dato>
             <Dato label="Cargo">{colaborador.cargo}</Dato>
             <Dato label="Tipo de contrato">{etiquetaContrato(colaborador.tipo_contrato)}</Dato>
@@ -467,7 +467,7 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-x-5 gap-y-2 border-t border-gray-100 pt-4 text-sm text-gray-500">
-          <span className="flex items-center gap-1.5"><ApartmentOutlined /> {colaborador.empresa?.nombre ?? 'Sin empresa'}</span>
+          <span className="flex items-center gap-1.5"><ApartmentOutlined /> {colaborador.empresa?.nombre_comercial ?? 'Sin empresa'}</span>
           <span className="flex items-center gap-1.5"><TeamOutlined /> {colaborador.area?.nombre ?? 'Sin área'}</span>
           <span className="flex items-center gap-1.5"><IdcardOutlined /> Legajo: {colaborador.legajo}</span>
         </div>

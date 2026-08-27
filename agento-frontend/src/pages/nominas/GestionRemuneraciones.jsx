@@ -99,7 +99,7 @@ function TarjetaStat({ icono, valor, etiqueta, color }) {
 }
 
 function soles(valor) {
-  return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 /**
@@ -229,12 +229,21 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const puedeAprobar = user?.permisos?.includes('nominas.aprobar');
   const puedePagar = user?.permisos?.includes('nominas.pagar');
 
+  /**
+   * El backend lista los ciclos de TODAS las empresas que el usuario
+   * administra (ver CicloRemunerativoController::empresaIdsAutorizadas),
+   * agrupados por empresa en el selector — pero al cambiar la empresa
+   * activa (arriba, mismo selector que el resto del sistema) el ciclo
+   * seleccionado debe seguirla, igual que en cualquier otro módulo: se
+   * salta automáticamente al ciclo más reciente de la empresa recién
+   * activada. El selector de ciclo sigue permitiendo elegir a mano uno de
+   * OTRA empresa autorizada sin cambiar la activa, para una consulta rápida.
+   */
   useEffect(() => {
     if (!puedeVer) return;
     fetchCiclos().then((data) => {
-      if (data.length > 0) {
-        setCicloId((actual) => actual ?? data[0].id);
-      }
+      const cicloDeEmpresaActiva = data.find((c) => c.empresa?.id === user?.empresa?.id);
+      setCicloId((cicloDeEmpresaActiva ?? data[0])?.id ?? null);
     });
     fetchAfps();
     fetchCatalogoConceptos();
@@ -255,6 +264,34 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   }, [puedeVer, mesPrevisualizacion, user?.empresa?.id]);
 
   const cicloActivo = ciclos.find((c) => c.id === cicloId);
+
+  /**
+   * El selector de ciclo lista los de TODAS las empresas que el usuario
+   * administra (no solo la empresa activa), agrupados por empresa — así se
+   * puede operar sobre la planilla de cualquiera de ellas sin tener que
+   * cambiar de empresa activa primero.
+   */
+  const opcionesCiclo = useMemo(() => {
+    const grupos = new Map();
+    for (const c of ciclos) {
+      const nombreEmpresa = c.empresa?.nombre_comercial ?? 'Sin empresa';
+      if (!grupos.has(nombreEmpresa)) grupos.set(nombreEmpresa, []);
+      grupos.get(nombreEmpresa).push({
+        value: c.id,
+        title: `${nombreEmpresa} ${c.nombre}`,
+        label: (
+          <span className="flex items-center gap-2">
+            {c.nombre}
+            <Tag color={CICLO_ESTADO_COLOR[estadoVisualCiclo(c)] ?? 'default'} className="!m-0">{estadoVisualCiclo(c)}</Tag>
+          </span>
+        ),
+      });
+    }
+    return Array.from(grupos.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([nombreEmpresa, options]) => ({ label: nombreEmpresa, title: nombreEmpresa, options }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ciclos]);
 
   const recargar = () => {
     if (cicloId) {
@@ -490,6 +527,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const columnasCiclos = useMemo(() => [
     { title: 'Nombre', dataIndex: 'nombre', width: 200 },
     {
+      title: 'Empresa',
+      key: 'empresa',
+      width: 160,
+      render: (_, c) => <span className="font-semibold text-gray-700">{c.empresa?.nombre_comercial ?? '—'}</span>,
+    },
+    {
       title: 'Período',
       key: 'periodo',
       width: 200,
@@ -684,20 +727,17 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           <EmpresaActivaFiltro user={user} onUserRefresh={onUserRefresh} />
           <Select
             size="middle"
-            className="w-64"
+            className="w-72"
             loading={ciclosLoading}
             placeholder="Selecciona un ciclo remunerativo"
+            showSearch={{
+              optionFilterProp: 'title',
+              filterOption: (input, option) =>
+                option?.options ? undefined : `${option?.title ?? ''}`.toLowerCase().includes(input.toLowerCase()),
+            }}
             value={cicloId}
             onChange={setCicloId}
-            options={ciclos.map((c) => ({
-              value: c.id,
-              label: (
-                <span className="flex items-center gap-2">
-                  {c.nombre}
-                  <Tag color={CICLO_ESTADO_COLOR[estadoVisualCiclo(c)] ?? 'default'} className="!m-0">{estadoVisualCiclo(c)}</Tag>
-                </span>
-              ),
-            }))}
+            options={opcionesCiclo}
           />
           {puedeGestionarCiclos && (
             <Button icon={<PlusOutlined />} onClick={() => setNuevoCicloOpen(true)}>Nuevo ciclo</Button>
@@ -794,7 +834,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                 loading={ciclosLoading}
                 dataSource={ciclos}
                 columns={columnasCiclos}
-                scroll={{ x: 900 }}
+                scroll={{ x: 1060 }}
                 pagination={false}
                 locale={{ emptyText: 'Todavía no hay ciclos remunerativos — crea el primero con "Nuevo ciclo"' }}
               />
@@ -822,7 +862,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                 summary={() => resumen && boletas.length > 0 && (
                   <Table.Summary fixed>
                     <Table.Summary.Row>
-                      <Table.Summary.Cell index={0} colSpan={4}><strong>Totales</strong></Table.Summary.Cell>
+                      <Table.Summary.Cell index={0} colSpan={7}><strong>Totales</strong></Table.Summary.Cell>
                       <Table.Summary.Cell index={1}><strong className="text-green-600">{soles(resumen.total_ingresos)}</strong></Table.Summary.Cell>
                       <Table.Summary.Cell index={2}><strong className="text-red-500">{soles(resumen.total_egresos)}</strong></Table.Summary.Cell>
                       <Table.Summary.Cell index={3}><strong>{soles(resumen.neto_a_pagar)}</strong></Table.Summary.Cell>

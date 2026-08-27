@@ -3,6 +3,7 @@
 namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Http\Resources\BoletaResource;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -15,6 +16,27 @@ use Illuminate\Support\Carbon;
 class BoletaController extends Controller
 {
     public function __construct(private readonly BoletaService $boletas) {}
+
+    /**
+     * Igual que CicloRemunerativoController::empresaAutorizadaDelCiclo(): el
+     * usuario puede operar sobre boletas/ciclos de cualquier empresa que
+     * realmente administre, no solo la empresa activa de la sesión.
+     */
+    private function empresaAutorizadaDelCiclo(Request $request, CicloRemunerativo $ciclo): Empresa
+    {
+        $empresa = $ciclo->empresa;
+        abort_unless($request->user('api')->tieneAccesoA($empresa), 403, 'No tienes acceso a la empresa de este ciclo remunerativo.');
+
+        return $empresa;
+    }
+
+    private function empresaAutorizadaDeLaBoleta(Request $request, Boleta $boleta): Empresa
+    {
+        $empresa = $boleta->empresa;
+        abort_unless($request->user('api')->tieneAccesoA($empresa), 403, 'No tienes acceso a la empresa de esta boleta.');
+
+        return $empresa;
+    }
 
     /**
      * Previsualización mensual continua — no requiere un ciclo creado
@@ -43,7 +65,7 @@ class BoletaController extends Controller
 
     public function index(Request $request, CicloRemunerativo $ciclo): AnonymousResourceCollection
     {
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
         $tipo = $request->input('tipo');
 
         return BoletaResource::collection(
@@ -53,21 +75,21 @@ class BoletaController extends Controller
 
     public function show(Request $request, Boleta $boleta): BoletaResource
     {
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDeLaBoleta($request, $boleta);
 
         return new BoletaResource($this->boletas->ver($empresa, $boleta));
     }
 
     public function resumen(Request $request, CicloRemunerativo $ciclo)
     {
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
         return response()->json($this->boletas->resumen($empresa, $ciclo, $request->input('tipo')));
     }
 
     public function aprobar(Request $request, Boleta $boleta): BoletaResource
     {
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDeLaBoleta($request, $boleta);
 
         return new BoletaResource(
             $this->boletas->aprobar($empresa, $boleta, $request->user('api')->id)->load(['colaborador.empresa', 'conceptos.concepto']),
@@ -80,7 +102,7 @@ class BoletaController extends Controller
             'referencia_pago' => ['required', 'string', 'max:255'],
         ]);
 
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDeLaBoleta($request, $boleta);
 
         return new BoletaResource(
             $this->boletas->marcarPagada($empresa, $boleta, $request->user('api')->id, $datos['referencia_pago'])

@@ -24,8 +24,8 @@ class EmpresaController extends Controller
         // Un Administrador ve todas las empresas del sistema, no solo las
         // que tiene vinculadas explícitamente — ver User::esAdministradorGlobal().
         $empresas = $usuario->esAdministradorGlobal()
-            ? Empresa::orderBy('nombre')->get()
-            : $usuario->empresas()->orderBy('nombre')->get();
+            ? Empresa::orderBy('nombre_comercial')->get()
+            : $usuario->empresas()->orderBy('nombre_comercial')->get();
 
         return EmpresaResource::collection($empresas);
     }

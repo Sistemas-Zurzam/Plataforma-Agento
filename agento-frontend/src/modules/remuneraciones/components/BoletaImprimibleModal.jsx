@@ -3,7 +3,7 @@ import { Button, Modal, Tag } from 'antd';
 import { useEffect, useState } from 'react';
 
 function soles(valor) {
-  return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function BloqueImprimible({ titulo, lineas }) {
@@ -101,9 +101,18 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
 
       <style>{`
         @media print {
+          /* #root es el resto de la app detrás del modal (la tabla de
+             planilla, tarjetas, etc.) — con visibility:hidden solo se
+             invisibiliza, pero sigue ocupando su alto real en el layout, lo
+             que infla la página impresa y genera una 2da página. display:none
+             lo saca del flujo por completo. */
+          #root { display: none !important; }
           body * { visibility: hidden; }
           #boleta-imprimible, #boleta-imprimible * { visibility: visible; }
-          #boleta-imprimible { position: fixed; top: 0; left: 0; width: 100%; }
+          /* position:fixed hace que Chrome repita el elemento en CADA página
+             impresa (mismo comportamiento que un encabezado/pie fijo) — con
+             el fondo ya colapsado no hace falta fijarlo a la ventana. */
+          #boleta-imprimible { position: absolute; top: 0; left: 0; width: 100%; }
         }
       `}</style>
     </Modal>

@@ -109,7 +109,7 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
       label: <span><TeamOutlined /> Datos laborales</span>,
       children: (
         <div className="grid gap-x-3 sm:grid-cols-2">
-          <Form.Item label="Empresa"><Input value={colaborador?.empresa?.nombre} disabled /></Form.Item>
+          <Form.Item label="Empresa"><Input value={colaborador?.empresa?.nombre_comercial} disabled /></Form.Item>
           <Form.Item label="Sede" name="sede_id" rules={[{ required: true }]}><SedeSelect empresaId={colaborador?.empresa?.id} /></Form.Item>
           <Form.Item label="Área" name="area_id" rules={[{ required: true }]}><AreaSelect empresaId={colaborador?.empresa?.id} /></Form.Item>
           <Form.Item label="Cargo" name="cargo" rules={[{ required: true }]}><Input /></Form.Item>

@@ -186,7 +186,7 @@ export default function UsuariosRoles({ user }) {
     {
       title: 'Empresa',
       key: 'empresa',
-      render: (_, usuario) => usuario.empresa?.nombre,
+      render: (_, usuario) => usuario.empresa?.nombre_comercial,
     },
     {
       title: 'Rol',

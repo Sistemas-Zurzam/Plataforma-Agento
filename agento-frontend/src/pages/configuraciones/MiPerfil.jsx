@@ -78,7 +78,7 @@ export default function MiPerfil({ user, onProfileUpdated }) {
           <Form.Item label="Empresa">
             <Input
               size="large"
-              value={user?.empresa?.nombre ?? 'No asignada'}
+              value={user?.empresa?.nombre_comercial ?? 'No asignada'}
               disabled
             />
           </Form.Item>

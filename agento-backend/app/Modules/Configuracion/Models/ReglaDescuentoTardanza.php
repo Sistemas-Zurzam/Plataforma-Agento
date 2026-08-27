@@ -2,10 +2,13 @@
 
 namespace App\Modules\Configuracion\Models;
 
+use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\ScopedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+#[ScopedBy([EmpresaScope::class])]
 #[Fillable(['empresa_id', 'minutos_desde', 'minutos_hasta', 'tipo', 'valor', 'orden'])]
 class ReglaDescuentoTardanza extends Model
 {

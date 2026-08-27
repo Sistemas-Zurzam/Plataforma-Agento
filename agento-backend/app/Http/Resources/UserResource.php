@@ -25,7 +25,7 @@ class UserResource extends JsonResource
             'permisos' => $this->permisos($rol),
             'empresa' => [
                 'id' => $this->empresa->id,
-                'nombre' => $this->empresa->nombre,
+                'nombre_comercial' => $this->empresa->nombre_comercial,
             ],
             'area' => $this->area ? [
                 'id' => $this->area->id,

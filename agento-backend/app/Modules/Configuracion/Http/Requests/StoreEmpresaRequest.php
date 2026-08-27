@@ -19,7 +19,8 @@ class StoreEmpresaRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'nombre' => ['required', 'string', 'max:255'],
+            'nombre_comercial' => ['required', 'string', 'max:255'],
+            'razon_social' => ['nullable', 'string', 'max:255'],
             'abreviatura' => ['nullable', 'string', 'max:10'],
             'grupo' => ['nullable', 'string', 'max:255'],
             'ruc' => ['nullable', 'digits:11', 'unique:empresas,ruc'],

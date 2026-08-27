@@ -27,7 +27,7 @@ class DatabaseSeeder extends Seeder
         // User::factory(10)->create();
 
         $empresa = Empresa::factory()->create([
-            'nombre' => 'Empresa Demo',
+            'nombre_comercial' => 'Empresa Demo',
             'ruc' => '20123456789',
             'direccion' => 'Av. Principal 123',
         ]);

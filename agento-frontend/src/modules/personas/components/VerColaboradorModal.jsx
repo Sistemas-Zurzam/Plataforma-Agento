@@ -29,7 +29,7 @@ function Informacion({ colaborador }) {
   return (
     <div className="grid grid-cols-2 gap-x-6 gap-y-5">
       <Campo label="Legajo">{colaborador.legajo}</Campo>
-      <Campo label="Empresa">{colaborador.empresa?.nombre}</Campo>
+      <Campo label="Empresa">{colaborador.empresa?.nombre_comercial}</Campo>
       <Campo label="Área">{colaborador.area?.nombre}</Campo>
       <Campo label="Tipo Contrato">{etiquetaContrato(colaborador.tipo_contrato)}</Campo>
       <Campo label="Modalidad">{colaborador.modalidad_trabajo}</Campo>

@@ -3,11 +3,14 @@
 namespace App\Modules\Nominas\Models;
 
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\ScopedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+#[ScopedBy([EmpresaScope::class])]
 #[Fillable([
     'empresa_id', 'tipo', 'anio', 'version', 'es_version_vigente',
     'total_colaboradores', 'total_bruto', 'total_neto', 'estado',

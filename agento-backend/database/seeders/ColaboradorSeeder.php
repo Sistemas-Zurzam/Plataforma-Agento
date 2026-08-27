@@ -66,7 +66,7 @@ class ColaboradorSeeder extends Seeder
         $afps = Afp::pluck('id', 'clave');
 
         foreach (self::CANTIDAD_POR_EMPRESA as $nombreEmpresa => $cantidad) {
-            $empresa = Empresa::where('nombre', 'like', "%{$nombreEmpresa}%")->first();
+            $empresa = Empresa::where('nombre_comercial', 'like', "%{$nombreEmpresa}%")->first();
 
             if (! $empresa) {
                 $this->command?->warn("ColaboradorSeeder: no se encontró ninguna empresa similar a \"{$nombreEmpresa}\" — se omite.");
@@ -80,7 +80,7 @@ class ColaboradorSeeder extends Seeder
             $horarioHibrido = Horario::where('empresa_id', $empresa->id)->where('nombre', 'Horario Híbrido')->first();
 
             if (! $sede || $areas->isEmpty() || ! $horarioEstandar || ! $horarioHibrido) {
-                $this->command?->warn("ColaboradorSeeder: faltan sede/área/horario para \"{$empresa->nombre}\" — se omite.");
+                $this->command?->warn("ColaboradorSeeder: faltan sede/área/horario para \"{$empresa->nombre_comercial}\" — se omite.");
 
                 continue;
             }
@@ -91,7 +91,7 @@ class ColaboradorSeeder extends Seeder
                 $this->crearColaborador($empresa, $arquetipo);
             }
 
-            $this->command?->info("ColaboradorSeeder: {$cantidad} colaborador(es) procesado(s) para \"{$empresa->nombre}\".");
+            $this->command?->info("ColaboradorSeeder: {$cantidad} colaborador(es) procesado(s) para \"{$empresa->nombre_comercial}\".");
         }
     }
 
@@ -156,7 +156,7 @@ class ColaboradorSeeder extends Seeder
                 $this->colaboradores->cesar($empresa, $colaborador, $cesarDespues['fecha_cese'], $cesarDespues['motivo']);
             }
         } catch (Throwable $exception) {
-            $this->command?->warn("ColaboradorSeeder: no se pudo crear a {$nombres} {$apellidos} en {$empresa->nombre} ({$exception->getMessage()}).");
+            $this->command?->warn("ColaboradorSeeder: no se pudo crear a {$nombres} {$apellidos} en {$empresa->nombre_comercial} ({$exception->getMessage()}).");
         }
     }
 

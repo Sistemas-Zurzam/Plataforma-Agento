@@ -8,6 +8,14 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * Sin #[ScopedBy(EmpresaScope::class)] a propósito: el selector de "Planilla
+ * mensual" lista y permite operar sobre ciclos de CUALQUIER empresa
+ * autorizada del usuario, no solo la empresa activa (ver
+ * CicloRemunerativoController) — un scope global filtraría eso al vuelo a
+ * una sola empresa. La verificación de acceso vive en el controller
+ * (User::tieneAccesoA) antes de cada operación.
+ */
 #[Fillable([
     'empresa_id', 'nombre', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'fecha_corte_asistencia', 'fecha_pago', 'estado', 'creado_por',
     'calculo_estado', 'calculo_iniciado_at', 'calculo_finalizado_at', 'calculo_resultado',

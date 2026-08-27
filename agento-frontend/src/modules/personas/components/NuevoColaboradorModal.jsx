@@ -392,7 +392,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                 label: <span><BankOutlined /> Información de contrato</span>,
                 children: (
                   <div className="flex flex-col gap-3">
-                    <p className="-mt-1 text-xs text-gray-400">{user?.empresa?.nombre}</p>
+                    <p className="-mt-1 text-xs text-gray-400">{user?.empresa?.nombre_comercial}</p>
                     <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
                       <Form.Item
                         label={campoLabel('Sede')}

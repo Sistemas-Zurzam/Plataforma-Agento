@@ -11,7 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 #[Fillable([
-    'nombre',
+    'nombre_comercial',
+    'razon_social',
     'abreviatura',
     'grupo',
     'ruc',

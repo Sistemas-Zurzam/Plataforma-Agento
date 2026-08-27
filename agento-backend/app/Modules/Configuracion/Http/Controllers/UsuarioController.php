@@ -29,7 +29,7 @@ class UsuarioController extends Controller
 
         $usuarios->getCollection()->each(fn (User $usuario) => $usuario->setAttribute('empresaActiva', [
             'id' => $empresaActiva->id,
-            'nombre' => $empresaActiva->nombre,
+            'nombre' => $empresaActiva->nombre_comercial,
         ]));
 
         return UsuarioResource::collection($usuarios);
@@ -56,7 +56,7 @@ class UsuarioController extends Controller
         $empresaPrincipal = $empresas->first();
         $usuario->setAttribute('empresaActiva', [
             'id' => $empresaPrincipal->id,
-            'nombre' => $empresaPrincipal->nombre,
+            'nombre' => $empresaPrincipal->nombre_comercial,
         ]);
 
         return (new UsuarioResource($usuario))
@@ -77,7 +77,7 @@ class UsuarioController extends Controller
         $usuarioActualizado = $empresaActiva->users()->with('area')->where('users.id', $usuario->id)->first();
         $usuarioActualizado->setAttribute('empresaActiva', [
             'id' => $empresaActiva->id,
-            'nombre' => $empresaActiva->nombre,
+            'nombre' => $empresaActiva->nombre_comercial,
         ]);
 
         return new UsuarioResource($usuarioActualizado);
@@ -93,7 +93,7 @@ class UsuarioController extends Controller
         $usuarioActualizado = $empresaActiva->users()->where('users.id', $usuario->id)->first();
         $usuarioActualizado->setAttribute('empresaActiva', [
             'id' => $empresaActiva->id,
-            'nombre' => $empresaActiva->nombre,
+            'nombre' => $empresaActiva->nombre_comercial,
         ]);
 
         return new UsuarioResource($usuarioActualizado);
@@ -123,7 +123,7 @@ class UsuarioController extends Controller
         $usuarioActualizado = $empresaActiva->users()->with('area')->where('users.id', $usuario->id)->first();
         $usuarioActualizado->setAttribute('empresaActiva', [
             'id' => $empresaActiva->id,
-            'nombre' => $empresaActiva->nombre,
+            'nombre' => $empresaActiva->nombre_comercial,
         ]);
 
         return new UsuarioResource($usuarioActualizado);

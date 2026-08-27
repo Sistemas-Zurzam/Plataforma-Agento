@@ -4,10 +4,13 @@ namespace App\Modules\Personas\Models;
 
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Attributes\ScopedBy;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+#[ScopedBy([EmpresaScope::class])]
 #[Fillable(['empresa_id', 'colaborador_id', 'horario_id', 'dias_descanso_rotativo_por_semana', 'vigencia_desde', 'vigencia_hasta'])]
 class ColaboradorHorarioAsignacion extends Model
 {

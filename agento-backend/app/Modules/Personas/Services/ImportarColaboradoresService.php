@@ -96,7 +96,7 @@ class ImportarColaboradoresService
      */
     private function evaluarFilas(Collection $empresasAutorizadas, array $filas): array
     {
-        $empresasPorNombre = $empresasAutorizadas->keyBy(fn (Empresa $e) => mb_strtolower($e->nombre));
+        $empresasPorNombre = $empresasAutorizadas->keyBy(fn (Empresa $e) => mb_strtolower($e->nombre_comercial));
         $empresaIds = $empresasAutorizadas->pluck('id')->all();
 
         // Sede/área se agrupan por empresa porque el archivo puede traer

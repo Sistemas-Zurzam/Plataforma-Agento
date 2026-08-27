@@ -3,6 +3,7 @@
 namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Http\Resources\CicloRemunerativoResource;
 use App\Modules\Nominas\Http\Resources\ColaboradorConceptoPeriodoResource;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -22,11 +23,44 @@ class CicloRemunerativoController extends Controller
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $empresa = $request->user('api')->empresa;
-
         return CicloRemunerativoResource::collection(
-            $this->ciclos->listar($empresa, max(1, min((int) $request->input('per_page', 15), 50))),
+            $this->ciclos->listar($this->empresaIdsAutorizadas($request), max(1, min((int) $request->input('per_page', 15), 50))),
         );
+    }
+
+    /**
+     * El selector de "Planilla mensual" del frontend siempre lista los
+     * ciclos de TODAS las empresas que el usuario realmente administra
+     * (empresa_usuario) — nunca solo la empresa activa —, agrupados por
+     * empresa. Un administrador global ve literalmente todas las del
+     * sistema (ver User::esAdministradorGlobal). Mismo criterio que
+     * ColaboradorController::resolverEmpresaIds().
+     *
+     * @return array<int, int>
+     */
+    private function empresaIdsAutorizadas(Request $request): array
+    {
+        $usuario = $request->user('api');
+
+        return $usuario->esAdministradorGlobal()
+            ? Empresa::pluck('id')->all()
+            : $usuario->empresas()->pluck('empresas.id')->all();
+    }
+
+    /**
+     * Cada acción sobre un ciclo puntual usa la empresa DEL CICLO (no la
+     * empresa activa de la sesión) — el usuario puede operar sobre un ciclo
+     * de cualquier empresa que realmente administre, sin necesidad de
+     * cambiar su empresa activa primero. empresa_id del ciclo nunca se
+     * confía como autorización por sí solo: siempre se valida contra
+     * User::tieneAccesoA().
+     */
+    private function empresaAutorizadaDelCiclo(Request $request, CicloRemunerativo $ciclo): Empresa
+    {
+        $empresa = $ciclo->empresa;
+        abort_unless($request->user('api')->tieneAccesoA($empresa), 403, 'No tienes acceso a la empresa de este ciclo remunerativo.');
+
+        return $empresa;
     }
 
     public function store(Request $request): CicloRemunerativoResource
@@ -48,7 +82,7 @@ class CicloRemunerativoController extends Controller
 
     public function calcular(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
         $motivo = $request->input('motivo_recalculo');
 
         $this->boletas->iniciarCalculoAsync($empresa, $ciclo, $request->user('api')->id, $motivo);
@@ -61,8 +95,7 @@ class CicloRemunerativoController extends Controller
 
     public function estadoCalculo(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
-        $empresa = $request->user('api')->empresa;
-        abort_unless($ciclo->empresa_id === $empresa->id, 403, 'Este ciclo no pertenece a la empresa activa.');
+        $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
         return response()->json([
             'calculo_estado' => $ciclo->calculo_estado,
@@ -74,28 +107,28 @@ class CicloRemunerativoController extends Controller
 
     public function cerrar(Request $request, CicloRemunerativo $ciclo): CicloRemunerativoResource
     {
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
         return new CicloRemunerativoResource($this->ciclos->cerrar($empresa, $ciclo));
     }
 
     public function reabrir(Request $request, CicloRemunerativo $ciclo): CicloRemunerativoResource
     {
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
         return new CicloRemunerativoResource($this->ciclos->reabrir($empresa, $ciclo));
     }
 
     public function marcarPagado(Request $request, CicloRemunerativo $ciclo): CicloRemunerativoResource
     {
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
         return new CicloRemunerativoResource($this->ciclos->marcarPagado($empresa, $ciclo));
     }
 
     public function listarConceptos(Request $request, CicloRemunerativo $ciclo, Colaborador $colaborador): AnonymousResourceCollection
     {
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
         return ColaboradorConceptoPeriodoResource::collection(
             $this->ciclos->listarConceptos($empresa, $ciclo, $colaborador),
@@ -110,7 +143,7 @@ class CicloRemunerativoController extends Controller
             'motivo' => ['nullable', 'string', 'max:255'],
         ]);
 
-        $empresa = $request->user('api')->empresa;
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
         $item = $this->ciclos->registrarConcepto($empresa, $ciclo, $colaborador, $datos, $request->user('api')->id);
 
         return new ColaboradorConceptoPeriodoResource($item->load('concepto'));

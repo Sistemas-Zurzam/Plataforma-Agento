@@ -30,7 +30,8 @@ export default function EmpresaFormModal({
     if (open) {
       setTabActiva('general');
       form.setFieldsValue({
-        nombre: initialValues?.nombre ?? '',
+        nombre_comercial: initialValues?.nombre_comercial ?? '',
+        razon_social: initialValues?.razon_social ?? '',
         abreviatura: initialValues?.abreviatura ?? '',
         grupo: initialValues?.grupo ?? '',
         ruc: initialValues?.ruc ?? '',
@@ -90,12 +91,20 @@ export default function EmpresaFormModal({
     <Form form={form} layout="vertical" onFinish={handleFinish}>
       <div className="grid grid-cols-1 gap-x-5 sm:grid-cols-2">
         <Form.Item
-          label="Nombre de la empresa"
-          name="nombre"
+          label="Nombre comercial"
+          name="nombre_comercial"
           className="sm:col-span-2"
-          rules={[{ required: true, message: 'Ingresa el nombre de la empresa' }]}
+          rules={[{ required: true, message: 'Ingresa el nombre comercial de la empresa' }]}
         >
           <Input placeholder="Ej: Mi Empresa SAC" />
+        </Form.Item>
+
+        <Form.Item
+          label="Razón social"
+          name="razon_social"
+          className="sm:col-span-2"
+        >
+          <Input placeholder="Ej: Mi Empresa Sociedad Anónima Cerrada" />
         </Form.Item>
 
         <Form.Item label="Abreviatura" name="abreviatura">
@@ -134,7 +143,7 @@ export default function EmpresaFormModal({
                 src={initialValues.logo_url}
                 style={{ backgroundColor: initialValues.color ?? '#014693' }}
               >
-                {initialValues.nombre?.charAt(0)}
+                {initialValues.nombre_comercial?.charAt(0)}
               </Avatar>
               <Upload
                 accept="image/png,image/jpeg,image/webp,image/svg+xml"
@@ -242,12 +251,12 @@ export default function EmpresaFormModal({
       {
         key: 'tardanza',
         label: 'Asistencia',
-        children: <EmpresaReglasTardanza empresaId={initialValues.id} empresaNombre={initialValues.nombre} user={user} />,
+        children: <EmpresaReglasTardanza empresaId={initialValues.id} empresaNombre={initialValues.nombre_comercial} user={user} />,
       },
       {
         key: 'responsables',
         label: 'Responsables',
-        children: <EmpresaResponsablesArea empresaId={initialValues.id} empresaNombre={initialValues.nombre} user={user} />,
+        children: <EmpresaResponsablesArea empresaId={initialValues.id} empresaNombre={initialValues.nombre_comercial} user={user} />,
       },
     );
   }

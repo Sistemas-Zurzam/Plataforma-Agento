@@ -7,6 +7,11 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Sin #[ScopedBy(EmpresaScope::class)] a propósito: siempre se consulta
+ * acotado por ciclo_id (que puede pertenecer a cualquier empresa autorizada
+ * del usuario, ver CicloRemunerativo), no por la empresa activa.
+ */
 #[Fillable(['empresa_id', 'ciclo_id', 'colaborador_id', 'concepto_id', 'monto', 'motivo', 'creado_por'])]
 class ColaboradorConceptoPeriodo extends Model
 {
