@@ -1,0 +1,77 @@
+name: Laravel
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "agento-backend/**"
+      - "agento-frontend/**"
+      - ".github/workflows/laravel.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "agento-backend/**"
+      - ".github/workflows/laravel.yml"
+
+defaults:
+  run:
+    working-directory: agento-backend
+
+jobs:
+  laravel-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+
+      - name: Copy .env
+        run: php -r "file_exists('.env') || copy('.env.example', '.env');"
+
+      - name: Install Dependencies
+        run: composer install -q --no-ansi --no-interaction --no-scripts --no-progress --prefer-dist
+
+      - name: Generate key
+        run: php artisan key:generate
+
+      - name: Directory Permissions
+        run: chmod -R 777 storage bootstrap/cache
+
+      - name: Execute tests (Unit and Feature tests) via PHPUnit/Pest
+        run: php artisan test
+
+  deploy:
+    needs: laravel-tests
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            set -e
+
+            cd /var/www/Plataforma-Agento/agento-backend
+            git pull origin main
+            composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
+            php artisan migrate --force
+            php artisan optimize:clear
+            php artisan config:cache
+            php artisan route:cache
+            php artisan view:cache
+            php artisan queue:restart
+
+            cd /var/www/Plataforma-Agento/agento-frontend
+            git pull origin main
+            npm ci
+            npm run build
+
+            sudo systemctl reload apache2
