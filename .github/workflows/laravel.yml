@@ -59,8 +59,11 @@ jobs:
           script: |
             set -e
 
-            cd /var/www/Plataforma-Agento/agento-backend
-            git pull origin main
+            cd /var/www/Plataforma-Agento
+            git fetch origin main
+            git reset --hard origin/main
+
+            cd agento-backend
             composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader
             php artisan migrate --force
             php artisan optimize:clear
@@ -69,8 +72,7 @@ jobs:
             php artisan view:cache
             php artisan queue:restart
 
-            cd /var/www/Plataforma-Agento/agento-frontend
-            git pull origin main
+            cd ../agento-frontend
             npm ci
             npm run build
 
