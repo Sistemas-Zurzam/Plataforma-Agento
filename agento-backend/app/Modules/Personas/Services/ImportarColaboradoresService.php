@@ -35,10 +35,11 @@ class ImportarColaboradoresService
         private readonly ColaboradorService $colaboradores,
     ) {}
 
-    public function previsualizar(Empresa $empresa, UploadedFile $archivo): array
+    /** @param Collection<int, Empresa> $empresasAutorizadas */
+    public function previsualizar(Collection $empresasAutorizadas, UploadedFile $archivo): array
     {
         $filas = $this->lector->leer($archivo->getRealPath());
-        $evaluadas = $this->evaluarFilas($empresa, $filas);
+        $evaluadas = $this->evaluarFilas($empresasAutorizadas, $filas);
 
         return [
             'archivo_nombre' => $archivo->getClientOriginalName(),
@@ -48,6 +49,7 @@ class ImportarColaboradoresService
             'colaboradores' => array_map(fn ($fila) => [
                 'nombre' => $fila['nombre'],
                 'numero_documento' => $fila['numero_documento'],
+                'empresa' => $fila['empresa_texto'],
                 'accion' => $fila['accion'],
                 'errores' => $fila['errores'],
             ], $evaluadas),
@@ -58,11 +60,14 @@ class ImportarColaboradoresService
         ];
     }
 
-    /** @return array{creados: int, errores: array<int, array{nombre: string, motivo: string}>} */
-    public function importar(Empresa $empresa, UploadedFile $archivo): array
+    /**
+     * @param  Collection<int, Empresa>  $empresasAutorizadas
+     * @return array{creados: int, errores: array<int, array{nombre: string, motivo: string}>}
+     */
+    public function importar(Collection $empresasAutorizadas, UploadedFile $archivo): array
     {
         $filas = $this->lector->leer($archivo->getRealPath());
-        $evaluadas = $this->evaluarFilas($empresa, $filas);
+        $evaluadas = $this->evaluarFilas($empresasAutorizadas, $filas);
 
         $creados = 0;
         $errores = [];
@@ -75,7 +80,7 @@ class ImportarColaboradoresService
             }
 
             try {
-                DB::transaction(fn () => $this->colaboradores->crear($empresa, $fila['datos']));
+                DB::transaction(fn () => $this->colaboradores->crear($fila['empresa'], $fila['datos']));
                 $creados++;
             } catch (Throwable $e) {
                 $errores[] = ['nombre' => $fila['nombre'], 'motivo' => $e->getMessage()];
@@ -85,36 +90,54 @@ class ImportarColaboradoresService
         return ['creados' => $creados, 'errores' => $errores];
     }
 
-    /** @return array<int, array{nombre: string, numero_documento: ?string, accion: string, errores: array<int, string>, datos: ?array}> */
-    private function evaluarFilas(Empresa $empresa, array $filas): array
+    /**
+     * @param  Collection<int, Empresa>  $empresasAutorizadas
+     * @return array<int, array{nombre: string, numero_documento: ?string, empresa_texto: ?string, accion: string, errores: array<int, string>, datos: ?array, empresa: ?Empresa}>
+     */
+    private function evaluarFilas(Collection $empresasAutorizadas, array $filas): array
     {
-        $sedes = Sede::where('empresa_id', $empresa->id)->where('activa', true)->get()->keyBy(fn ($s) => mb_strtolower($s->nombre));
-        $areas = Area::where('empresa_id', $empresa->id)->get()->keyBy(fn ($a) => mb_strtolower($a->nombre));
-        $horarios = Horario::where('empresa_id', $empresa->id)->where('activo', true)->get()->keyBy(fn ($h) => mb_strtolower($h->nombre));
+        $empresasPorNombre = $empresasAutorizadas->keyBy(fn (Empresa $e) => mb_strtolower($e->nombre));
+        $empresaIds = $empresasAutorizadas->pluck('id')->all();
+
+        // Sede/área se agrupan por empresa porque el archivo puede traer
+        // filas de varias empresas del grupo a la vez — cada fila solo debe
+        // poder resolver sede/área/documento dentro de SU propia empresa.
+        $sedesPorEmpresa = Sede::whereIn('empresa_id', $empresaIds)->where('activa', true)->get()
+            ->groupBy('empresa_id')
+            ->map(fn ($grupo) => $grupo->keyBy(fn ($s) => mb_strtolower($s->nombre)));
+        $areasPorEmpresa = Area::whereIn('empresa_id', $empresaIds)->get()
+            ->groupBy('empresa_id')
+            ->map(fn ($grupo) => $grupo->keyBy(fn ($a) => mb_strtolower($a->nombre)));
+        // Horarios es un catálogo global — se busca entre TODOS los horarios
+        // del sistema, no solo los de las empresas autorizadas.
+        $horarios = Horario::where('activo', true)->get()->keyBy(fn ($h) => mb_strtolower($h->nombre));
         $clavesAfpValidas = ['onp', ...Afp::pluck('clave')->all()];
 
         $documentosExistentes = Colaborador::withTrashed()
-            ->where('empresa_id', $empresa->id)
-            ->get(['tipo_documento', 'numero_documento'])
-            ->map(fn ($c) => mb_strtolower("{$c->tipo_documento}|{$c->numero_documento}"))
+            ->whereIn('empresa_id', $empresaIds)
+            ->get(['empresa_id', 'tipo_documento', 'numero_documento'])
+            ->map(fn ($c) => mb_strtolower("{$c->empresa_id}|{$c->tipo_documento}|{$c->numero_documento}"))
             ->flip();
 
+        // El mismo documento SÍ puede repetirse entre empresas distintas (la
+        // unicidad real es por empresa), por eso el nombre de empresa tal
+        // como vino en el archivo forma parte de la clave de duplicado.
         $conteoEnArchivo = collect($filas)
-            ->countBy(fn ($fila) => mb_strtolower(($fila['tipo_documento'] ?? '').'|'.($fila['numero_documento'] ?? '')));
+            ->countBy(fn ($fila) => mb_strtolower(($fila['empresa'] ?? '').'|'.($fila['tipo_documento'] ?? '').'|'.($fila['numero_documento'] ?? '')));
 
         $evaluadas = [];
         foreach ($filas as $fila) {
-            $evaluadas[] = $this->evaluarFila($empresa, $fila, $sedes, $areas, $horarios, $clavesAfpValidas, $documentosExistentes, $conteoEnArchivo);
+            $evaluadas[] = $this->evaluarFila($fila, $empresasPorNombre, $sedesPorEmpresa, $areasPorEmpresa, $horarios, $clavesAfpValidas, $documentosExistentes, $conteoEnArchivo);
         }
 
         return $evaluadas;
     }
 
     private function evaluarFila(
-        Empresa $empresa,
         array $fila,
-        Collection $sedes,
-        Collection $areas,
+        Collection $empresasPorNombre,
+        Collection $sedesPorEmpresa,
+        Collection $areasPorEmpresa,
         Collection $horarios,
         array $clavesAfpValidas,
         Collection $documentosExistentes,
@@ -123,22 +146,39 @@ class ImportarColaboradoresService
         $nombreCompleto = trim(($fila['nombres'] ?? '').' '.($fila['apellidos'] ?? ''));
         $errores = [];
 
-        $claveDocumento = mb_strtolower(($fila['tipo_documento'] ?? '').'|'.($fila['numero_documento'] ?? ''));
-        if ($documentosExistentes->has($claveDocumento)) {
-            $errores[] = 'Ya existe un colaborador (activo o eliminado) con este documento en la empresa.';
-        }
-        if (($conteoEnArchivo[$claveDocumento] ?? 0) > 1) {
-            $errores[] = 'Este documento aparece más de una vez en el archivo.';
+        $empresa = $fila['empresa'] ? $empresasPorNombre->get(mb_strtolower($fila['empresa'])) : null;
+        if (! $empresa) {
+            $errores[] = $fila['empresa']
+                ? "Empresa \"{$fila['empresa']}\" no existe o no tienes acceso a ella."
+                : 'empresa es obligatoria — indica a qué empresa pertenece este colaborador.';
         }
 
+        $claveConteo = mb_strtolower(($fila['empresa'] ?? '').'|'.($fila['tipo_documento'] ?? '').'|'.($fila['numero_documento'] ?? ''));
+        if (($conteoEnArchivo[$claveConteo] ?? 0) > 1) {
+            $errores[] = 'Este documento aparece más de una vez en el archivo para esta empresa.';
+        }
+
+        if ($empresa) {
+            $claveDocumento = mb_strtolower("{$empresa->id}|{$fila['tipo_documento']}|{$fila['numero_documento']}");
+            if ($documentosExistentes->has($claveDocumento)) {
+                $errores[] = 'Ya existe un colaborador (activo o eliminado) con este documento en esa empresa.';
+            }
+        }
+
+        $sedes = $empresa ? ($sedesPorEmpresa->get($empresa->id) ?? collect()) : collect();
         $sede = $fila['sede'] ? $sedes->get(mb_strtolower($fila['sede'])) : null;
         if (! $sede) {
-            $errores[] = "Sede \"{$fila['sede']}\" no existe o está inactiva.";
+            $errores[] = $empresa
+                ? "Sede \"{$fila['sede']}\" no existe o está inactiva en esa empresa."
+                : "Sede \"{$fila['sede']}\" no se pudo validar porque la empresa no fue reconocida.";
         }
 
+        $areas = $empresa ? ($areasPorEmpresa->get($empresa->id) ?? collect()) : collect();
         $area = $fila['area'] ? $areas->get(mb_strtolower($fila['area'])) : null;
         if (! $area) {
-            $errores[] = "Área \"{$fila['area']}\" no existe en la empresa.";
+            $errores[] = $empresa
+                ? "Área \"{$fila['area']}\" no existe en esa empresa."
+                : "Área \"{$fila['area']}\" no se pudo validar porque la empresa no fue reconocida.";
         }
 
         $horario = $fila['horario'] ? $horarios->get(mb_strtolower($fila['horario'])) : null;
@@ -159,8 +199,16 @@ class ImportarColaboradoresService
             $errores[] = 'fecha_fin_contrato es obligatoria para un contrato a plazo fijo.';
         }
 
+        // El sistema nunca adivina el día de descanso de un horario rotativo
+        // — mismo chequeo que StoreColaboradorRequest::withValidator(), que
+        // acá no se ejecuta solo (Validator::make() no dispara los hooks de
+        // un FormRequest, solo sus rules()).
+        if ($horario?->tipo_turno === 'rotativo' && ! $fila['dias_descanso_rotativo_por_semana']) {
+            $errores[] = 'dias_descanso_rotativo_por_semana es obligatorio — el horario elegido es rotativo y el sistema nunca lo adivina.';
+        }
+
         $datos = null;
-        if ($errores === [] && $sede && $area && $horario) {
+        if ($errores === [] && $empresa && $sede && $area && $horario) {
             $datos = [
                 'sede_id' => $sede->id,
                 'area_id' => $area->id,
@@ -178,6 +226,7 @@ class ImportarColaboradoresService
                 'tipo_contrato' => $fila['tipo_contrato'],
                 'regimen_laboral' => $fila['regimen_laboral'],
                 'tipo_trabajador' => $fila['tipo_trabajador'],
+                'es_trabajador_confianza' => $fila['es_trabajador_confianza'],
                 'fecha_ingreso' => $fila['fecha_ingreso'],
                 'fecha_fin_contrato' => $fila['fecha_fin_contrato'],
                 'sistema_previsional' => $fila['sistema_previsional'],
@@ -186,6 +235,19 @@ class ImportarColaboradoresService
                 'moneda_salario' => $fila['moneda_salario'],
                 'periodicidad_pago' => $fila['periodicidad_pago'],
                 'asignacion_familiar' => $fila['asignacion_familiar'],
+                'pais_residencia' => $fila['pais_residencia'],
+                'ciudad_residencia' => $fila['ciudad_residencia'],
+                'distrito_residencia' => $fila['distrito_residencia'],
+                'contabilizar_tardanzas' => $fila['contabilizar_tardanzas'],
+                'contabilizar_horas_extra' => $fila['contabilizar_horas_extra'],
+                'cts_cuenta' => $fila['cts_cuenta'],
+                'banco' => $fila['banco'],
+                'numero_cuenta' => $fila['numero_cuenta'],
+                'tipo_cuenta' => $fila['tipo_cuenta'],
+                'moneda_cuenta' => $fila['moneda_cuenta'],
+                'cci' => $fila['cci'],
+                'tolerancia_particular_minutos' => $fila['tolerancia_particular_minutos'],
+                'dias_descanso_rotativo_por_semana' => $fila['dias_descanso_rotativo_por_semana'],
             ];
 
             // El calendario todavía no existe en este punto (se genera abajo
@@ -200,16 +262,18 @@ class ImportarColaboradoresService
                 $datos = null;
             } else {
                 $datos['calendario'] = $this->colaboradores
-                    ->calendarioPorDefecto($empresa, $horario, $fila['fecha_ingreso'])['dias'];
+                    ->calendarioPorDefecto($horario, $fila['fecha_ingreso'])['dias'];
             }
         }
 
         return [
             'nombre' => $nombreCompleto !== '' ? $nombreCompleto : ($fila['numero_documento'] ?? '(sin nombre)'),
             'numero_documento' => $fila['numero_documento'],
+            'empresa_texto' => $fila['empresa'],
             'accion' => $errores === [] ? 'crear' : 'error',
             'errores' => $errores,
             'datos' => $datos,
+            'empresa' => $empresa,
         ];
     }
 

@@ -23,12 +23,39 @@ class ColaboradorPlantillaGenerator
         'cargo', 'tipo_contrato', 'tipo_trabajador', 'regimen_laboral', 'modalidad_trabajo',
         'fecha_ingreso', 'fecha_fin_contrato', 'salario', 'moneda_salario', 'periodicidad_pago',
         'asignacion_familiar', 'sistema_previsional',
+        // Agregados después de la v1 (Sección: faltaban campos de residencia,
+        // banderas de cálculo y datos bancarios) — van al final para no
+        // correr las columnas ya existentes en plantillas que alguien ya
+        // esté usando.
+        'pais_residencia', 'ciudad_residencia', 'distrito_residencia',
+        'contabilizar_tardanzas', 'contabilizar_horas_extra',
+        'cts_cuenta', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
+        // Paridad exacta con StoreColaboradorRequest / NuevoColaboradorModal.
+        'tolerancia_particular_minutos', 'dias_descanso_rotativo_por_semana',
+        'es_trabajador_confianza',
+        // Va al final por el mismo motivo que los anteriores (no correr
+        // columnas de plantillas ya en uso). Se resuelve por nombre exacto,
+        // igual que sede/area/horario, contra las empresas que el usuario
+        // realmente administra — ver ImportarColaboradoresService.
+        'empresa',
     ];
 
     /** Columnas que deben quedar en formato texto para evitar interpretación numérica/fecha de Excel. */
-    private const COLUMNAS_TEXTO = ['G', 'H', 'R', 'S'];
+    private const COLUMNAS_TEXTO = ['G', 'H', 'R', 'S', 'AF', 'AI'];
 
-    public function generar(): Spreadsheet
+    /**
+     * @param  array<int, string>  $nombresHorarios  Nombres de los horarios
+     *      activos registrados en el sistema, para convertir la columna
+     *      "horario" en una lista desplegable real en vez de texto libre.
+     *      Si viene vacío (aún no hay horarios registrados), la columna
+     *      queda como texto libre igual que antes.
+     * @param  array<int, string>  $nombresEmpresas  Nombres de las empresas
+     *      que el usuario que descarga la plantilla realmente administra,
+     *      para convertir la columna "empresa" en una lista desplegable —
+     *      mismo criterio de autorización que ImportarColaboradoresService,
+     *      así nunca se puede escribir a mano una empresa ajena.
+     */
+    public function generar(array $nombresHorarios = [], array $nombresEmpresas = []): Spreadsheet
     {
         $libro = new Spreadsheet;
         $hoja = $libro->getActiveSheet();
@@ -45,27 +72,42 @@ class ColaboradorPlantillaGenerator
             $hoja->getStyle("{$columna}2:{$columna}200")->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_TEXT);
         }
 
-        $this->llenarEjemplo($hoja);
+        $this->llenarEjemplo($hoja, $nombresHorarios[0] ?? null, $nombresEmpresas[0] ?? null);
         $this->agregarValidaciones($hoja);
+        $this->agregarListasDinamicas($libro, $hoja, $nombresHorarios, $nombresEmpresas);
 
-        foreach (range('A', $ultimaColumna) as $columna) {
-            $hoja->getColumnDimension($columna)->setAutoSize(true);
+        foreach (array_keys(self::ENCABEZADOS) as $indice) {
+            $hoja->getColumnDimension($this->columna($indice))->setAutoSize(true);
         }
+
+        $libro->setActiveSheetIndex(0);
 
         return $libro;
     }
 
+    /**
+     * Con más de 26 columnas hace falta letra doble (AA, AB...) — chr() solo
+     * alcanza para A-Z, por eso la conversión real es base-26 posicional.
+     */
     private function columna(int $indice): string
     {
-        return chr(ord('A') + $indice);
+        $posicion = $indice + 1;
+        $letras = '';
+        while ($posicion > 0) {
+            $resto = ($posicion - 1) % 26;
+            $letras = chr(65 + $resto).$letras;
+            $posicion = intdiv($posicion - 1, 26);
+        }
+
+        return $letras;
     }
 
-    private function llenarEjemplo(Worksheet $hoja): void
+    private function llenarEjemplo(Worksheet $hoja, ?string $nombreHorarioReal, ?string $nombreEmpresaReal): void
     {
         $ejemplo = [
             'sede' => 'Sede Principal',
             'area' => 'Sistemas',
-            'horario' => '8:00 - 18:00 | 9h',
+            'horario' => $nombreHorarioReal ?? '8:00 - 18:00 | 9h',
             'nombres' => 'JUAN CARLOS',
             'apellidos' => 'PEREZ RAMIREZ',
             'tipo_documento' => 'dni',
@@ -87,6 +129,21 @@ class ColaboradorPlantillaGenerator
             'periodicidad_pago' => 'mensual',
             'asignacion_familiar' => '',
             'sistema_previsional' => 'onp',
+            'pais_residencia' => 'Perú',
+            'ciudad_residencia' => 'Lima',
+            'distrito_residencia' => 'San Isidro',
+            'contabilizar_tardanzas' => 'Sí',
+            'contabilizar_horas_extra' => 'Sí',
+            'cts_cuenta' => '',
+            'banco' => 'BCP',
+            'numero_cuenta' => '19412345678012',
+            'tipo_cuenta' => 'ahorro',
+            'moneda_cuenta' => 'PEN',
+            'cci' => '00219400123456780154',
+            'tolerancia_particular_minutos' => '',
+            'dias_descanso_rotativo_por_semana' => '',
+            'es_trabajador_confianza' => 'No',
+            'empresa' => $nombreEmpresaReal ?? 'Empresa Ejemplo S.A.C.',
         ];
 
         foreach (self::ENCABEZADOS as $indice => $campo) {
@@ -104,6 +161,11 @@ class ColaboradorPlantillaGenerator
         $this->listaDesplegable($hoja, 'Q2:Q200', 'presencial,remoto,hibrido');
         $this->listaDesplegable($hoja, 'U2:U200', 'PEN,USD');
         $this->listaDesplegable($hoja, 'V2:V200', 'mensual,quincenal,semanal');
+        $this->listaDesplegable($hoja, 'AB2:AB200', 'Sí,No');
+        $this->listaDesplegable($hoja, 'AC2:AC200', 'Sí,No');
+        $this->listaDesplegable($hoja, 'AG2:AG200', 'ahorro,corriente');
+        $this->listaDesplegable($hoja, 'AH2:AH200', 'PEN,USD');
+        $this->listaDesplegable($hoja, 'AJ2:AJ200', 'Sí,No');
     }
 
     /**
@@ -124,6 +186,57 @@ class ColaboradorPlantillaGenerator
         $filaInicio = (int) preg_replace('/\D+/', '', $inicio);
         $filaFin = (int) preg_replace('/\D+/', '', $fin);
         for ($fila = $filaInicio; $fila <= $filaFin; $fila++) {
+            $hoja->getCell("{$columna}{$fila}")->setDataValidation(clone $validacion);
+        }
+    }
+
+    /**
+     * Ninguna de las dos listas cabe como lista literal (Excel limita la
+     * fórmula de un DataValidation tipo lista a 255 caracteres, y un grupo
+     * con varios horarios o empresas la supera fácil) — por eso los nombres
+     * reales se escriben en una hoja auxiliar oculta (horarios en la
+     * columna A, empresas en la B) y "horario"/"empresa" apuntan a ese
+     * rango en vez de a un texto fijo.
+     *
+     * @param  array<int, string>  $nombresHorarios
+     * @param  array<int, string>  $nombresEmpresas
+     */
+    private function agregarListasDinamicas(Spreadsheet $libro, Worksheet $hojaPrincipal, array $nombresHorarios, array $nombresEmpresas): void
+    {
+        if ($nombresHorarios === [] && $nombresEmpresas === []) {
+            return;
+        }
+
+        $hojaListas = $libro->createSheet();
+        $hojaListas->setTitle('Listas');
+        $hojaListas->setSheetState(Worksheet::SHEETSTATE_HIDDEN);
+
+        if ($nombresHorarios !== []) {
+            foreach ($nombresHorarios as $indice => $nombre) {
+                $hojaListas->setCellValueExplicit('A'.($indice + 1), $nombre, DataType::TYPE_STRING);
+            }
+            $this->aplicarListaDesdeRango($hojaPrincipal, 'C', 'Listas!$A$1:$A$'.count($nombresHorarios));
+        }
+
+        if ($nombresEmpresas !== []) {
+            foreach ($nombresEmpresas as $indice => $nombre) {
+                $hojaListas->setCellValueExplicit('B'.($indice + 1), $nombre, DataType::TYPE_STRING);
+            }
+            $columnaEmpresa = $this->columna(count(self::ENCABEZADOS) - 1);
+            $this->aplicarListaDesdeRango($hojaPrincipal, $columnaEmpresa, 'Listas!$B$1:$B$'.count($nombresEmpresas));
+        }
+    }
+
+    private function aplicarListaDesdeRango(Worksheet $hoja, string $columna, string $rango): void
+    {
+        $validacion = new DataValidation;
+        $validacion->setType(DataValidation::TYPE_LIST);
+        $validacion->setErrorStyle(DataValidation::STYLE_STOP);
+        $validacion->setAllowBlank(true);
+        $validacion->setShowDropDown(true);
+        $validacion->setFormula1($rango);
+
+        for ($fila = 2; $fila <= 200; $fila++) {
             $hoja->getCell("{$columna}{$fila}")->setDataValidation(clone $validacion);
         }
     }

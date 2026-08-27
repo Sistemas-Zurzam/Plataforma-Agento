@@ -30,6 +30,7 @@ class ResolverJornadaDiaria
             ->orderByDesc('vigencia_desde')
             ->first();
 
+        $esRotativo = $asignacion?->horario?->tipo_turno === 'rotativo';
         $horarioDia = $asignacion?->horario?->dias
             ->firstWhere('dia_semana', $fecha->dayOfWeekIso - 1);
 
@@ -38,7 +39,11 @@ class ResolverJornadaDiaria
             ->whereDate('fecha', $fechaTexto)
             ->first();
 
-        if ($calendario === null) {
+        // Un horario rotativo nunca dispara la generación automática desde
+        // el procesamiento de asistencia -- si nadie declaró el día a mano
+        // todavía, $calendario sigue null y cae en 'sin_rol_definido' más
+        // abajo, nunca en el patrón semanal fijo (eso sería adivinar).
+        if ($calendario === null && ! $esRotativo) {
             // El calendario inicial solo cubre el mes de ingreso; para meses
             // posteriores se genera aquí bajo demanda (hereda el patrón por
             // día de semana del último mes con datos) y queda persistido.
@@ -51,6 +56,7 @@ class ResolverJornadaDiaria
 
         $tipoDia = match (true) {
             $calendario !== null => $calendario->tipo,
+            $esRotativo => 'sin_rol_definido',
             FeriadosPeru::esFeriado($fechaTexto) => 'feriado',
             $horarioDia === null => 'no_programado',
             $horarioDia->estado === 'descanso' => 'descanso',

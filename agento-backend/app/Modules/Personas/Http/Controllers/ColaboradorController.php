@@ -17,7 +17,9 @@ use App\Modules\Personas\Services\ImportarColaboradoresService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Collection;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Support\Facades\Storage;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -31,23 +33,46 @@ class ColaboradorController extends Controller
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $usuario = $request->user('api');
+        $empresaIds = $this->resolverEmpresaIds($request);
         $perPage = max(1, min((int) $request->input('per_page', 10), 50));
-
-        // "Todas las empresas" nunca acepta IDs del frontend — se resuelve
-        // acá mismo contra las empresas realmente autorizadas del usuario
-        // (empresa_usuario), salvo que sea administrador global, que ve
-        // literalmente todas las del sistema (ver User::esAdministradorGlobal).
-        $empresaIds = $request->boolean('todas_empresas')
-            ? ($usuario->esAdministradorGlobal()
-                ? Empresa::pluck('id')->all()
-                : $usuario->empresas()->pluck('empresas.id')->all())
-            : [$usuario->empresa->id];
 
         $paginador = $this->colaboradores->listar($empresaIds, $request->input('busqueda'), $perPage);
 
         return ColaboradorResource::collection($paginador)
             ->additional(['stats' => $this->colaboradores->estadisticas($empresaIds)]);
+    }
+
+    public function rotativosSinRol(Request $request): JsonResponse
+    {
+        $datos = $request->validate([
+            'anio' => ['required', 'integer', 'min:2020', 'max:2100'],
+            'mes' => ['required', 'integer', 'min:1', 'max:12'],
+        ]);
+
+        return response()->json([
+            'data' => $this->colaboradores->colaboradoresRotativosSinRol(
+                $this->resolverEmpresaIds($request), $datos['anio'], $datos['mes'],
+            ),
+        ]);
+    }
+
+    /**
+     * "Todas las empresas" nunca acepta IDs del frontend — se resuelve acá
+     * contra las empresas realmente autorizadas del usuario
+     * (empresa_usuario), salvo que sea administrador global, que ve
+     * literalmente todas las del sistema (ver User::esAdministradorGlobal).
+     *
+     * @return array<int, int>
+     */
+    private function resolverEmpresaIds(Request $request): array
+    {
+        $usuario = $request->user('api');
+
+        return $request->boolean('todas_empresas')
+            ? ($usuario->esAdministradorGlobal()
+                ? Empresa::pluck('id')->all()
+                : $usuario->empresas()->pluck('empresas.id')->all())
+            : [$usuario->empresa->id];
     }
 
     public function store(StoreColaboradorRequest $request): JsonResponse|ColaboradorResource
@@ -139,6 +164,7 @@ class ColaboradorController extends Controller
             'horario_id' => ['required', 'integer', 'exists:horarios,id'],
             'modalidad_trabajo' => ['required', 'in:presencial,remoto,hibrido'],
             'tolerancia_particular_minutos' => ['nullable', 'integer', 'min:0'],
+            'dias_descanso_rotativo_por_semana' => ['nullable', 'integer', 'min:1', 'max:6'],
             // A partir de qué fecha este horario afecta el procesamiento de
             // marcaciones (Sección 10) — no puede ser futura: eso dejaría
             // "colaborador.horario_id" (el puntero de conveniencia al
@@ -146,6 +172,13 @@ class ColaboradorController extends Controller
             'vigencia_desde' => ['required', 'date', 'before_or_equal:today'],
             'vigencia_hasta' => ['nullable', 'date', 'after_or_equal:vigencia_desde'],
         ]);
+
+        $horarioSeleccionado = Horario::find($datos['horario_id']);
+        if ($horarioSeleccionado?->tipo_turno === 'rotativo' && empty($datos['dias_descanso_rotativo_por_semana'])) {
+            throw ValidationException::withMessages([
+                'dias_descanso_rotativo_por_semana' => 'Indica cuántos días de descanso a la semana le corresponden — este horario es rotativo y el sistema nunca lo adivina.',
+            ]);
+        }
 
         return new ColaboradorResource(
             $this->colaboradores->actualizarHorario($request->user('api')->empresa, $colaborador, $datos),
@@ -307,17 +340,23 @@ class ColaboradorController extends Controller
             'fecha_ingreso' => ['required', 'date'],
         ]);
 
-        $empresaActiva = $request->user('api')->empresa;
         $horario = Horario::findOrFail($datos['horario_id']);
 
         return response()->json(
-            $this->colaboradores->calendarioPorDefecto($empresaActiva, $horario, $datos['fecha_ingreso']),
+            $this->colaboradores->calendarioPorDefecto($horario, $datos['fecha_ingreso']),
         );
     }
 
-    public function plantillaImportacion(): StreamedResponse
+    public function plantillaImportacion(Request $request): StreamedResponse
     {
-        $libro = (new ColaboradorPlantillaGenerator)->generar();
+        // Horarios es un catálogo global — la misma lista sirve para
+        // cualquier empresa que descargue la plantilla. Empresas, en
+        // cambio, se limita a las que el usuario realmente administra
+        // (mismo criterio que empresasAutorizadas()), para que la columna
+        // "empresa" nunca deje escribir a mano una empresa ajena.
+        $nombresHorarios = Horario::where('activo', true)->orderBy('nombre')->pluck('nombre')->all();
+        $nombresEmpresas = $this->empresasAutorizadas($request)->pluck('nombre')->sort()->values()->all();
+        $libro = (new ColaboradorPlantillaGenerator)->generar($nombresHorarios, $nombresEmpresas);
         $escritor = new Xlsx($libro);
 
         return response()->streamDownload(function () use ($escritor) {
@@ -329,21 +368,38 @@ class ColaboradorController extends Controller
 
     public function previsualizarImportacion(ImportarColaboradoresRequest $request): JsonResponse
     {
-        $empresaActiva = $request->user('api')->empresa;
-
         return response()->json([
-            'data' => $this->importador->previsualizar($empresaActiva, $request->file('archivo')),
+            'data' => $this->importador->previsualizar($this->empresasAutorizadas($request), $request->file('archivo')),
         ]);
     }
 
     public function importarColaboradores(ImportarColaboradoresRequest $request): JsonResponse
     {
-        $empresaActiva = $request->user('api')->empresa;
-        $resultado = $this->importador->importar($empresaActiva, $request->file('archivo'));
+        $resultado = $this->importador->importar($this->empresasAutorizadas($request), $request->file('archivo'));
 
         return response()->json([
             'message' => "{$resultado['creados']} colaboradores creados.",
             'data' => $resultado,
         ]);
+    }
+
+    /**
+     * Un colaborador importado puede pertenecer a cualquier empresa que el
+     * usuario realmente administre — no solo la empresa activa de su
+     * sesión — para poder cargar en un solo archivo colaboradores de varias
+     * empresas del mismo grupo. La empresa de cada fila la decide la
+     * columna "empresa" del Excel (ver ImportarColaboradoresService), acá
+     * solo se resuelve el universo de empresas autorizadas contra el cual
+     * se valida ese nombre — mismo criterio que resolverEmpresaIds().
+     *
+     * @return Collection<int, Empresa>
+     */
+    private function empresasAutorizadas(Request $request): Collection
+    {
+        $usuario = $request->user('api');
+
+        return $usuario->esAdministradorGlobal()
+            ? Empresa::all()
+            : $usuario->empresas()->get();
     }
 }

@@ -26,18 +26,16 @@ class HorarioController extends Controller
 
     public function index(Request $request): AnonymousResourceCollection
     {
-        $empresaActiva = $request->user('api')->empresa;
         $perPage = max(1, min((int) $request->input('per_page', 10), 50));
 
         $paginador = $this->horarios->listar(
-            $empresaActiva,
             $request->input('busqueda'),
             $request->input('estado'),
             $perPage,
         );
 
         return HorarioResource::collection($paginador)
-            ->additional(['stats' => $this->horarios->estadisticas($empresaActiva)]);
+            ->additional(['stats' => $this->horarios->estadisticas()]);
     }
 
     public function store(StoreHorarioRequest $request): HorarioResource
@@ -50,8 +48,7 @@ class HorarioController extends Controller
 
     public function update(UpdateHorarioRequest $request, Horario $horario): HorarioResource
     {
-        $empresaActiva = $request->user('api')->empresa;
-        $horario = $this->horarios->actualizar($empresaActiva, $horario, $request->validated());
+        $horario = $this->horarios->actualizar($horario, $request->validated());
 
         return new HorarioResource($horario);
     }
@@ -64,10 +61,9 @@ class HorarioController extends Controller
         return new HorarioResource($copia);
     }
 
-    public function cambiarEstado(Request $request, Horario $horario): HorarioResource
+    public function cambiarEstado(Horario $horario): HorarioResource
     {
-        $empresaActiva = $request->user('api')->empresa;
-        $horario = $this->horarios->cambiarEstado($empresaActiva, $horario);
+        $horario = $this->horarios->cambiarEstado($horario);
 
         return new HorarioResource($horario);
     }

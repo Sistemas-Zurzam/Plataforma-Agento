@@ -142,7 +142,7 @@ class ColaboradorSeeder extends Seeder
         $datos = array_merge($datosPersonales, $arquetipo, ['horario_id' => $horario->id]);
 
         try {
-            $datos['calendario'] = $this->colaboradores->calendarioPorDefecto($empresa, $horario, $datos['fecha_ingreso'])['dias'];
+            $datos['calendario'] = $this->colaboradores->calendarioPorDefecto($horario, $datos['fecha_ingreso'])['dias'];
         } catch (Throwable $exception) {
             $this->command?->warn("ColaboradorSeeder: no se pudo generar el calendario para {$nombres} {$apellidos} ({$exception->getMessage()}) — se omite.");
 

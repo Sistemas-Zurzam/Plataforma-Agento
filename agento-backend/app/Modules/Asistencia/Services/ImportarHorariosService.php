@@ -27,8 +27,10 @@ class ImportarHorariosService
     public function previsualizar(Empresa $empresa, UploadedFile $archivo): array
     {
         $grupos = $this->agruparPorHorario($this->lector->leer($archivo->getRealPath()));
-        $existentes = Horario::where('empresa_id', $empresa->id)
-            ->withCount('asignaciones')
+        // Catálogo global: se busca por nombre entre TODOS los horarios del
+        // sistema, no solo los de esta empresa — importar un nombre que ya
+        // existe (creado por cualquier empresa) actualiza ese mismo registro.
+        $existentes = Horario::withCount('asignaciones')
             ->get()
             ->keyBy(fn (Horario $horario) => mb_strtolower($horario->nombre));
 
@@ -56,8 +58,10 @@ class ImportarHorariosService
     public function importar(Empresa $empresa, UploadedFile $archivo): array
     {
         $grupos = $this->agruparPorHorario($this->lector->leer($archivo->getRealPath()));
-        $existentes = Horario::where('empresa_id', $empresa->id)
-            ->withCount('asignaciones')
+        // Catálogo global: se busca por nombre entre TODOS los horarios del
+        // sistema, no solo los de esta empresa — importar un nombre que ya
+        // existe (creado por cualquier empresa) actualiza ese mismo registro.
+        $existentes = Horario::withCount('asignaciones')
             ->get()
             ->keyBy(fn (Horario $horario) => mb_strtolower($horario->nombre));
 
@@ -81,7 +85,7 @@ class ImportarHorariosService
             try {
                 DB::transaction(function () use ($empresa, $evaluado, $existentes, $nombre) {
                     if ($evaluado['accion'] === 'actualizar') {
-                        $this->horarios->actualizar($empresa, $existentes->get(mb_strtolower($nombre)), $evaluado['datos']);
+                        $this->horarios->actualizar($existentes->get(mb_strtolower($nombre)), $evaluado['datos']);
                     } else {
                         $this->horarios->crear($empresa, $evaluado['datos']);
                     }

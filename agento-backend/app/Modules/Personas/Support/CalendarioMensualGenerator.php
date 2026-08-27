@@ -4,6 +4,7 @@ namespace App\Modules\Personas\Support;
 
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCalendarioDia;
+use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -30,6 +31,16 @@ class CalendarioMensualGenerator
         $finMes = $inicioMes->copy()->endOfMonth();
 
         $existentes = self::consultarMes($colaborador, $inicioMes, $finMes);
+
+        // Un horario rotativo NUNCA genera su calendario solo -- ni
+        // heredando el patrón de otro mes, ni asumiendo un tipo por
+        // defecto según el día de semana. El día de descanso rotativo
+        // exige declaración explícita (Sección: rotativos, cero
+        // inferencia) — ver completarSinPersistir().
+        if (self::tieneHorarioRotativo($colaborador, $inicioMes)) {
+            return self::completarSinPersistir($colaborador, $existentes, $inicioMes, $finMes);
+        }
+
         if ($existentes->isNotEmpty()) {
             return $existentes;
         }
@@ -117,5 +128,60 @@ class CalendarioMensualGenerator
     private static function claveSemana(Carbon $fecha): string
     {
         return ($fecha->isoWeek() % 2).'-'.$fecha->dayOfWeekIso;
+    }
+
+    /**
+     * Completa el mes con instancias SIN GUARDAR para los días que todavía
+     * no tienen un tipo declarado a mano — solo para que la grilla de
+     * edición tenga los días del mes completos para hacer click. Nunca se
+     * insertan por sí solas: si nadie las guarda explícitamente
+     * (POST/PUT del calendario), no quedan en la base, y por lo tanto
+     * ProcesarAsistenciaDiaria las trata como "sin_rol_definido" y bloquea
+     * el procesamiento en vez de asumir cualquier valor.
+     */
+    private static function completarSinPersistir(
+        Colaborador $colaborador,
+        Collection $existentes,
+        Carbon $inicioMes,
+        Carbon $finMes,
+    ): Collection {
+        $fechaIngreso = $colaborador->fecha_ingreso->copy()->startOfDay();
+        $desde = $fechaIngreso->gt($inicioMes) ? $fechaIngreso : $inicioMes->copy();
+
+        if ($desde->gt($finMes)) {
+            return $existentes;
+        }
+
+        $porFecha = $existentes->keyBy(fn (ColaboradorCalendarioDia $dia) => $dia->fecha->toDateString());
+        $completo = collect();
+
+        for ($fecha = $desde->copy(); $fecha->lte($finMes); $fecha->addDay()) {
+            $fechaTexto = $fecha->toDateString();
+            if ($porFecha->has($fechaTexto)) {
+                $completo->push($porFecha->get($fechaTexto));
+
+                continue;
+            }
+
+            $completo->push(new ColaboradorCalendarioDia([
+                'colaborador_id' => $colaborador->id,
+                'fecha' => $fechaTexto,
+                'tipo' => FeriadosPeru::esFeriado($fechaTexto) ? 'feriado' : 'laborable_presencial',
+            ]));
+        }
+
+        return $completo->sortBy('fecha')->values();
+    }
+
+    private static function tieneHorarioRotativo(Colaborador $colaborador, Carbon $fecha): bool
+    {
+        return ColaboradorHorarioAsignacion::query()
+            ->where('colaborador_id', $colaborador->id)
+            ->whereDate('vigencia_desde', '<=', $fecha->toDateString())
+            ->where(fn ($query) => $query
+                ->whereNull('vigencia_hasta')
+                ->orWhereDate('vigencia_hasta', '>=', $fecha->toDateString()))
+            ->whereHas('horario', fn ($query) => $query->where('tipo_turno', 'rotativo'))
+            ->exists();
     }
 }

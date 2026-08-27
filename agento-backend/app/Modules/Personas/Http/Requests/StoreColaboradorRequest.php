@@ -2,6 +2,7 @@
 
 namespace App\Modules\Personas\Http\Requests;
 
+use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Afp;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
@@ -53,6 +54,7 @@ class StoreColaboradorRequest extends FormRequest
                 Rule::in(['General', 'Micro Empresa', 'Pequeña Empresa', 'Locacion de Servicios']),
             ],
             'tipo_trabajador' => ['required', Rule::in(['trabajador', 'practicante', 'locador'])],
+            'es_trabajador_confianza' => ['nullable', 'boolean'],
             'contabilizar_tardanzas' => ['nullable', 'boolean'],
             'contabilizar_horas_extra' => ['nullable', 'boolean'],
             'fecha_ingreso' => ['required', 'date'],
@@ -68,6 +70,7 @@ class StoreColaboradorRequest extends FormRequest
 
             'modalidad_trabajo' => ['required', Rule::in(['presencial', 'remoto', 'hibrido'])],
             'tolerancia_particular_minutos' => ['nullable', 'integer', 'min:0'],
+            'dias_descanso_rotativo_por_semana' => ['nullable', 'integer', 'min:1', 'max:6'],
 
             'salario' => ['required', 'numeric', 'min:0'],
             'moneda_salario' => ['required', Rule::in(['PEN', 'USD'])],
@@ -100,6 +103,19 @@ class StoreColaboradorRequest extends FormRequest
                 $validator->errors()->add(
                     'fecha_fin_contrato',
                     'La fecha de fin es obligatoria para un contrato a plazo fijo.',
+                );
+            }
+
+            // El sistema nunca adivina el día de descanso de un horario
+            // rotativo — si el horario elegido es rotativo, exige saber de
+            // antemano cuántos días de descanso a la semana le corresponden
+            // a este colaborador (varía por persona, no es un número fijo).
+            $horarioId = $this->input('horario_id');
+            $horario = $horarioId ? Horario::find($horarioId) : null;
+            if ($horario?->tipo_turno === 'rotativo' && ! $this->input('dias_descanso_rotativo_por_semana')) {
+                $validator->errors()->add(
+                    'dias_descanso_rotativo_por_semana',
+                    'Indica cuántos días de descanso a la semana le corresponden — este horario es rotativo.',
                 );
             }
 

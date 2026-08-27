@@ -48,6 +48,13 @@ export function useColaboradores() {
     return data.dias;
   }, []);
 
+  const fetchRotativosSinRol = useCallback(async (anio, mes, todasEmpresas = false) => {
+    const { data } = await api.get('/colaboradores/rotativos-sin-rol', {
+      params: { anio, mes, todas_empresas: todasEmpresas || undefined },
+    });
+    return data.data;
+  }, []);
+
   const fetchCalendarioDelMes = useCallback(async (colaboradorId, anio, mes) => {
     const { data } = await api.get(`/colaboradores/${colaboradorId}/calendario`, {
       params: { anio, mes },
@@ -162,6 +169,7 @@ export function useColaboradores() {
     crearColaborador,
     restaurarColaborador,
     fetchCalendarioDefecto,
+    fetchRotativosSinRol,
     fetchCalendarioDelMes,
     fetchColaborador,
     actualizarCalendario,

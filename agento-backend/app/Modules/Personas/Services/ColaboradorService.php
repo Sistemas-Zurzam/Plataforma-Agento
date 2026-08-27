@@ -64,6 +64,43 @@ class ColaboradorService
         ];
     }
 
+    /**
+     * Colaboradores con horario rotativo que todavía no tienen ningún día
+     * de descanso declarado para el mes indicado — señal simple y barata de
+     * "rol sin cargar" para avisar ANTES de que alguien intente calcular su
+     * planilla y se tope recién ahí con el bloqueo de
+     * CalcularBoletaColaborador::verificarRolRotativoCompleto(). No verifica
+     * completitud día por día (eso ya lo hace el bloqueo real) — solo si
+     * hay al menos un descanso cargado, como aviso temprano.
+     *
+     * @param  array<int, int>  $empresaIds
+     * @return array<int, array{id: int, nombre_completo: string, legajo: string, horario: ?string}>
+     */
+    public function colaboradoresRotativosSinRol(array $empresaIds, int $anio, int $mes): array
+    {
+        $inicioMes = Carbon::create($anio, $mes, 1)->startOfDay();
+        $finMes = $inicioMes->copy()->endOfMonth();
+
+        return Colaborador::whereIn('empresa_id', $empresaIds)
+            ->where('activo', true)
+            ->whereHas('asignacionesHorario', fn ($query) => $query
+                ->whereNull('vigencia_hasta')
+                ->whereHas('horario', fn ($query) => $query->where('tipo_turno', 'rotativo')))
+            ->whereDoesntHave('calendario', fn ($query) => $query
+                ->whereBetween('fecha', [$inicioMes->toDateString(), $finMes->toDateString()])
+                ->where('tipo', 'descanso'))
+            ->with('horario')
+            ->get()
+            ->map(fn (Colaborador $colaborador) => [
+                'id' => $colaborador->id,
+                'nombre_completo' => trim("{$colaborador->nombres} {$colaborador->apellidos}"),
+                'legajo' => $colaborador->legajo,
+                'horario' => $colaborador->horario?->nombre,
+            ])
+            ->values()
+            ->all();
+    }
+
     public function obtenerDetalle(Empresa $empresa, Colaborador $colaborador): Colaborador
     {
         if ($colaborador->empresa_id !== $empresa->id) {
@@ -113,6 +150,10 @@ class ColaboradorService
                 'fecha' => $dia->fecha->toDateString(),
                 'tipo' => $dia->tipo,
                 'editable' => true,
+                // false = instancia virtual sin guardar (horario rotativo
+                // sin ese día declarado todavía) — permite a la UI marcar
+                // visualmente qué días todavía no tienen un rol confirmado.
+                'declarado' => $dia->exists,
             ])->values()->all(),
         ];
     }
@@ -129,27 +170,37 @@ class ColaboradorService
         $vigenciaDesde = $datos['vigencia_desde'];
         $vigenciaHasta = $datos['vigencia_hasta'] ?? null;
 
+        // Horarios es un catálogo global (compartido entre empresas de un
+        // mismo grupo) — solo se valida que esté activo y vigente, no que
+        // pertenezca a esta empresa.
         $horarioValido = Horario::whereKey($datos['horario_id'])
-            ->where('empresa_id', $empresa->id)
             ->where('activo', true)
             ->whereDate('vigencia_desde', '<=', $vigenciaDesde)
             ->where(fn ($query) => $query->whereNull('vigencia_hasta')->orWhereDate('vigencia_hasta', '>=', $vigenciaDesde))
             ->exists();
 
         if (! $horarioValido) {
-            throw new AuthorizationException('El horario seleccionado no está activo o vigente para la empresa en la fecha indicada.');
+            throw new AuthorizationException('El horario seleccionado no está activo o vigente para la fecha indicada.');
         }
 
         DB::transaction(function () use ($colaborador, $datos, $empresa, $vigenciaDesde, $vigenciaHasta) {
-            if ($colaborador->horario_id !== $datos['horario_id']) {
-                $asignacionActual = $colaborador->asignacionesHorario()->whereNull('vigencia_hasta')->first();
+            $asignacionActual = $colaborador->asignacionesHorario()->whereNull('vigencia_hasta')->first();
+            $diasDescansoNuevo = $datos['dias_descanso_rotativo_por_semana'] ?? null;
+            // También versiona si SOLO cambia el número de días de descanso
+            // rotativo (sin cambiar de horario) — igual que el horario
+            // mismo, no se sobrescribe en el sitio si afecta el cálculo de
+            // fechas ya pasadas.
+            $requiereNuevaVigencia = $colaborador->horario_id !== $datos['horario_id']
+                || $asignacionActual?->dias_descanso_rotativo_por_semana !== $diasDescansoNuevo;
 
+            if ($requiereNuevaVigencia) {
                 // Corrección (Sección 12): la fecha indicada no es posterior
                 // a la vigencia ya abierta -> se corrige el mismo registro
                 // en vez de fragmentar el historial con una vigencia nueva.
                 if ($asignacionActual && $vigenciaDesde <= $asignacionActual->vigencia_desde->toDateString()) {
                     $asignacionActual->update([
                         'horario_id' => $datos['horario_id'],
+                        'dias_descanso_rotativo_por_semana' => $diasDescansoNuevo,
                         'vigencia_desde' => $vigenciaDesde,
                         'vigencia_hasta' => $vigenciaHasta,
                     ]);
@@ -160,6 +211,7 @@ class ColaboradorService
                     $colaborador->asignacionesHorario()->create([
                         'empresa_id' => $empresa->id,
                         'horario_id' => $datos['horario_id'],
+                        'dias_descanso_rotativo_por_semana' => $diasDescansoNuevo,
                         'vigencia_desde' => $vigenciaDesde,
                         'vigencia_hasta' => $vigenciaHasta,
                     ]);
@@ -423,12 +475,13 @@ class ColaboradorService
      *
      * @throws AuthorizationException
      */
-    public function calendarioPorDefecto(Empresa $empresa, Horario $horario, string $fechaIngreso): array
+    public function calendarioPorDefecto(Horario $horario, string $fechaIngreso): array
     {
         $fecha = Carbon::parse($fechaIngreso)->startOfDay();
+        // Horarios es un catálogo global — no se restringe por empresa_id,
+        // solo se valida que esté activo y vigente para la fecha.
         if (
-            $horario->empresa_id !== $empresa->id
-            || ! $horario->activo
+            ! $horario->activo
             || $horario->vigencia_desde?->startOfDay()->gt($fecha)
             || $horario->vigencia_hasta?->endOfDay()->lt($fecha)
         ) {
@@ -448,6 +501,12 @@ class ColaboradorService
 
             if (FeriadosPeru::esFeriado($fechaTexto)) {
                 $tipo = 'feriado';
+            } elseif ($horario->tipo_turno === 'rotativo') {
+                // Un horario rotativo no tiene un patrón semanal fijo de
+                // descanso -- se propone laborable en todos los días para
+                // que RR.HH. marque a mano cuáles son los de descanso real
+                // (Sección: rotativos, cero inferencia).
+                $tipo = 'laborable_presencial';
             } else {
                 // dia_semana en Horario: 0=Lunes...6=Domingo; dayOfWeekIso: 1=Lunes...7=Domingo.
                 $horarioDia = $diasPorSemana->get($fecha->dayOfWeekIso - 1);
@@ -506,6 +565,7 @@ class ColaboradorService
             $colaborador->asignacionesHorario()->create([
                 'empresa_id' => $empresa->id,
                 'horario_id' => $datos['horario_id'],
+                'dias_descanso_rotativo_por_semana' => $datos['dias_descanso_rotativo_por_semana'] ?? null,
                 'vigencia_desde' => $datos['fecha_ingreso'],
                 'vigencia_hasta' => null,
             ]);
@@ -553,8 +613,10 @@ class ColaboradorService
             ->where('activa', true)
             ->exists();
         $areaValida = Area::where('id', $areaId)->where('empresa_id', $empresa->id)->exists();
+        // Horarios es un catálogo global (compartido entre empresas de un
+        // mismo grupo) — no se restringe a esta empresa, solo se valida que
+        // esté activo y vigente para la fecha de ingreso.
         $horarioValido = Horario::where('id', $horarioId)
-            ->where('empresa_id', $empresa->id)
             ->where('activo', true)
             ->whereDate('vigencia_desde', '<=', $fechaIngreso)
             ->where(fn ($query) => $query
@@ -562,8 +624,11 @@ class ColaboradorService
                 ->orWhereDate('vigencia_hasta', '>=', $fechaIngreso))
             ->exists();
 
-        if (! $sedeValida || ! $areaValida || ! $horarioValido) {
-            throw new AuthorizationException('La sede, área u horario indicados no pertenecen a la empresa activa.');
+        if (! $sedeValida || ! $areaValida) {
+            throw new AuthorizationException('La sede o área indicadas no pertenecen a la empresa activa.');
+        }
+        if (! $horarioValido) {
+            throw new AuthorizationException('El horario indicado no está activo o vigente para la fecha de ingreso.');
         }
     }
 }

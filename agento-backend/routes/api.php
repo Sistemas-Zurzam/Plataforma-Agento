@@ -111,6 +111,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('/colaboradores', [ColaboradorController::class, 'index'])->middleware('permiso:colaboradores.ver');
     Route::post('/colaboradores', [ColaboradorController::class, 'store'])->middleware('permiso:colaboradores.crear');
     Route::get('/colaboradores/calendario-defecto', [ColaboradorController::class, 'calendarioDefecto'])->middleware('permiso:colaboradores.crear');
+    Route::get('/colaboradores/rotativos-sin-rol', [ColaboradorController::class, 'rotativosSinRol'])->middleware('permiso:colaboradores.ver');
     Route::get('/colaboradores/plantilla-importacion', [ColaboradorController::class, 'plantillaImportacion'])->middleware('permiso:colaboradores.crear');
     Route::post('/colaboradores/importar/previsualizar', [ColaboradorController::class, 'previsualizarImportacion'])->middleware('permiso:colaboradores.crear');
     Route::post('/colaboradores/importar', [ColaboradorController::class, 'importarColaboradores'])->middleware('permiso:colaboradores.crear');

@@ -11,6 +11,7 @@ use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Configuracion\Models\ReglaDescuentoTardanza;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use Illuminate\Support\Carbon;
 use RuntimeException;
@@ -54,16 +55,30 @@ class CalcularBoletaColaborador
         }
 
         $sueldoBasico = (float) $remuneracion->salario;
-        $asistencia = $this->obtenerAsistenciaDelPeriodo($colaborador, $fechaInicio, $fechaFin);
-
         $alertas = [];
-        if (! $asistencia['asistencia_procesada']) {
-            // El básico/tardanza de este cálculo se basan en 0 faltas y 0
-            // minutos de tardanza porque Asistencia todavía no procesó el
-            // período — NO porque el colaborador tenga asistencia perfecta.
-            // La UI debe mostrar "Sin procesar", nunca el número como si
-            // fuera un resultado confirmado.
-            $alertas[] = 'Asistencia del período aún no procesada — el cálculo asume 0 faltas y 0 minutos de tardanza hasta que se procese.';
+
+        if ($colaborador->es_trabajador_confianza) {
+            // Trabajador de confianza: no importa si faltó ni si tuvo horas
+            // extra — se le paga el sueldo básico completo cada período, sin
+            // descuento por tardanza ni ingreso por horas extra. Los aportes
+            // obligatorios (AFP/ONP, EsSalud, renta 5ta) NO cambian por esto
+            // — siguen calculándose normal más abajo, porque dependen del
+            // sueldo básico completo, no de esta asistencia "neutral".
+            // Tampoco necesita asistencia procesada en absoluto para poder
+            // calcularle planilla (ni siquiera el rol de un horario rotativo).
+            $asistencia = $this->asistenciaNeutralConfianza();
+            $alertas[] = 'Trabajador de confianza — no se aplican descuentos por tardanza ni ingresos por horas extra; se paga el sueldo básico completo.';
+        } else {
+            $asistencia = $this->obtenerAsistenciaDelPeriodo($colaborador, $fechaInicio, $fechaFin);
+
+            if (! $asistencia['asistencia_procesada']) {
+                // El básico/tardanza de este cálculo se basan en 0 faltas y 0
+                // minutos de tardanza porque Asistencia todavía no procesó el
+                // período — NO porque el colaborador tenga asistencia perfecta.
+                // La UI debe mostrar "Sin procesar", nunca el número como si
+                // fuera un resultado confirmado.
+                $alertas[] = 'Asistencia del período aún no procesada — el cálculo asume 0 faltas y 0 minutos de tardanza hasta que se procese.';
+            }
         }
         $ingresos = [];
         $egresos = [];
@@ -299,6 +314,22 @@ class CalcularBoletaColaborador
     }
 
     /**
+     * @return array{asistencia_procesada: bool, dias_falta: float, horas_permiso_sin_goce: float, minutos_tardanza: int, horas_he25: float, horas_he35: float, horas_he100: float}
+     */
+    private function asistenciaNeutralConfianza(): array
+    {
+        return [
+            'asistencia_procesada' => true,
+            'dias_falta' => 0.0,
+            'horas_permiso_sin_goce' => 0.0,
+            'minutos_tardanza' => 0,
+            'horas_he25' => 0.0,
+            'horas_he35' => 0.0,
+            'horas_he100' => 0.0,
+        ];
+    }
+
+    /**
      * @return array{dias_falta: float, horas_permiso_sin_goce: float, minutos_tardanza: int, horas_he25: float, horas_he35: float, horas_he100: float}
      */
     private function obtenerAsistenciaDelPeriodo(Colaborador $colaborador, string $fechaInicio, string $fechaFin): array
@@ -306,6 +337,8 @@ class CalcularBoletaColaborador
         $resultados = AsistenciaResultadoDiario::where('colaborador_id', $colaborador->id)
             ->whereBetween('fecha', [$fechaInicio, $fechaFin])
             ->get();
+
+        $this->verificarRolRotativoCompleto($colaborador, $fechaInicio, $fechaFin, $resultados);
 
         $horasPermisoSinGoce = AsistenciaPermiso::where('colaborador_id', $colaborador->id)
             ->where('estado', 'aprobado')
@@ -329,5 +362,41 @@ class CalcularBoletaColaborador
             'horas_he35' => round($resultados->sum('minutos_extra_35') / 60, 2),
             'horas_he100' => round($resultados->sum('minutos_extra_100') / 60, 2),
         ];
+    }
+
+    /**
+     * Un horario rotativo nunca calcula planilla con huecos — si falta
+     * declarar el rol de algún día del período, se rechaza el cálculo
+     * completo de este colaborador en vez de omitir esos días en silencio
+     * (Sección: rotativos, cero inferencia — un día sin rol no es lo mismo
+     * que un día sin marcaciones).
+     */
+    private function verificarRolRotativoCompleto(Colaborador $colaborador, string $fechaInicio, string $fechaFin, $resultados): void
+    {
+        $esRotativo = ColaboradorHorarioAsignacion::where('colaborador_id', $colaborador->id)
+            ->whereDate('vigencia_desde', '<=', $fechaFin)
+            ->where(fn ($query) => $query->whereNull('vigencia_hasta')->orWhereDate('vigencia_hasta', '>=', $fechaInicio))
+            ->whereHas('horario', fn ($query) => $query->where('tipo_turno', 'rotativo'))
+            ->exists();
+
+        if (! $esRotativo) {
+            return;
+        }
+
+        $desde = Carbon::parse(max($fechaInicio, $colaborador->fecha_ingreso->toDateString()));
+        $hasta = Carbon::parse($fechaFin);
+        if ($desde->gt($hasta)) {
+            return;
+        }
+
+        $fechasConResultado = $resultados->pluck('fecha')->map(fn (Carbon $fecha) => $fecha->toDateString())->flip();
+
+        for ($fecha = $desde->copy(); $fecha->lte($hasta); $fecha->addDay()) {
+            if (! $fechasConResultado->has($fecha->toDateString())) {
+                throw new RuntimeException(
+                    "El colaborador #{$colaborador->id} tiene horario rotativo y le falta declarar el rol de turnos del {$fecha->toDateString()} — no se puede calcular su planilla hasta que se complete.",
+                );
+            }
+        }
     }
 }

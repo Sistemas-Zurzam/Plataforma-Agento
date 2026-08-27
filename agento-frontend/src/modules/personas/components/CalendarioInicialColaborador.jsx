@@ -99,6 +99,7 @@ export default function CalendarioInicialColaborador({ dias, horario, onCambiarD
           {dias.map((dia) => {
             const estilo = TIPOS[dia.tipo];
             const clicable = dia.editable && dia.tipo !== 'feriado';
+            const sinDeclarar = dia.declarado === false;
 
             return (
               <button
@@ -106,15 +107,16 @@ export default function CalendarioInicialColaborador({ dias, horario, onCambiarD
                 key={dia.fecha}
                 disabled={!clicable}
                 onClick={() => onCambiarDia(dia.fecha)}
-                title={estilo.label}
+                title={sinDeclarar ? 'Sin declarar todavía — haz clic para asignarle un tipo' : estilo.label}
                 className={`flex flex-col items-center justify-center gap-0.5 rounded-lg border py-2 text-xs font-medium transition-colors ${
                   dia.editable
                     ? `${estilo.bg} ${estilo.text} ${estilo.border}`
                     : 'border-gray-100 bg-gray-50 text-gray-300'
-                } ${clicable ? 'cursor-pointer hover:opacity-80' : 'cursor-not-allowed'}`}
+                } ${sinDeclarar ? 'border-dashed' : ''} ${clicable ? 'cursor-pointer hover:opacity-80' : 'cursor-not-allowed'}`}
               >
                 <span className="text-sm font-semibold">{dayjs(dia.fecha).date()}</span>
                 {dia.editable && dia.tipo === 'feriado' && <span className="text-[10px]">Feriado</span>}
+                {sinDeclarar && <span className="text-[9px] italic">sin declarar</span>}
               </button>
             );
           })}

@@ -1,4 +1,4 @@
-import { DatePicker, Form, InputNumber, Modal, Select, Table } from 'antd';
+import { Alert, DatePicker, Form, InputNumber, Modal, Select, Table } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect } from 'react';
 import { useHorarios } from '../../asistencia/hooks/useHorarios';
@@ -13,6 +13,9 @@ const HISTORIAL_COLUMNS = [
 export default function EditarHorarioColaboradorModal({ open, colaborador, submitting, onGuardar, onCancel }) {
   const [form] = Form.useForm();
   const { horarios, fetchHorarios, loading } = useHorarios();
+  const horarioIdSeleccionado = Form.useWatch('horario_id', form);
+  const horarioSeleccionado = horarios.find((horario) => horario.id === horarioIdSeleccionado);
+  const esRotativo = horarioSeleccionado?.tipo_turno === 'rotativo';
 
   useEffect(() => {
     if (!open) return;
@@ -21,14 +24,17 @@ export default function EditarHorarioColaboradorModal({ open, colaborador, submi
       horario_id: colaborador?.horario?.id,
       modalidad_trabajo: colaborador?.modalidad_trabajo,
       tolerancia_particular_minutos: colaborador?.tolerancia_particular_minutos,
+      dias_descanso_rotativo_por_semana: colaborador?.dias_descanso_rotativo_por_semana,
       vigencia_desde: dayjs(),
       vigencia_hasta: undefined,
     });
   }, [open, colaborador, fetchHorarios, form]);
 
   const handleFinish = (values) => {
+    const horarioSeleccionado = horarios.find((horario) => horario.id === values.horario_id);
     onGuardar({
       ...values,
+      horario_nombre: horarioSeleccionado?.nombre,
       vigencia_desde: values.vigencia_desde.format('YYYY-MM-DD'),
       vigencia_hasta: values.vigencia_hasta ? values.vigencia_hasta.format('YYYY-MM-DD') : null,
     });
@@ -56,6 +62,27 @@ export default function EditarHorarioColaboradorModal({ open, colaborador, submi
         <Form.Item label="Tolerancia particular (minutos)" name="tolerancia_particular_minutos" extra="Déjalo vacío para usar la tolerancia del horario.">
           <InputNumber min={0} className="w-full" placeholder="Usar la del horario" />
         </Form.Item>
+
+        {esRotativo && (
+          <>
+            <Alert
+              type="warning"
+              showIcon
+              className="mb-3"
+              message="Horario rotativo"
+              description="El sistema nunca adivina el día de descanso — deberás declarar manualmente en el calendario del colaborador cuáles fechas son su descanso cada mes."
+            />
+            <Form.Item
+              label="Días de descanso a la semana"
+              name="dias_descanso_rotativo_por_semana"
+              extra="Cuántos días libres le corresponden por semana (varía por persona: 1, 2, 3...)."
+              rules={[{ required: true, message: 'Obligatorio para un horario rotativo' }]}
+            >
+              <InputNumber min={1} max={6} className="w-full" />
+            </Form.Item>
+          </>
+        )}
+
         <div className="grid grid-cols-2 gap-3">
           <Form.Item
             label="Vigente desde"

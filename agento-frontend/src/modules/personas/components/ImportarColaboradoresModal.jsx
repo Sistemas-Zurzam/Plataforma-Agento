@@ -70,6 +70,7 @@ export default function ImportarColaboradoresModal({ open, onCancel, onImportado
   const columnas = [
     { title: 'Colaborador', dataIndex: 'nombre' },
     { title: 'Documento', dataIndex: 'numero_documento', width: 130 },
+    { title: 'Empresa', dataIndex: 'empresa', width: 160 },
     {
       title: 'Acción',
       dataIndex: 'accion',
@@ -97,7 +98,7 @@ export default function ImportarColaboradoresModal({ open, onCancel, onImportado
           type="info"
           showIcon
           message="Este importador solo crea colaboradores nuevos"
-          description="Si el documento ya existe en el sistema, esa fila queda con error y no se modifica nada del colaborador existente."
+          description={'Si el documento ya existe en esa empresa, esa fila queda con error y no se modifica nada del colaborador existente. La columna "empresa" del Excel debe tener el nombre exacto de una empresa a la que tienes acceso — un mismo archivo puede traer colaboradores de varias empresas del grupo a la vez.'}
         />
 
         <Button icon={<DownloadOutlined />} onClick={handleDescargarPlantilla}>
@@ -162,7 +163,7 @@ export default function ImportarColaboradoresModal({ open, onCancel, onImportado
 
             <Table
               size="small"
-              rowKey="numero_documento"
+              rowKey={(fila, indice) => `${fila.empresa}-${fila.numero_documento}-${indice}`}
               columns={columnas}
               dataSource={previsualizacion.colaboradores}
               pagination={{ pageSize: 10 }}

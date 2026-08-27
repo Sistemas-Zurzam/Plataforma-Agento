@@ -5,7 +5,7 @@ import {
   IdcardOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
-import { App, Avatar, Button, Checkbox, DatePicker, Form, Input, InputNumber, Modal, Select, Tabs, Tag, Upload } from 'antd';
+import { Alert, App, Avatar, Button, Checkbox, DatePicker, Form, Input, InputNumber, Modal, Select, Tabs, Tag, Upload } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import TelefonoInput from '../../../components/TelefonoInput';
@@ -46,10 +46,10 @@ const CAMPOS_POR_TAB = {
   contrato: [
     'sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador',
     'fecha_ingreso', 'fecha_fin_contrato', 'periodicidad_pago', 'moneda_salario', 'salario',
-    'contabilizar_tardanzas', 'contabilizar_horas_extra',
+    'contabilizar_tardanzas', 'contabilizar_horas_extra', 'es_trabajador_confianza',
   ],
   remunerativa: ['cts_cuenta', 'asignacion_familiar', 'sistema_previsional', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
-  trabajo: ['horario_id', 'modalidad_trabajo', 'tolerancia_particular_minutos'],
+  trabajo: ['horario_id', 'modalidad_trabajo', 'tolerancia_particular_minutos', 'dias_descanso_rotativo_por_semana'],
 };
 
 /**
@@ -133,6 +133,8 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
     ? PERIODICIDAD_OPTIONS
     : PERIODICIDAD_OPTIONS.filter((opcion) => opcion.value === 'mensual');
   const horarioSeleccionado = horarios.find((h) => h.id === form.getFieldValue('horario_id'));
+  const horarioIdActivo = Form.useWatch('horario_id', form);
+  const esHorarioRotativo = horarios.find((h) => h.id === horarioIdActivo)?.tipo_turno === 'rotativo';
 
   useEffect(() => {
     if (open) {
@@ -297,6 +299,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
             items={[
               {
                 key: 'personal',
+                forceRender: true,
                 label: <span><IdcardOutlined /> Información personal</span>,
                 children: (
                   <div className="flex flex-col gap-3">
@@ -385,6 +388,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
               },
               {
                 key: 'contrato',
+                forceRender: true,
                 label: <span><BankOutlined /> Información de contrato</span>,
                 children: (
                   <div className="flex flex-col gap-3">
@@ -488,12 +492,22 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                       >
                         <Checkbox>Contabilizar horas extra</Checkbox>
                       </Form.Item>
+                      <Form.Item
+                        label={<span className="invisible">.</span>}
+                        name="es_trabajador_confianza"
+                        valuePropName="checked"
+                        extra="No se le descuenta por faltas ni tardanzas, no se le paga horas extra — se le paga su sueldo básico completo cada período. AFP/ONP, EsSalud y renta 5ta se siguen calculando normal."
+                        className="sm:col-span-2 lg:col-span-3"
+                      >
+                        <Checkbox>Trabajador de confianza</Checkbox>
+                      </Form.Item>
                     </div>
                   </div>
                 ),
               },
               {
                 key: 'remunerativa',
+                forceRender: true,
                 label: <span><WalletOutlined /> Información remunerativa</span>,
                 children: (
                   <div className="flex flex-col gap-3">
@@ -543,6 +557,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
               },
               {
                 key: 'trabajo',
+                forceRender: true,
                 label: <span><ClockCircleOutlined /> Información de trabajo</span>,
                 children: (
                   <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -567,6 +582,25 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                     <Form.Item label={campoLabel('Tolerancia particular (min)')} name="tolerancia_particular_minutos">
                       <InputNumber min={0} className="w-full" placeholder="Usar la del horario" />
                     </Form.Item>
+                    {esHorarioRotativo && (
+                      <>
+                        <Alert
+                          type="warning"
+                          showIcon
+                          className="sm:col-span-2 lg:col-span-3 mb-1"
+                          message="Horario rotativo"
+                          description="El sistema nunca adivina el día de descanso — deberás declarar manualmente en su calendario cuáles fechas son su descanso cada mes."
+                        />
+                        <Form.Item
+                          label={campoLabel('Días de descanso a la semana')}
+                          name="dias_descanso_rotativo_por_semana"
+                          extra="Cuántos días libres le corresponden por semana (varía por persona)."
+                          rules={[{ required: true, message: 'Obligatorio para un horario rotativo' }]}
+                        >
+                          <InputNumber min={1} max={6} className="w-full" />
+                        </Form.Item>
+                      </>
+                    )}
                   </div>
                 ),
               },

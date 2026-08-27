@@ -1,5 +1,5 @@
 import { LeftOutlined, RightOutlined } from '@ant-design/icons';
-import { App, Button, Modal, Spin } from 'antd';
+import { Alert, App, Button, Modal, Spin } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import { useColaboradores } from '../hooks/useColaboradores';
@@ -57,6 +57,16 @@ export default function EditarCalendarioModal({ open, colaborador, submitting, o
       centered
       destroyOnHidden
     >
+      {colaborador?.horario?.tipo_turno === 'rotativo' && (
+        <Alert
+          type="warning"
+          showIcon
+          className="mb-3"
+          message={`Horario rotativo${colaborador?.dias_descanso_rotativo_por_semana ? ` — le corresponden ${colaborador.dias_descanso_rotativo_por_semana} día(s) de descanso por semana` : ''}`}
+          description="Los días marcados con borde punteado ('sin declarar') todavía no tienen un tipo confirmado — la planilla no se puede calcular hasta que los completes."
+        />
+      )}
+
       <div className="mb-3 flex items-center justify-center gap-3">
         <Button
           icon={<LeftOutlined />}

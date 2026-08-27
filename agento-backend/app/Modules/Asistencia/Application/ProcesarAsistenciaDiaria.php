@@ -29,6 +29,13 @@ class ProcesarAsistenciaDiaria
         abort_if($periodoProtegido, 422, 'La fecha pertenece a un período de asistencia protegido.');
 
         $jornada = $this->resolverJornada->resolver($colaborador, $fecha);
+        // El sistema nunca adivina el día de descanso de un horario
+        // rotativo -- si nadie lo declaró a mano para esta fecha, se
+        // rechaza el procesamiento en vez de asumir laborable o descanso.
+        abort_if(
+            $jornada['tipo_dia'] === 'sin_rol_definido', 422,
+            "Falta declarar el rol de turnos rotativos de {$colaborador->nombres} {$colaborador->apellidos} para el {$fecha->toDateString()}.",
+        );
         $horarioDia = $jornada['horario_dia'];
         [$inicioProgramado, $finProgramado] = $this->limitesProgramados($fecha, $horarioDia);
         $marcaciones = $this->obtenerMarcaciones($colaborador, $fecha, $inicioProgramado, $finProgramado, (bool) $horarioDia?->jornada_nocturna);

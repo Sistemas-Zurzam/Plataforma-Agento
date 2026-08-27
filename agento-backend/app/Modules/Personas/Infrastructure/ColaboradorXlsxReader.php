@@ -21,7 +21,23 @@ class ColaboradorXlsxReader
         'cargo', 'tipo_contrato', 'tipo_trabajador', 'regimen_laboral', 'modalidad_trabajo',
         'fecha_ingreso', 'fecha_fin_contrato', 'salario', 'moneda_salario', 'periodicidad_pago',
         'asignacion_familiar', 'sistema_previsional',
+        'pais_residencia', 'ciudad_residencia', 'distrito_residencia',
+        'contabilizar_tardanzas', 'contabilizar_horas_extra',
+        'cts_cuenta', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
+        // Estos dos completan la paridad exacta con StoreColaboradorRequest /
+        // NuevoColaboradorModal (Sección: "el Excel debe ser igual que el
+        // formulario") — antes faltaban.
+        'tolerancia_particular_minutos', 'dias_descanso_rotativo_por_semana',
+        'es_trabajador_confianza',
+        // A diferencia del formulario manual (donde la empresa es siempre la
+        // activa en la sesión), un Excel puede traer colaboradores de varias
+        // empresas del mismo grupo — sin esta columna no había forma de
+        // saber a cuál pertenece cada fila.
+        'empresa',
     ];
+
+    /** Columnas Sí/No que se convierten a booleano (null si vienen vacías). */
+    private const CAMPOS_BOOLEANOS = ['contabilizar_tardanzas', 'contabilizar_horas_extra', 'es_trabajador_confianza'];
 
     private int $filasInvalidas = 0;
 
@@ -79,6 +95,12 @@ class ColaboradorXlsxReader
             $fila['modalidad_trabajo'] = $fila['modalidad_trabajo'] !== null ? Str::lower($fila['modalidad_trabajo']) : null;
             $fila['moneda_salario'] = $fila['moneda_salario'] !== null ? Str::upper($fila['moneda_salario']) : null;
             $fila['periodicidad_pago'] = $fila['periodicidad_pago'] !== null ? Str::lower($fila['periodicidad_pago']) : null;
+            $fila['tipo_cuenta'] = $fila['tipo_cuenta'] !== null ? Str::lower($fila['tipo_cuenta']) : null;
+            $fila['moneda_cuenta'] = $fila['moneda_cuenta'] !== null ? Str::upper($fila['moneda_cuenta']) : null;
+
+            foreach (self::CAMPOS_BOOLEANOS as $campoBooleano) {
+                $fila[$campoBooleano] = $fila[$campoBooleano] === null ? null : $this->esAfirmativo($fila[$campoBooleano]);
+            }
 
             $resultado[] = $fila;
         }
@@ -95,5 +117,10 @@ class ColaboradorXlsxReader
         $texto = trim((string) ($valor ?? ''));
 
         return $texto === '' ? null : $texto;
+    }
+
+    private function esAfirmativo(string $valor): bool
+    {
+        return in_array(Str::lower($valor), ['si', 'sí', 'true', '1', 'x'], true);
     }
 }

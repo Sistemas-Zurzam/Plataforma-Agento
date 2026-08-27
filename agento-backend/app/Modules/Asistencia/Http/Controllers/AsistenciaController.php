@@ -264,14 +264,22 @@ class AsistenciaController extends Controller
         $inicio = Carbon::parse($datos['fecha_desde']);
         $fin = Carbon::parse($datos['fecha_hasta']);
         $procesados = 0;
+        $omitidosSinRolRotativo = 0;
 
         foreach ($colaboradores as $colaborador) {
             for ($fecha = $inicio->copy(); $fecha->lte($fin); $fecha->addDay()) {
                 if ($fecha->lt($colaborador->fecha_ingreso->startOfDay())) {
                     continue;
                 }
-                $this->procesador->procesar($colaborador, $fecha);
-                $procesados++;
+                try {
+                    $this->procesador->procesar($colaborador, $fecha);
+                    $procesados++;
+                } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+                    // Horario rotativo sin rol declarado para esta fecha —
+                    // se omite ese día puntual, no se aborta el resto del
+                    // reprocesamiento (Sección: rotativos, cero inferencia).
+                    $omitidosSinRolRotativo++;
+                }
             }
         }
 
@@ -281,8 +289,11 @@ class AsistenciaController extends Controller
         );
 
         return response()->json([
-            'message' => 'Asistencia reprocesada correctamente.',
+            'message' => $omitidosSinRolRotativo > 0
+                ? "Asistencia reprocesada. {$omitidosSinRolRotativo} día(s) omitidos por horario rotativo sin rol declarado."
+                : 'Asistencia reprocesada correctamente.',
             'resultados_procesados' => $procesados,
+            'omitidos_sin_rol_rotativo' => $omitidosSinRolRotativo,
         ]);
     }
 }

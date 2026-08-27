@@ -4,7 +4,6 @@ namespace App\Modules\Asistencia\Services;
 
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Empresa;
-use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -12,12 +11,15 @@ use Illuminate\Validation\ValidationException;
 class HorarioService
 {
     /**
+     * Horarios es un catálogo GLOBAL — varias empresas de un mismo grupo
+     * comparten los mismos horarios, así que a propósito no filtra por
+     * empresa.
+     *
      * @return LengthAwarePaginator<int, Horario>
      */
-    public function listar(Empresa $empresa, ?string $busqueda, ?string $estadoFiltro, int $perPage = 10): LengthAwarePaginator
+    public function listar(?string $busqueda, ?string $estadoFiltro, int $perPage = 10): LengthAwarePaginator
     {
-        return Horario::where('empresa_id', $empresa->id)
-            ->with('dias')
+        return Horario::with('dias')
             ->withCount('colaboradores')
             ->when($busqueda, fn ($query) => $query->where('nombre', 'like', "%{$busqueda}%"))
             ->when($estadoFiltro === 'activo', fn ($query) => $query->where('activo', true))
@@ -29,9 +31,9 @@ class HorarioService
     /**
      * @return array{total: int, activos: int, pendientes: int}
      */
-    public function estadisticas(Empresa $empresa): array
+    public function estadisticas(): array
     {
-        $base = Horario::where('empresa_id', $empresa->id);
+        $base = Horario::query();
 
         return [
             'total' => (clone $base)->count(),
@@ -61,17 +63,16 @@ class HorarioService
     }
 
     /**
-     * Actualiza el horario y sus 7 días en el sitio. A diferencia de
-     * Parámetros Laborales / Comisiones AFP (valores legales que alimentan
-     * cálculos históricos), un horario es una plantilla reutilizable: no
-     * hay historial que proteger, así que se sobrescribe directamente.
+     * Actualiza el horario y sus 7 días en el sitio. Como el catálogo es
+     * global (varias empresas de un mismo grupo pueden compartir el mismo
+     * horario), el bloqueo por "ya tiene trabajadores asignados" es la única
+     * protección real: evita que una empresa cambie en caliente el horario
+     * que otra ya está usando — se obliga a duplicar en vez de editar.
      *
-     * @throws AuthorizationException
+     * @throws ValidationException
      */
-    public function actualizar(Empresa $empresa, Horario $horario, array $datos): Horario
+    public function actualizar(Horario $horario, array $datos): Horario
     {
-        $this->verificarPertenencia($empresa, $horario);
-
         if ($horario->asignaciones()->exists()) {
             throw ValidationException::withMessages([
                 'horario' => 'Este horario ya tiene trabajadores asignados. Duplícalo para crear una nueva versión.',
@@ -87,18 +88,18 @@ class HorarioService
     }
 
     /**
-     * @throws AuthorizationException
+     * empresa_id de la copia queda en la empresa que duplica — es solo
+     * informativo (quién lo creó/gestiona), no restringe quién puede usarlo.
      */
     public function duplicar(Empresa $empresa, Horario $horario): Horario
     {
-        $this->verificarPertenencia($empresa, $horario);
-
-        return DB::transaction(function () use ($horario) {
+        return DB::transaction(function () use ($empresa, $horario) {
             $copia = Horario::create([
                 ...$horario->only([
-                    'empresa_id', 'tolerancia_minutos', 'tipo_turno', 'descripcion',
+                    'tolerancia_minutos', 'tipo_turno', 'descripcion',
                     'cruza_medianoche', 'vigencia_desde', 'vigencia_hasta',
                 ]),
+                'empresa_id' => $empresa->id,
                 'nombre' => "{$horario->nombre} (copia)",
                 'activo' => true,
             ]);
@@ -117,13 +118,8 @@ class HorarioService
         });
     }
 
-    /**
-     * @throws AuthorizationException
-     */
-    public function cambiarEstado(Empresa $empresa, Horario $horario): Horario
+    public function cambiarEstado(Horario $horario): Horario
     {
-        $this->verificarPertenencia($empresa, $horario);
-
         $horario->update(['activo' => ! $horario->activo]);
 
         return $horario->load('dias')->loadCount('colaboradores');
@@ -148,13 +144,6 @@ class HorarioService
                 ['dia_semana' => $dia['dia_semana']],
                 collect($dia)->except('dia_semana')->all(),
             );
-        }
-    }
-
-    private function verificarPertenencia(Empresa $empresa, Horario $horario): void
-    {
-        if ($horario->empresa_id !== $empresa->id) {
-            throw new AuthorizationException('Este horario no pertenece a la empresa activa.');
         }
     }
 }

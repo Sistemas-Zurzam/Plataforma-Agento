@@ -14,6 +14,7 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Support\Carbon;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 class ImportarMarcacionesService
 {
@@ -147,7 +148,15 @@ class ImportarMarcacionesService
                         ->whereDate('fecha_inicio', '<=', $fecha->toDateString())
                         ->whereDate('fecha_fin', '>=', $fecha->toDateString())->exists();
                     if ($protegido) continue;
-                    $this->procesador->procesar($colaborador, $fecha->copy());
+                    try {
+                        $this->procesador->procesar($colaborador, $fecha->copy());
+                    } catch (HttpExceptionInterface $e) {
+                        // Horario rotativo sin rol declarado para esta fecha
+                        // (Sección: rotativos, cero inferencia) -- se omite
+                        // ese día puntual, nunca se aborta la importación
+                        // completa de marcaciones de todos los demás.
+                        continue;
+                    }
                 }
             }
         }

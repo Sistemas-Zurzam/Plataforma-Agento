@@ -320,18 +320,28 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
     }
   };
 
-  const guardarHorario = async (values) => {
-    setGuardandoHorario(true);
-    try {
-      const actualizado = await actualizarHorario(colaborador.id, values);
-      setColaborador(actualizado);
-      setHorarioOpen(false);
-      message.success('Horario actualizado correctamente');
-    } catch (error) {
-      message.error(error.response?.data?.message ?? 'No se pudo actualizar el horario');
-    } finally {
-      setGuardandoHorario(false);
-    }
+  const guardarHorario = (values) => {
+    const { horario_nombre: horarioNombre, ...datosHorario } = values;
+
+    modal.confirm({
+      title: 'Confirmar cambio de horario',
+      content: `¿Confirmas asignar el horario "${horarioNombre}" a ${colaborador?.nombre_completo} a partir del ${dayjs(datosHorario.vigencia_desde).format('DD/MM/YYYY')}? Esto cambia cómo se procesa su asistencia desde esa fecha en adelante.`,
+      okText: 'Confirmar cambio',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        setGuardandoHorario(true);
+        try {
+          const actualizado = await actualizarHorario(colaborador.id, datosHorario);
+          setColaborador(actualizado);
+          setHorarioOpen(false);
+          message.success('Horario actualizado correctamente');
+        } catch (error) {
+          message.error(error.response?.data?.message ?? 'No se pudo actualizar el horario');
+        } finally {
+          setGuardandoHorario(false);
+        }
+      },
+    });
   };
 
   /**
@@ -437,6 +447,11 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
                 <h2 className="truncate text-xl font-bold text-gray-950">{colaborador.nombre_completo}</h2>
                 <Tag color={colaborador.activo ? 'green' : 'default'} className="m-0">{colaborador.activo ? 'Activo' : 'Inactivo'}</Tag>
                 <Tag color="blue" className="m-0">{etiquetaContrato(colaborador.tipo_contrato)}</Tag>
+                {colaborador.es_trabajador_confianza && (
+                  <Tag color="gold" className="m-0" title="No se le descuenta por faltas/tardanzas ni se le paga horas extra">
+                    Trabajador de confianza
+                  </Tag>
+                )}
               </div>
               <p className="mt-1 font-medium text-gray-600">{colaborador.cargo}</p>
             </div>

@@ -68,7 +68,7 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
         fecha_fin_contrato: values.fecha_fin_contrato?.format('YYYY-MM-DD') ?? null,
       },
       remuneracionCambio
-        ? { salario, moneda_salario, periodicidad_pago, asignacion_familiar, vigencia_desde: vigencia_desde.format('YYYY-MM-DD') }
+        ? { salario, moneda_salario, periodicidad_pago, asignacion_familiar, vigencia_desde: vigencia_desde?.format('YYYY-MM-DD') ?? dayjs().format('YYYY-MM-DD') }
         : null,
     );
   };
@@ -87,6 +87,7 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
   const items = [
     {
       key: 'personal',
+      forceRender: true,
       label: <span><IdcardOutlined /> Datos personales</span>,
       children: (
         <div className="grid gap-x-3 sm:grid-cols-2">
@@ -104,6 +105,7 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
     },
     {
       key: 'laboral',
+      forceRender: true,
       label: <span><TeamOutlined /> Datos laborales</span>,
       children: (
         <div className="grid gap-x-3 sm:grid-cols-2">
@@ -119,6 +121,7 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
     },
     {
       key: 'remuneracion',
+      forceRender: true,
       label: <span><WalletOutlined /> Remuneración</span>,
       children: (
         <div>
@@ -156,6 +159,7 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
     },
     {
       key: 'bancarios',
+      forceRender: true,
       label: <span><BankOutlined /> Datos bancarios</span>,
       children: (
         <div className="grid gap-x-3 sm:grid-cols-2">

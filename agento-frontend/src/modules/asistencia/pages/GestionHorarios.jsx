@@ -11,7 +11,6 @@ import {
 } from '@ant-design/icons';
 import { App, Button, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
-import EmpresaActivaFiltro from '../../configuracion/components/EmpresaActivaFiltro';
 import HorarioFormModal from '../components/HorarioFormModal';
 import ImportarHorariosModal from '../components/ImportarHorariosModal';
 import { useHorarios } from '../hooks/useHorarios';
@@ -30,7 +29,7 @@ function TarjetaStat({ icono, valor, etiqueta, color }) {
   );
 }
 
-function TablaHorarios({ user, onUserRefresh }) {
+function TablaHorarios({ user }) {
   const {
     horarios,
     stats,
@@ -56,7 +55,7 @@ function TablaHorarios({ user, onUserRefresh }) {
   useEffect(() => {
     fetchHorarios(1, pagination.pageSize, busqueda, estadoFiltro);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [busqueda, estadoFiltro, user?.empresa?.id]);
+  }, [busqueda, estadoFiltro]);
 
   const handleGuardar = async (values) => {
     setGuardando(true);
@@ -214,7 +213,6 @@ function TablaHorarios({ user, onUserRefresh }) {
             { value: 'inactivo', label: 'Inactivos' },
           ]}
         />
-        <EmpresaActivaFiltro user={user} onUserRefresh={onUserRefresh} />
         {puedeCrear && (
           <Button icon={<ImportOutlined />} onClick={() => setImportarModalOpen(true)}>
             Importar horarios
@@ -279,21 +277,19 @@ function TablaHorarios({ user, onUserRefresh }) {
   );
 }
 
-export default function GestionHorarios({ user, onVolver, onUserRefresh }) {
+export default function GestionHorarios({ user, onVolver }) {
   return (
     <div>
-      <div className="mb-4">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold text-gray-900">Gestión de horarios</h2>
+          <p className="text-sm text-gray-500">Catálogo global — compartido entre todas las empresas del grupo</p>
+        </div>
         {onVolver && (
-          <button
-            type="button"
-            onClick={onVolver}
-            className="mb-2 flex items-center gap-1 text-sm text-gray-500 hover:text-agento-blue"
-          >
-            <ArrowLeftOutlined /> Volver
-          </button>
+          <Button icon={<ArrowLeftOutlined />} onClick={onVolver} className="shrink-0">
+            Volver
+          </Button>
         )}
-        <h2 className="text-lg font-semibold text-gray-900">Gestión de horarios</h2>
-        <p className="text-sm text-gray-500">Empresa activa: {user?.empresa?.nombre}</p>
       </div>
 
       <Tabs
@@ -305,7 +301,7 @@ export default function GestionHorarios({ user, onVolver, onUserRefresh }) {
                 <ClockCircleOutlined /> Horarios
               </span>
             ),
-            children: <TablaHorarios user={user} onUserRefresh={onUserRefresh} />,
+            children: <TablaHorarios user={user} />,
           },
           {
             key: 'calendario',

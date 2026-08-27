@@ -9,7 +9,7 @@ import {
   UserAddOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { App, Avatar, Button, Input, Switch, Table } from 'antd';
+import { Alert, App, Avatar, Button, Input, Switch, Table } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import GestionHorarios from '../../modules/asistencia/pages/GestionHorarios';
@@ -28,7 +28,7 @@ function etiquetaTipoContrato(valor) {
 }
 
 function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId, onAbrirColaborador, onVolverColaboradores }) {
-  const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador, restaurarColaborador, subirFotoPerfil } =
+  const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador, restaurarColaborador, subirFotoPerfil, fetchRotativosSinRol } =
     useColaboradores();
   const { message, modal } = App.useApp();
   const [busqueda, setBusqueda] = useState('');
@@ -39,6 +39,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
   const [verColaboradorId, setVerColaboradorId] = useState(null);
   const [carnetColaborador, setCarnetColaborador] = useState(null);
   const [importarModalOpen, setImportarModalOpen] = useState(false);
+  const [rotativosSinRol, setRotativosSinRol] = useState([]);
 
   const puedeVer = user?.permisos?.includes('colaboradores.ver');
   const puedeCrear = user?.permisos?.includes('colaboradores.crear');
@@ -52,6 +53,15 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [busqueda, user?.empresa?.id, todasEmpresas, puedeVer]);
+
+  useEffect(() => {
+    if (!puedeVer) return;
+    const hoy = dayjs();
+    fetchRotativosSinRol(hoy.year(), hoy.month() + 1, todasEmpresas)
+      .then(setRotativosSinRol)
+      .catch(() => setRotativosSinRol([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.empresa?.id, todasEmpresas, puedeVer]);
 
   const handleCrear = async (values, fotoPerfil) => {
     setCreando(true);
@@ -282,6 +292,25 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           {todasEmpresas ? 'Colaboradores de todas tus empresas' : `Colaboradores de ${user?.empresa?.nombre}`}
         </p>
       </div>
+
+      {rotativosSinRol.length > 0 && (
+        <Alert
+          type="warning"
+          showIcon
+          closable
+          className="mb-4"
+          message={`${rotativosSinRol.length} colaborador(es) con horario rotativo sin rol de descanso cargado este mes`}
+          description={
+            <div className="flex flex-wrap gap-2">
+              {rotativosSinRol.map((c) => (
+                <Button key={c.id} size="small" onClick={() => onAbrirColaborador?.(c.id)}>
+                  {c.nombre_completo}
+                </Button>
+              ))}
+            </div>
+          }
+        />
+      )}
 
       <div className="mb-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm">
