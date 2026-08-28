@@ -387,6 +387,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
         fecha_inicio: values.fechas[0].format('YYYY-MM-DD'),
         fecha_fin: values.fechas[1].format('YYYY-MM-DD'),
         motivo: values.motivo,
+        con_goce: values.con_goce ?? undefined,
+        pagador_subsidio: values.tipo === 'medico' ? (values.pagador_subsidio ?? undefined) : undefined,
       });
       message.success('Permiso registrado y pendiente de aprobación');
       setPermisoModalOpen(false);
@@ -707,7 +709,33 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     <Modal title="Nuevo permiso" open={permisoModalOpen} onCancel={() => setPermisoModalOpen(false)} footer={null} destroyOnHidden width={520}>
       <Form form={permisoForm} layout="vertical" onFinish={crearPermiso} initialValues={{ tipo: 'personal' }} requiredMark="optional">
         <Form.Item name="colaborador_id" label="Empleado" rules={[{ required: true, message: 'Selecciona un empleado' }]}><Select showSearch optionFilterProp="label" placeholder="Seleccionar empleado" options={colaboradores.map((item) => ({ value: item.id, label: `${item.nombre_completo} · ${item.legajo}` }))} /></Form.Item>
-        <Form.Item name="tipo" label="Tipo" rules={[{ required: true }]}><Select className="w-48" options={[{ value: 'personal', label: 'Personal' }, { value: 'medico', label: 'Médico' }, { value: 'capacitacion', label: 'Capacitación' }, { value: 'comision_servicio', label: 'Comisión de servicio' }, { value: 'otro', label: 'Otro' }]} /></Form.Item>
+        <Form.Item name="tipo" label="Tipo" rules={[{ required: true }]}><Select className="w-48" options={[{ value: 'personal', label: 'Personal' }, { value: 'medico', label: 'Médico' }, { value: 'capacitacion', label: 'Capacitación' }, { value: 'comision_servicio', label: 'Comisión de servicio' }, { value: 'vacaciones', label: 'Vacaciones' }, { value: 'otro', label: 'Otro' }]} /></Form.Item>
+        {['personal', 'capacitacion'].includes(Form.useWatch('tipo', permisoForm)) && (
+          <Form.Item
+            name="con_goce"
+            label="¿Con goce de haber?"
+            rules={[{ required: true, message: 'Indica si el permiso es con o sin goce de haber' }]}
+            extra="Determina posteriormente el código SUNAT correcto (Tabla 21) — no lo elijas tú."
+          >
+            <Select
+              placeholder="Selecciona"
+              options={[{ value: true, label: 'Con goce de haber' }, { value: false, label: 'Sin goce de haber' }]}
+            />
+          </Form.Item>
+        )}
+        {Form.useWatch('tipo', permisoForm) === 'medico' && (
+          <Form.Item
+            name="pagador_subsidio"
+            label="Pagador del subsidio"
+            extra="Déjalo vacío si no lo sabes todavía — solo indica quién pagó directamente el descanso médico, si ya se conoce."
+          >
+            <Select
+              allowClear
+              placeholder="No indicado"
+              options={[{ value: 'empleador', label: 'Empleador' }, { value: 'essalud_directo', label: 'EsSalud directamente' }]}
+            />
+          </Form.Item>
+        )}
         <Form.Item name="fechas" label="Período" rules={[{ required: true, message: 'Selecciona las fechas' }]}><RangePicker className="w-full" format="DD/MM/YYYY" /></Form.Item>
         <Form.Item name="motivo" label="Motivo" rules={[{ required: true, message: 'Ingresa el motivo' }, { max: 1000 }]}><Input.TextArea rows={3} placeholder="Motivo del permiso" /></Form.Item>
         <div className="flex justify-end gap-2"><Button onClick={() => setPermisoModalOpen(false)}>Cancelar</Button><Button type="primary" htmlType="submit" loading={guardandoPermiso}>Crear permiso</Button></div>

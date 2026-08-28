@@ -4,6 +4,7 @@ namespace App\Modules\Personas\Http\Requests;
 
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Afp;
+use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -14,7 +15,8 @@ class StoreColaboradorRequest extends FormRequest
     {
         $this->merge([
             'nombres' => mb_strtoupper(trim((string) $this->input('nombres')), 'UTF-8'),
-            'apellidos' => mb_strtoupper(trim((string) $this->input('apellidos')), 'UTF-8'),
+            'apellido_paterno' => mb_strtoupper(trim((string) $this->input('apellido_paterno')), 'UTF-8'),
+            'apellido_materno' => mb_strtoupper(trim((string) $this->input('apellido_materno')), 'UTF-8'),
             'numero_documento' => trim((string) $this->input('numero_documento')),
         ]);
     }
@@ -35,11 +37,24 @@ class StoreColaboradorRequest extends FormRequest
             'horario_id' => ['required', 'integer', 'exists:horarios,id'],
 
             'nombres' => ['required', 'string', 'max:255'],
-            'apellidos' => ['required', 'string', 'max:255'],
-            'tipo_documento' => ['required', Rule::in(['dni', 'ce', 'pasaporte'])],
-            'numero_documento' => ['required', 'string', 'max:20'],
+            // Apellido paterno/materno por separado — exigido por las
+            // estructuras E4/E7 de PLAME (SUNAT). Materno queda opcional
+            // porque hay casos reales (extranjeros, un solo apellido legal)
+            // donde no aplica.
+            'apellido_paterno' => ['required', 'string', 'max:100'],
+            'apellido_materno' => ['nullable', 'string', 'max:100'],
+            // "ruc" solo aplica a locadores (prestadores de servicios 4ta
+            // categoría) — Tabla 3 de SUNAT lo habilita exclusivamente para
+            // ese caso (ver withValidator). No se ofrece para trabajador/
+            // practicante.
+            'tipo_documento' => ['required', Rule::in(['dni', 'ce', 'pasaporte', 'ruc'])],
+            'numero_documento' => [
+                'required', 'string',
+                $this->input('tipo_documento') === 'ruc' ? 'digits:11' : 'max:20',
+            ],
             'fecha_nacimiento' => ['nullable', 'date'],
             'pais_residencia' => ['nullable', 'string', 'max:255'],
+            'domiciliado' => ['nullable', 'boolean'],
             'ciudad_residencia' => ['nullable', 'string', 'max:255'],
             'distrito_residencia' => ['nullable', 'string', 'max:255'],
             'direccion' => ['nullable', 'string', 'max:255'],
@@ -49,11 +64,12 @@ class StoreColaboradorRequest extends FormRequest
 
             'cargo' => ['required', 'string', 'max:255'],
             'tipo_contrato' => ['required', Rule::in(['plazo_fijo', 'indefinido', 'locacion_servicios', 'practicas'])],
-            'regimen_laboral' => [
-                'nullable',
-                Rule::in(['General', 'Micro Empresa', 'Pequeña Empresa', 'Locacion de Servicios']),
-            ],
+            'regimen_laboral' => ['nullable', Rule::in(Colaborador::REGIMENES_LABORALES)],
             'tipo_trabajador' => ['required', Rule::in(['trabajador', 'practicante', 'locador'])],
+            // Solo aplica cuando tipo_trabajador = trabajador (Empleado vs
+            // Obrero, Tabla 8 SUNAT) — validado en withValidator() para
+            // exigirlo ahí y prohibirlo en los demás casos.
+            'categoria_trabajador' => ['nullable', Rule::in(Colaborador::CATEGORIAS_TRABAJADOR)],
             'es_trabajador_confianza' => ['nullable', 'boolean'],
             'contabilizar_tardanzas' => ['nullable', 'boolean'],
             'contabilizar_horas_extra' => ['nullable', 'boolean'],
@@ -89,6 +105,13 @@ class StoreColaboradorRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $validator) {
+            if ($this->input('tipo_documento') === 'ruc' && $this->input('tipo_trabajador') !== 'locador') {
+                $validator->errors()->add(
+                    'tipo_documento',
+                    'El tipo de documento RUC solo aplica a locadores (Tabla 3 de SUNAT lo habilita exclusivamente para prestadores de servicios).',
+                );
+            }
+
             $tipoContrato = $this->input('tipo_contrato');
             $periodicidad = $this->input('periodicidad_pago');
 
@@ -103,6 +126,23 @@ class StoreColaboradorRequest extends FormRequest
                 $validator->errors()->add(
                     'fecha_fin_contrato',
                     'La fecha de fin es obligatoria para un contrato a plazo fijo.',
+                );
+            }
+
+            $tipoTrabajador = $this->input('tipo_trabajador');
+            $categoriaTrabajador = $this->input('categoria_trabajador');
+
+            if ($tipoTrabajador === 'trabajador' && ! $categoriaTrabajador) {
+                $validator->errors()->add(
+                    'categoria_trabajador',
+                    'Indica si es Empleado u Obrero — requerido por SUNAT (Tabla 8) para el tipo de trabajador "trabajador".',
+                );
+            }
+
+            if ($tipoTrabajador !== 'trabajador' && $categoriaTrabajador) {
+                $validator->errors()->add(
+                    'categoria_trabajador',
+                    'La categoría laboral (Empleado/Obrero) solo aplica cuando el tipo de trabajador es "trabajador".',
                 );
             }
 

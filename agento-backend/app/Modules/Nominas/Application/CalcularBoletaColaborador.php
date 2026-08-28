@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Application;
 
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
+use App\Modules\Asistencia\Services\AsistenciaOperacionService;
 use App\Modules\Nominas\Domain\RegimenCalculatorFactory;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
@@ -25,6 +26,8 @@ use RuntimeException;
  */
 class CalcularBoletaColaborador
 {
+    public function __construct(private readonly AsistenciaOperacionService $asistenciaOperacion) {}
+
     /**
      * @param  int|null  $cicloId  Necesario para recoger comisiones/bonos del período
      *   (colaborador_conceptos_periodo) y para excluir la boleta del propio
@@ -86,8 +89,36 @@ class CalcularBoletaColaborador
 
         // --- Ingresos ---
         $basico = $calculadora->calcularBasico($sueldoBasico, $asistencia['dias_falta'], $asistencia['horas_permiso_sin_goce']);
-        $ingresos[] = $basico['linea'];
         $diasPagados = $basico['dias_pagados'];
+
+        // SUNAT distingue Remuneración Vacacional (Tabla 22: 0118) de
+        // Remuneración/Jornal Básico (0121) — calcularBasico() ya paga el
+        // mes completo incluyendo los días de vacaciones (no los descuenta
+        // de dias_pagados, a diferencia de una falta), así que acá solo se
+        // DESCOMPONE esa misma línea en dos, nunca se suma un monto nuevo
+        // encima (evita duplicar sueldo). No se toca PlanillaDependienteCalculator.
+        $vacaciones = $this->asistenciaOperacion->vacacionesTomadas($colaborador, $fechaInicio, $fechaFin);
+        $diasVacaciones = min($vacaciones['dias'], $diasPagados);
+
+        if ($diasVacaciones > 0) {
+            $montoVacacional = round(($sueldoBasico / 30) * $diasVacaciones, 2);
+            $ingresos[] = [
+                ...$basico['linea'],
+                'monto' => round($basico['linea']['monto'] - $montoVacacional, 2),
+                'cantidad' => $diasPagados - $diasVacaciones,
+                'formula_texto' => $basico['linea']['formula_texto']." — excluye {$diasVacaciones} día(s) de vacaciones tomadas (ver Remuneración Vacacional)",
+            ];
+            $ingresos[] = [
+                'codigo' => 'REMUNERACION_VACACIONAL',
+                'monto' => $montoVacacional,
+                'base_utilizada' => $sueldoBasico,
+                'tasa_aplicada' => null,
+                'cantidad' => $diasVacaciones,
+                'formula_texto' => "({$sueldoBasico} / 30) × {$diasVacaciones} día(s) de vacaciones tomadas en el período",
+            ];
+        } else {
+            $ingresos[] = $basico['linea'];
+        }
 
         foreach ($calculadora->calcularHorasExtra($sueldoBasico, $asistencia['horas_he25'], $asistencia['horas_he35'], $asistencia['horas_he100'], $parametros) as $linea) {
             $ingresos[] = $linea;
@@ -219,6 +250,11 @@ class CalcularBoletaColaborador
                     'tasa_aplicada' => null,
                     'cantidad' => null,
                     'formula_texto' => 'Monto ingresado por RR.HH. para este período'.($item->motivo ? " — {$item->motivo}" : ''),
+                    // Si RR.HH. eligió una clasificación PLAME concreta
+                    // (BONIFICACION/BONO_NO_REMUNERATIVO genéricos no la
+                    // tienen por defecto), el snapshot debe usar ESE código,
+                    // no el del concepto motor.
+                    'concepto_definicion_id' => $item->concepto_definicion_id,
                 ],
             ])
             ->values()

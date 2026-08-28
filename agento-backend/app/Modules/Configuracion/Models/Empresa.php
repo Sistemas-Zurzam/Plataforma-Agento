@@ -74,4 +74,9 @@ class Empresa extends Model
     {
         return $this->hasMany(ReglaDescuentoTardanza::class)->orderBy('orden');
     }
+
+    public function cuentasBancarias(): HasMany
+    {
+        return $this->hasMany(EmpresaCuentaBancaria::class);
+    }
 }

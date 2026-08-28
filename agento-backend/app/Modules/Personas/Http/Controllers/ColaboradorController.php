@@ -223,13 +223,14 @@ class ColaboradorController extends Controller
         $esHonorarios = $request->input('regimen_laboral') === 'Locacion de Servicios';
 
         $datos = $request->validate([
-            'regimen_laboral' => ['nullable', Rule::in(['General', 'Micro Empresa', 'Pequeña Empresa', 'Locacion de Servicios'])],
+            'regimen_laboral' => ['nullable', Rule::in(Colaborador::REGIMENES_LABORALES)],
             // ONP/AFP no aplica a un locador (no hay relación laboral) — solo
             // es obligatorio para regímenes de planilla dependiente.
             'sistema_previsional' => [$esHonorarios ? 'nullable' : 'required', 'string'],
             'afp_id' => ['nullable', 'integer', 'exists:afps,id', ...($esHonorarios ? [] : ['required_unless:sistema_previsional,onp'])],
             'tipo_comision' => ['nullable', Rule::in(['flujo', 'mixta']), ...($esHonorarios ? [] : ['required_unless:sistema_previsional,onp'])],
-            'cuspp' => ['nullable', 'string', 'max:20', ...($esHonorarios ? [] : ['required_unless:sistema_previsional,onp'])],
+            // El E5 de PLAME exige el CUSPP con exactamente 12 caracteres.
+            'cuspp' => ['nullable', 'string', 'size:12', ...($esHonorarios ? [] : ['required_unless:sistema_previsional,onp'])],
             'tiene_hijos_asignacion_familiar' => ['nullable', 'boolean'],
             'tiene_suspension_renta_4ta' => ['nullable', 'boolean'],
         ]);
@@ -248,9 +249,18 @@ class ColaboradorController extends Controller
     {
         $datos = $request->validate([
             'nombres' => ['required', 'string', 'max:255'],
-            'apellidos' => ['required', 'string', 'max:255'],
-            'tipo_documento' => ['required', Rule::in(['dni', 'ce', 'pasaporte'])],
-            'numero_documento' => ['required', 'string', 'max:20'],
+            'apellido_paterno' => ['required', 'string', 'max:100'],
+            'apellido_materno' => ['nullable', 'string', 'max:100'],
+            // "ruc" solo aplica a locadores — tipo_trabajador no se edita
+            // acá, así que se valida contra el valor YA guardado.
+            'tipo_documento' => [
+                'required',
+                $colaborador->tipo_trabajador === 'locador' ? Rule::in(['dni', 'ce', 'pasaporte', 'ruc']) : Rule::in(['dni', 'ce', 'pasaporte']),
+            ],
+            'numero_documento' => [
+                'required', 'string',
+                $request->input('tipo_documento') === 'ruc' ? 'digits:11' : 'max:20',
+            ],
             'fecha_nacimiento' => ['nullable', 'date'],
             'email' => ['nullable', 'email', 'max:255'],
             'celular_colaborador' => ['required', 'string', 'max:20'],
@@ -260,7 +270,13 @@ class ColaboradorController extends Controller
             'area_id' => ['required', 'integer', 'exists:areas,id'],
             'cargo' => ['required', 'string', 'max:255'],
             'tipo_contrato' => ['required', Rule::in(['plazo_fijo', 'indefinido', 'locacion_servicios', 'practicas'])],
-            'regimen_laboral' => ['nullable', 'string', 'max:255'],
+            'regimen_laboral' => ['nullable', Rule::in(Colaborador::REGIMENES_LABORALES)],
+            // tipo_trabajador no se edita acá (sigue siendo create-only) —
+            // la categoría solo aplica si el colaborador YA es "trabajador".
+            'categoria_trabajador' => [
+                $colaborador->tipo_trabajador === 'trabajador' ? 'required' : 'prohibited',
+                Rule::in(Colaborador::CATEGORIAS_TRABAJADOR),
+            ],
             'fecha_fin_contrato' => ['nullable', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'required_if:tipo_contrato,plazo_fijo'],
             'banco' => ['nullable', 'string', 'max:255'],
             'numero_cuenta' => ['nullable', 'string', 'max:255'],

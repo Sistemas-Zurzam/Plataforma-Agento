@@ -17,6 +17,8 @@ class ColaboradorConceptoPeriodoResource extends JsonResource
             'codigo' => $this->concepto?->codigo,
             'nombre' => $this->concepto?->nombre,
             'tipo' => $this->concepto?->tipo,
+            'concepto_definicion_id' => $this->concepto_definicion_id,
+            'concepto_definicion_nombre' => $this->conceptoDefinicion?->nombre,
             'monto' => $this->monto,
             'motivo' => $this->motivo,
             'creado_por' => $this->creado_por,

@@ -4,21 +4,43 @@ namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
+use App\Modules\Nominas\Application\AfpNet\AfpNetExportService;
+use App\Modules\Nominas\Application\AfpNet\AfpNetValidator;
+use App\Modules\Nominas\Application\Plame\PlameExportService;
+use App\Modules\Nominas\Application\Plame\PlameValidator;
+use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpExportService;
+use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpValidator;
+use App\Modules\Nominas\Domain\AfpNet\AfpNetExportResultado;
+use App\Modules\Nominas\Domain\Plame\PlameExportResultado;
+use App\Modules\Nominas\Domain\TelecreditoBcp\TelecreditoBcpExportResultado;
 use App\Modules\Nominas\Http\Resources\CicloRemunerativoResource;
 use App\Modules\Nominas\Http\Resources\ColaboradorConceptoPeriodoResource;
+use App\Modules\Nominas\Infrastructure\Plame\Export\PlameZipBuilder;
 use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Services\BoletaService;
 use App\Modules\Nominas\Services\CicloRemunerativoService;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class CicloRemunerativoController extends Controller
 {
     public function __construct(
         private readonly CicloRemunerativoService $ciclos,
         private readonly BoletaService $boletas,
+        private readonly PlameValidator $plameValidator,
+        private readonly PlameExportService $plameExportService,
+        private readonly AfpNetValidator $afpNetValidator,
+        private readonly AfpNetExportService $afpNetExportService,
+        private readonly TelecreditoBcpValidator $telecreditoBcpValidator,
+        private readonly TelecreditoBcpExportService $telecreditoBcpExportService,
     ) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -137,8 +159,21 @@ class CicloRemunerativoController extends Controller
 
     public function registrarConcepto(Request $request, CicloRemunerativo $ciclo, Colaborador $colaborador): ColaboradorConceptoPeriodoResource
     {
+        // BONIFICACION/BONO_NO_REMUNERATIVO son demasiado genéricos para
+        // Tabla 22 — si el concepto elegido es uno de esos, exige indicar
+        // qué definición concreta (ver concepto_definiciones_plame)
+        // corresponde, para que el snapshot de la boleta conserve el
+        // código PLAME correcto en vez de uno genérico.
+        $conceptoCodigo = ConceptoRemuneracion::find($request->input('concepto_id'))?->codigo;
+        $requiereDefinicion = in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
+
         $datos = $request->validate([
             'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],
+            'concepto_definicion_id' => [
+                $requiereDefinicion ? 'required' : 'prohibited',
+                'integer',
+                Rule::exists('concepto_definiciones_plame', 'id')->where('concepto_remuneracion_id', $request->input('concepto_id'))->where('activo', true),
+            ],
             'monto' => ['required', 'numeric', 'min:0.01'],
             'motivo' => ['nullable', 'string', 'max:255'],
         ]);
@@ -146,6 +181,208 @@ class CicloRemunerativoController extends Controller
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
         $item = $this->ciclos->registrarConcepto($empresa, $ciclo, $colaborador, $datos, $request->user('api')->id);
 
-        return new ColaboradorConceptoPeriodoResource($item->load('concepto'));
+        return new ColaboradorConceptoPeriodoResource($item->load(['concepto', 'conceptoDefinicion']));
+    }
+
+    /**
+     * Validación de preparación PLAME (Sección 48) — NO genera ningún
+     * archivo, solo reporta si los datos que participan en este ciclo
+     * alcanzan para construir .jor/.snl/.rem/.ps4/.4ta. Controller delgado
+     * (Sección 53): toda la lógica vive en PlameValidator, reutiliza la
+     * misma autorización de tenant que el resto de acciones de ciclo.
+     */
+    public function validarPlame(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        return response()->json($this->plameValidator->validar($ciclo));
+    }
+
+    public function exportarPlamePlanilla(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
+    {
+        return $this->responderExportacion($request, $ciclo, 'planilla', fn () => $this->plameExportService->exportarPlanilla($ciclo));
+    }
+
+    public function exportarPlameRh(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
+    {
+        return $this->responderExportacion($request, $ciclo, 'rh', fn () => $this->plameExportService->exportarRh($ciclo));
+    }
+
+    public function exportarPlameCompleto(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
+    {
+        return $this->responderExportacion($request, $ciclo, 'completo', fn () => $this->plameExportService->exportarCompleto($ciclo));
+    }
+
+    /**
+     * Punto único de respuesta para las 3 operaciones de exportación
+     * (Sección 52): si PlameExportService no pudo generar, devuelve un
+     * error de negocio estructurado (422), nunca un 500. Si generó 0
+     * archivos aplicables (ej. sin RH en el período), también responde
+     * JSON informativo en vez de un ZIP vacío. Solo cuando hay al menos un
+     * archivo se arma el ZIP y se descarga.
+     */
+    private function responderExportacion(Request $request, CicloRemunerativo $ciclo, string $tipo, callable $generar): JsonResponse|BinaryFileResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        /** @var PlameExportResultado $resultado */
+        $resultado = $generar();
+
+        if (! $resultado->listo || $resultado->archivos === []) {
+            return response()->json([
+                'message' => $resultado->mensaje,
+                'codigo' => $resultado->codigo,
+                'validacion' => $resultado->validacion,
+            ], $resultado->listo ? 200 : 422);
+        }
+
+        // Auditoría (Sección 54) — solo metadatos, nunca el contenido de
+        // los .txt ni el detalle completo de documentos de cada trabajador.
+        Log::info('plame.export', [
+            'usuario_id' => $request->user('api')->id,
+            'empresa_id' => $empresa->id,
+            'ciclo_id' => $ciclo->id,
+            'periodo' => ['inicio' => $ciclo->fecha_inicio->toDateString(), 'fin' => $ciclo->fecha_fin->toDateString()],
+            'tipo_exportacion' => $tipo,
+            'archivos' => collect($resultado->archivos)->pluck('nombre')->all(),
+        ]);
+
+        $rutaZip = PlameZipBuilder::construir($resultado->archivos);
+        $nombreZip = sprintf('PLAME_%s_%s.zip', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
+
+        return response()->download($rutaZip, $nombreZip, ['Content-Type' => 'application/zip'])->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Validación AFPnet — completamente independiente de PLAME (Sección 3
+     * del encargo AFPnet: no comparte Validator, Service ni datos).
+     */
+    public function validarAfpNet(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        return response()->json($this->afpNetValidator->validar($ciclo));
+    }
+
+    public function exportarAfpNetExcel(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
+    {
+        return $this->responderExportacionAfpNet($request, $ciclo, 'excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', fn () => $this->afpNetExportService->exportarExcel($ciclo));
+    }
+
+    public function exportarAfpNetTxt(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
+    {
+        return $this->responderExportacionAfpNet($request, $ciclo, 'txt', 'text/plain', fn () => $this->afpNetExportService->exportarTxt($ciclo));
+    }
+
+    /**
+     * Mismo criterio que responderExportacion() (PLAME): error de negocio
+     * estructurado en 422, nunca 500. AFPnet genera UN solo archivo por
+     * formato (no hay ZIP, Sección 33/34) — se descarga directo.
+     */
+    private function responderExportacionAfpNet(Request $request, CicloRemunerativo $ciclo, string $formato, string $contentType, callable $generar): JsonResponse|BinaryFileResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        /** @var AfpNetExportResultado $resultado */
+        $resultado = $generar();
+
+        if (! $resultado->listo || $resultado->archivo === null) {
+            return response()->json([
+                'message' => $resultado->mensaje,
+                'codigo' => $resultado->codigo,
+                'validacion' => $resultado->validacion,
+            ], $resultado->listo ? 200 : 422);
+        }
+
+        // Auditoría (Sección 45) — solo metadatos, nunca CUSPP/DNI masivos
+        // ni remuneraciones individuales ni el contenido del archivo.
+        Log::info('afpnet.export', [
+            'usuario_id' => $request->user('api')->id,
+            'empresa_id' => $empresa->id,
+            'ciclo_id' => $ciclo->id,
+            'periodo' => ['inicio' => $ciclo->fecha_inicio->toDateString(), 'fin' => $ciclo->fecha_fin->toDateString()],
+            'formato' => $formato,
+            'trabajadores' => $resultado->validacion['resumen']['trabajadores'] ?? null,
+        ]);
+
+        $ruta = tempnam(sys_get_temp_dir(), 'afpnet_');
+        file_put_contents($ruta, $resultado->archivo['contenido']);
+
+        return response()->download($ruta, $resultado->archivo['nombre'], ['Content-Type' => $contentType])->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Validación Telecrédito BCP — completamente independiente de PLAME/
+     * AFPnet (preparación, sin exportador todavía). `cuenta_cargo_id` se
+     * resuelve SIEMPRE contra la empresa del ciclo (Sección 42 del
+     * encargo): nunca se confía en que la cuenta enviada por el frontend
+     * pertenece a la empresa correcta.
+     */
+    public function validarTelecreditoBcp(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        $datos = $request->validate([
+            'cuenta_cargo_id' => ['required', 'integer'],
+            'fecha_proceso' => ['required', 'date'],
+            'subtipo' => ['required', 'string', 'size:1'],
+        ]);
+
+        $cuentaCargo = EmpresaCuentaBancaria::where('empresa_id', $empresa->id)->findOrFail($datos['cuenta_cargo_id']);
+
+        return response()->json(
+            $this->telecreditoBcpValidator->validar($ciclo, $cuentaCargo, $datos['fecha_proceso'], $datos['subtipo']),
+        );
+    }
+
+    /**
+     * Exportación Telecrédito BCP — gate MÁS restrictivo que la validación
+     * (Sección 35 del encargo): la ruta exige `nominas.telecredito_exportar`,
+     * no `nominas.ver`, porque este archivo puede terminar en movimiento
+     * real de dinero una vez cargado al banco. Nunca cambia
+     * boleta.estado/ciclo.estado/referencia_pago (Sección 42): descargar
+     * el TXT no significa que BCP ya pagó.
+     */
+    public function exportarTelecreditoBcp(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        $datos = $request->validate([
+            'cuenta_cargo_id' => ['required', 'integer'],
+            'fecha_proceso' => ['required', 'date'],
+            'subtipo' => ['required', 'string', 'size:1'],
+        ]);
+
+        $cuentaCargo = EmpresaCuentaBancaria::where('empresa_id', $empresa->id)->findOrFail($datos['cuenta_cargo_id']);
+
+        /** @var TelecreditoBcpExportResultado $resultado */
+        $resultado = $this->telecreditoBcpExportService->exportar($ciclo, $cuentaCargo, $datos['fecha_proceso'], $datos['subtipo']);
+
+        if (! $resultado->listo || $resultado->archivo === null) {
+            return response()->json([
+                'message' => $resultado->mensaje,
+                'codigo' => $resultado->codigo,
+                'validacion' => $resultado->validacion,
+            ], $resultado->listo ? 200 : 422);
+        }
+
+        // Auditoría (Sección 43) — cuenta de cargo por ID, NUNCA su número;
+        // nunca cuentas/CCI/DNI de trabajadores ni el contenido del TXT.
+        Log::info('telecredito_bcp.export', [
+            'usuario_id' => $request->user('api')->id,
+            'empresa_id' => $empresa->id,
+            'ciclo_id' => $ciclo->id,
+            'periodo' => ['inicio' => $ciclo->fecha_inicio->toDateString(), 'fin' => $ciclo->fecha_fin->toDateString()],
+            'cuenta_cargo_id' => $cuentaCargo->id,
+            'fecha_proceso' => $datos['fecha_proceso'],
+            'subtipo' => $datos['subtipo'],
+            'abonos' => $resultado->validacion['abonos'] ?? null,
+            'monto_total' => $resultado->validacion['monto_total'] ?? null,
+        ]);
+
+        $ruta = tempnam(sys_get_temp_dir(), 'telecredito_');
+        file_put_contents($ruta, $resultado->archivo['contenido']);
+
+        return response()->download($ruta, $resultado->archivo['nombre'], ['Content-Type' => 'text/plain'])->deleteFileAfterSend(true);
     }
 }

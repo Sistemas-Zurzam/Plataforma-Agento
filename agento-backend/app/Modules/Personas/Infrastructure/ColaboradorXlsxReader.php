@@ -16,7 +16,7 @@ use RuntimeException;
 class ColaboradorXlsxReader
 {
     private const ENCABEZADOS = [
-        'sede', 'area', 'horario', 'nombres', 'apellidos', 'tipo_documento', 'numero_documento',
+        'sede', 'area', 'horario', 'nombres', 'apellido_paterno', 'apellido_materno', 'tipo_documento', 'numero_documento',
         'fecha_nacimiento', 'celular_colaborador', 'celular_referencia', 'email', 'direccion',
         'cargo', 'tipo_contrato', 'tipo_trabajador', 'regimen_laboral', 'modalidad_trabajo',
         'fecha_ingreso', 'fecha_fin_contrato', 'salario', 'moneda_salario', 'periodicidad_pago',
@@ -88,7 +88,8 @@ class ColaboradorXlsxReader
             }
 
             $fila['nombres'] = mb_strtoupper($fila['nombres'], 'UTF-8');
-            $fila['apellidos'] = $fila['apellidos'] !== null ? mb_strtoupper($fila['apellidos'], 'UTF-8') : null;
+            $fila['apellido_paterno'] = $fila['apellido_paterno'] !== null ? mb_strtoupper($fila['apellido_paterno'], 'UTF-8') : null;
+            $fila['apellido_materno'] = $fila['apellido_materno'] !== null ? mb_strtoupper($fila['apellido_materno'], 'UTF-8') : null;
             $fila['tipo_documento'] = $fila['tipo_documento'] !== null ? Str::lower($fila['tipo_documento']) : null;
             $fila['tipo_contrato'] = $fila['tipo_contrato'] !== null ? Str::lower(str_replace(' ', '_', $fila['tipo_contrato'])) : null;
             $fila['tipo_trabajador'] = $fila['tipo_trabajador'] !== null ? Str::lower($fila['tipo_trabajador']) : null;

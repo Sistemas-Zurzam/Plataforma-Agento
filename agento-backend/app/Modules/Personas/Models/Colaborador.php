@@ -18,19 +18,34 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
     'empresa_id', 'sede_id', 'area_id', 'horario_id', 'legajo',
-    'nombres', 'apellidos', 'tipo_documento', 'numero_documento',
-    'fecha_nacimiento', 'pais_residencia', 'ciudad_residencia', 'distrito_residencia',
+    'nombres', 'apellidos', 'apellido_paterno', 'apellido_materno', 'tipo_documento', 'numero_documento',
+    'fecha_nacimiento', 'pais_residencia', 'domiciliado', 'ciudad_residencia', 'distrito_residencia',
     'direccion', 'email', 'celular_colaborador', 'celular_referencia',
-    'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador', 'es_trabajador_confianza',
+    'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador', 'categoria_trabajador', 'es_trabajador_confianza',
     'contabilizar_tardanzas', 'contabilizar_horas_extra', 'fecha_ingreso', 'fecha_fin_contrato', 'fecha_cese', 'motivo_cese',
     'cts_cuenta', 'sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_hijos_asignacion_familiar',
     'tiene_suspension_renta_4ta',
-    'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
+    'banco', 'banco_id', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
     'modalidad_trabajo', 'tolerancia_particular_minutos', 'activo',
 ])]
 class Colaborador extends Model
 {
     use SoftDeletes;
+
+    /**
+     * Catálogo único de regímenes laborales — antes vivía duplicado como
+     * literal en StoreColaboradorRequest, ColaboradorController::update() y
+     * actualizarConfiguracionNomina(), y ya había divergido entre ellos
+     * (update() aceptaba cualquier string sin validar contra este catálogo).
+     */
+    public const REGIMENES_LABORALES = ['General', 'Micro Empresa', 'Pequeña Empresa', 'Locacion de Servicios'];
+
+    /**
+     * Solo aplica cuando tipo_trabajador = "trabajador" — distingue
+     * Empleado/Obrero para Catálogos SUNAT (Tabla 8: 21/20), sin que Agento
+     * dependa del código SUNAT como valor interno.
+     */
+    public const CATEGORIAS_TRABAJADOR = ['empleado', 'obrero'];
     /**
      * Eloquent pluralizaría "Colaborador" como "colaboradors" (regla en
      * inglés); la tabla real es "colaboradores".
@@ -49,6 +64,7 @@ class Colaborador extends Model
             'es_trabajador_confianza' => 'boolean',
             'tiene_hijos_asignacion_familiar' => 'boolean',
             'tiene_suspension_renta_4ta' => 'boolean',
+            'domiciliado' => 'boolean',
             'activo' => 'boolean',
         ];
     }
@@ -78,6 +94,11 @@ class Colaborador extends Model
         return $this->belongsTo(\App\Modules\Configuracion\Models\Afp::class);
     }
 
+    public function banco(): BelongsTo
+    {
+        return $this->belongsTo(\App\Modules\Configuracion\Models\Banco::class);
+    }
+
     public function remuneraciones(): HasMany
     {
         return $this->hasMany(ColaboradorRemuneracion::class)->orderByDesc('vigencia_desde');
@@ -94,6 +115,23 @@ class Colaborador extends Model
     public function remuneracionVigente(): HasOne
     {
         return $this->hasOne(ColaboradorRemuneracion::class)->ofMany(
+            ['vigencia_desde' => 'max', 'id' => 'max'],
+        );
+    }
+
+    public function condicionesLaborales(): HasMany
+    {
+        return $this->hasMany(ColaboradorCondicionLaboral::class)->orderByDesc('vigencia_desde');
+    }
+
+    /**
+     * La más reciente por vigencia_desde — mismo criterio `ofMany` que
+     * remuneracionVigente() para evitar el bug de "limit(1) en eager load
+     * combina todos los colaboradores de la página".
+     */
+    public function condicionLaboralVigente(): HasOne
+    {
+        return $this->hasOne(ColaboradorCondicionLaboral::class)->ofMany(
             ['vigencia_desde' => 'max', 'id' => 'max'],
         );
     }

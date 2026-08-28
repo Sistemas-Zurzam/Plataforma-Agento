@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * Sin #[ScopedBy(EmpresaScope::class)] a propósito: el selector de "Planilla
@@ -65,5 +66,15 @@ class Boleta extends Model
     public function conceptos(): HasMany
     {
         return $this->hasMany(BoletaConcepto::class);
+    }
+
+    public function comprobanteRh(): HasOne
+    {
+        return $this->hasOne(BoletaComprobanteRh::class);
+    }
+
+    public function datosPago(): HasOne
+    {
+        return $this->hasOne(BoletaDatosPago::class);
     }
 }

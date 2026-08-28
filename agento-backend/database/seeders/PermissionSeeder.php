@@ -55,6 +55,10 @@ class PermissionSeeder extends Seeder
             ['clave' => 'nominas.aprobar', 'nombre' => 'Aprobar boletas', 'grupo' => 'Remuneraciones'],
             ['clave' => 'nominas.cerrar_periodo', 'nombre' => 'Cerrar y reabrir períodos', 'grupo' => 'Remuneraciones'],
             ['clave' => 'nominas.pagar', 'nombre' => 'Marcar boletas como pagadas', 'grupo' => 'Remuneraciones'],
+            // Más restrictivo que nominas.ver a propósito: descargar este
+            // TXT puede terminar en movimiento real de dinero una vez
+            // cargado al banco (ver migración agregar_permiso_telecredito_exportar).
+            ['clave' => 'nominas.telecredito_exportar', 'nombre' => 'Exportar archivo Telecrédito BCP', 'grupo' => 'Remuneraciones'],
         ];
 
         foreach ($permisos as $permiso) {

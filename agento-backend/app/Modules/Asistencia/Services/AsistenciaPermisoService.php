@@ -3,6 +3,7 @@
 namespace App\Modules\Asistencia\Services;
 
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
+use App\Modules\Asistencia\Models\TipoAusencia;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -34,11 +35,24 @@ class AsistenciaPermisoService
             throw (new ModelNotFoundException)->setModel(Colaborador::class, [$datos['colaborador_id']]);
         }
 
+        $tipoAusencia = TipoAusencia::where('codigo', $datos['tipo'])->first();
+
         $permiso = AsistenciaPermiso::query()->create([
             ...$datos,
             'empresa_id' => $empresa->id,
             'estado' => 'pendiente',
             'registrado_por' => $usuarioId,
+            // Resuelto por código exacto contra el catálogo — nunca se
+            // adivina ni se inventa si no hay coincidencia (queda null, el
+            // consolidado de PLAME lo trataría como "sin clasificar").
+            'tipo_ausencia_id' => $tipoAusencia?->id,
+            // Si el tipo tiene un goce FIJO (remunerada no es NULL en el
+            // catálogo), se deriva automáticamente — nunca se le pregunta a
+            // RR.HH. algo que ya está determinado (ej. vacaciones siempre
+            // con goce, falta injustificada siempre sin goce). Solo para
+            // tipos que varían (personal/capacitacion) se usa lo que envió
+            // el formulario.
+            'con_goce' => $tipoAusencia?->remunerada ?? $datos['con_goce'] ?? null,
         ])->load('colaborador.area');
         $this->auditoria->registrar($empresa->id, $usuarioId, 'permiso_creado', $permiso, $datos['motivo'], null, $permiso->toArray());
         return $permiso;

@@ -4,11 +4,14 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProfileController;
 use App\Modules\Asistencia\Http\Controllers\HorarioController;
 use App\Modules\Asistencia\Http\Controllers\AsistenciaController;
+use App\Modules\Asistencia\Http\Controllers\TipoAusenciaController;
 use App\Modules\Configuracion\Http\Controllers\AfpController;
 use App\Modules\Configuracion\Http\Controllers\AreaController;
+use App\Modules\Configuracion\Http\Controllers\BancoController;
 use App\Modules\Configuracion\Http\Controllers\ReglaDescuentoTardanzaController;
 use App\Modules\Configuracion\Http\Controllers\ComisionAfpController;
 use App\Modules\Configuracion\Http\Controllers\EmpresaController;
+use App\Modules\Configuracion\Http\Controllers\EmpresaCuentaBancariaController;
 use App\Modules\Configuracion\Http\Controllers\ParametroLaboralController;
 use App\Modules\Configuracion\Http\Controllers\PermissionController;
 use App\Modules\Configuracion\Http\Controllers\RoleController;
@@ -18,7 +21,9 @@ use App\Modules\Personas\Http\Controllers\ColaboradorController;
 use App\Modules\Nominas\Http\Controllers\CicloRemunerativoController;
 use App\Modules\Nominas\Http\Controllers\BoletaController;
 use App\Modules\Nominas\Http\Controllers\BeneficioSocialController;
+use App\Modules\Nominas\Http\Controllers\ConceptoDefinicionPlameController;
 use App\Modules\Nominas\Http\Controllers\ConceptoRemuneracionController;
+use App\Modules\Nominas\Http\Controllers\SunatCatalogoController;
 use App\Modules\Nominas\Http\Controllers\TramoRentaController;
 use Illuminate\Support\Facades\Route;
 
@@ -49,6 +54,12 @@ Route::middleware('jwt')->group(function () {
     Route::post('/empresas/{empresa}/reglas-tardanza', [ReglaDescuentoTardanzaController::class, 'store'])->middleware('permiso:empresas.editar');
     Route::delete('/empresas/{empresa}/reglas-tardanza/{regla}', [ReglaDescuentoTardanzaController::class, 'destroy'])->middleware('permiso:empresas.editar');
 
+    Route::get('/bancos', [BancoController::class, 'index']);
+    Route::get('/empresas/{empresa}/cuentas-bancarias', [EmpresaCuentaBancariaController::class, 'index'])->middleware('permiso:empresas.editar');
+    Route::post('/empresas/{empresa}/cuentas-bancarias', [EmpresaCuentaBancariaController::class, 'store'])->middleware('permiso:empresas.editar');
+    Route::put('/empresas/{empresa}/cuentas-bancarias/{cuenta}', [EmpresaCuentaBancariaController::class, 'update'])->middleware('permiso:empresas.editar');
+    Route::patch('/empresas/{empresa}/cuentas-bancarias/{cuenta}/estado', [EmpresaCuentaBancariaController::class, 'actualizarEstado'])->middleware('permiso:empresas.editar');
+
     Route::get('/roles', [RoleController::class, 'index'])->middleware('permiso:usuarios.ver');
     Route::get('/usuarios', [UsuarioController::class, 'index'])->middleware('permiso:usuarios.ver');
     Route::post('/usuarios', [UsuarioController::class, 'store'])->middleware('permiso:usuarios.crear');
@@ -64,7 +75,20 @@ Route::middleware('jwt')->group(function () {
 
     Route::get('/afps', [AfpController::class, 'index']);
     Route::get('/conceptos-remuneracion', [ConceptoRemuneracionController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::patch('/conceptos-remuneracion/{concepto}/codigo-plame', [ConceptoRemuneracionController::class, 'actualizarCodigoPlame'])->middleware('permiso:parametros_laborales.editar');
+    Route::get('/conceptos-remuneracion/{concepto}/codigo-plame/historial', [ConceptoRemuneracionController::class, 'historialCodigoPlame'])->middleware('permiso:parametros_laborales.ver');
+    Route::get('/conceptos-remuneracion/{concepto}/definiciones-plame', [ConceptoDefinicionPlameController::class, 'index'])->middleware('permiso:parametros_laborales.ver');
+    Route::post('/conceptos-remuneracion/{concepto}/definiciones-plame', [ConceptoDefinicionPlameController::class, 'store'])->middleware('permiso:parametros_laborales.editar');
+    Route::put('/concepto-definiciones-plame/{definicion}', [ConceptoDefinicionPlameController::class, 'update'])->middleware('permiso:parametros_laborales.editar');
     Route::get('/tramos-renta', [TramoRentaController::class, 'index'])->middleware('permiso:parametros_laborales.ver');
+
+    // Catálogos SUNAT (Configuraciones → Nóminas) — capa de mapeo Agento →
+    // SUNAT, reutiliza los mismos permisos que Parámetros Remunerativos.
+    Route::get('/sunat/resumen', [SunatCatalogoController::class, 'resumen'])->middleware('permiso:parametros_laborales.ver');
+    Route::get('/sunat/mapeos', [SunatCatalogoController::class, 'mapeos'])->middleware('permiso:parametros_laborales.ver');
+    Route::put('/sunat/mapeos/{mapeo}', [SunatCatalogoController::class, 'actualizarMapeo'])->middleware('permiso:parametros_laborales.editar');
+    Route::get('/tipos-ausencia', [TipoAusenciaController::class, 'index'])->middleware('permiso:parametros_laborales.ver');
+    Route::put('/tipos-ausencia/{tipoAusencia}/codigo-sunat', [TipoAusenciaController::class, 'actualizarCodigoSunat'])->middleware('permiso:parametros_laborales.editar');
     Route::get('/comisiones-afp', [ComisionAfpController::class, 'index'])->middleware('permiso:comisiones_afp.ver');
     Route::post('/comisiones-afp', [ComisionAfpController::class, 'store'])->middleware('permiso:comisiones_afp.editar');
     Route::put('/comisiones-afp/{comision}', [ComisionAfpController::class, 'update'])->middleware('permiso:comisiones_afp.editar');
@@ -137,6 +161,15 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/ciclos-remunerativos/{ciclo}/cerrar', [CicloRemunerativoController::class, 'cerrar'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/reabrir', [CicloRemunerativoController::class, 'reabrir'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/marcar-pagado', [CicloRemunerativoController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
+    Route::get('/ciclos-remunerativos/{ciclo}/plame-validacion', [CicloRemunerativoController::class, 'validarPlame'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/planilla', [CicloRemunerativoController::class, 'exportarPlamePlanilla'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/rh', [CicloRemunerativoController::class, 'exportarPlameRh'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/completo', [CicloRemunerativoController::class, 'exportarPlameCompleto'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos/{ciclo}/afpnet-validacion', [CicloRemunerativoController::class, 'validarAfpNet'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/afpnet/exportar/excel', [CicloRemunerativoController::class, 'exportarAfpNetExcel'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/afpnet/exportar/txt', [CicloRemunerativoController::class, 'exportarAfpNetTxt'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/telecredito-bcp/validacion', [CicloRemunerativoController::class, 'validarTelecreditoBcp'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/telecredito-bcp/exportar', [CicloRemunerativoController::class, 'exportarTelecreditoBcp'])->middleware('permiso:nominas.telecredito_exportar');
     Route::get('/planilla/previsualizar', [BoletaController::class, 'previsualizar'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas', [BoletaController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/resumen', [BoletaController::class, 'resumen'])->middleware('permiso:nominas.ver');
@@ -146,6 +179,7 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/boletas/{boleta}/aprobar', [BoletaController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/pagar', [BoletaController::class, 'marcarPagada'])->middleware('permiso:nominas.pagar');
     Route::get('/boletas/{boleta}', [BoletaController::class, 'show'])->middleware('permiso:nominas.ver');
+    Route::patch('/boletas/{boleta}/comprobante-rh', [BoletaController::class, 'guardarComprobanteRh'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'listarConceptos'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'registrarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
 

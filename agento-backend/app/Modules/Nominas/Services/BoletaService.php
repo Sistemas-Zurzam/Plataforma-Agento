@@ -8,6 +8,7 @@ use App\Modules\Nominas\Application\CalcularReciboHonorarios;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Models\ConceptoDefinicionPlame;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Jobs\CalcularPlanillaJob;
 use App\Modules\Personas\Models\Colaborador;
@@ -74,7 +75,20 @@ class BoletaService
     {
         $this->verificarPertenenciaBoleta($empresa, $boleta);
 
-        return $boleta->load(['colaborador.empresa', 'conceptos.concepto', 'ciclo']);
+        return $boleta->load(['colaborador.empresa', 'conceptos.concepto', 'ciclo', 'comprobanteRh']);
+    }
+
+    /**
+     * "Monto total del servicio" (E20, campo 6) para una boleta de
+     * honorarios — se resuelve sin ambigüedad sumando el concepto
+     * HONORARIO_BRUTO ya calculado, nunca se duplica el dato en
+     * boleta_comprobantes_rh (sección 34 del encargo).
+     */
+    public function montoTotalServicioRh(Boleta $boleta): float
+    {
+        return (float) $boleta->conceptos()
+            ->whereHas('concepto', fn ($q) => $q->where('codigo', 'HONORARIO_BRUTO'))
+            ->sum('monto');
     }
 
     /**
@@ -212,6 +226,9 @@ class BoletaService
             $codigos = collect([...$resultado['ingresos'], ...$resultado['egresos'], ...$resultado['aportaciones']])
                 ->pluck('codigo')->unique();
             $conceptos = ConceptoRemuneracion::whereIn('codigo', $codigos)->get()->keyBy('codigo');
+            $definicionIds = collect([...$resultado['ingresos'], ...$resultado['egresos'], ...$resultado['aportaciones']])
+                ->pluck('concepto_definicion_id')->filter()->unique();
+            $definiciones = $definicionIds->isEmpty() ? collect() : ConceptoDefinicionPlame::whereIn('id', $definicionIds)->get()->keyBy('id');
 
             foreach (['ingresos' => 'ingreso', 'egresos' => 'egreso', 'aportaciones' => 'aportacion'] as $bloque => $tipo) {
                 foreach ($resultado[$bloque] as $linea) {
@@ -220,16 +237,39 @@ class BoletaService
                         continue; // catálogo incompleto para este código — se omite la línea, no la boleta completa
                     }
 
+                    // Si RR.HH. eligió una clasificación PLAME concreta al
+                    // registrar el concepto del período (BONIFICACION/
+                    // BONO_NO_REMUNERATIVO son demasiado genéricos por sí
+                    // solos), el snapshot conserva ESE código específico —
+                    // nunca el genérico del concepto motor.
+                    $definicion = $definiciones->get($linea['concepto_definicion_id'] ?? null);
+
                     BoletaConcepto::create([
                         'boleta_id' => $boleta->id,
                         'concepto_id' => $concepto->id,
+                        'concepto_definicion_id' => $definicion?->id,
                         'tipo' => $tipo,
                         'es_remunerativo_laboral' => $concepto->es_remunerativo_laboral,
                         'afecta_renta_5ta' => $concepto->afecta_renta_5ta,
+                        // Snapshot del código PLAME vigente en el catálogo al
+                        // momento del cálculo — si un administrador lo cambia
+                        // después (ej. SUNAT reasigna el código), esta boleta
+                        // ya calculada conserva el que realmente se usó.
+                        'codigo_plame_snapshot' => $definicion?->codigo_plame ?? $concepto->codigo_plame,
                         'base_utilizada' => $linea['base_utilizada'],
                         'tasa_aplicada' => $linea['tasa_aplicada'],
                         'cantidad' => $linea['cantidad'],
                         'monto' => $linea['monto'],
+                        // El motor de cálculo (RegimenCalculator/CalcularReciboHonorarios)
+                        // no distingue devengado de pagado — hoy Agento no tiene ningún
+                        // mecanismo de pago parcial, así que "lo calculado" es, por
+                        // definición, tanto lo devengado como lo pagado/descontado. Se
+                        // guardan como columnas separadas (no una sola) para que PLAME
+                        // (estructura E18/.rem) pueda leerlas de forma independiente el
+                        // día que exista una razón real para que diverjan (ej. un ajuste
+                        // de regularización), sin tener que migrar el esquema entonces.
+                        'monto_devengado' => $linea['monto'],
+                        'monto_pagado_descontado' => $linea['monto'],
                         'formula_texto' => $linea['formula_texto'],
                     ]);
                 }

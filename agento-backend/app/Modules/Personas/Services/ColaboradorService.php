@@ -5,9 +5,11 @@ namespace App\Modules\Personas\Services;
 use App\Models\User;
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Area;
+use App\Modules\Configuracion\Models\Banco;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Sede;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorDocumento;
 use App\Modules\Personas\Support\CalendarioMensualGenerator;
 use App\Modules\Personas\Support\FeriadosPeru;
@@ -240,11 +242,20 @@ class ColaboradorService
             throw new AuthorizationException('La sede o área no pertenece a la empresa activa.');
         }
 
+        $apellidoPaterno = mb_strtoupper(trim($datos['apellido_paterno']), 'UTF-8');
+        $apellidoMaterno = mb_strtoupper(trim($datos['apellido_materno'] ?? ''), 'UTF-8');
+
         $colaborador->update([
             ...$datos,
             'nombres' => mb_strtoupper(trim($datos['nombres']), 'UTF-8'),
-            'apellidos' => mb_strtoupper(trim($datos['apellidos']), 'UTF-8'),
+            'apellido_paterno' => $apellidoPaterno,
+            'apellido_materno' => $apellidoMaterno !== '' ? $apellidoMaterno : null,
+            // Derivado — ver crear(): nunca se pide directamente al usuario.
+            'apellidos' => trim("{$apellidoPaterno} {$apellidoMaterno}"),
+            'banco_id' => array_key_exists('banco', $datos) ? $this->resolverBancoId($datos['banco']) : $colaborador->banco_id,
         ]);
+
+        $this->registrarCondicionLaboralSiCambio($colaborador);
 
         return $this->obtenerDetalle($empresa, $colaborador);
     }
@@ -312,7 +323,43 @@ class ColaboradorService
             'tiene_suspension_renta_4ta' => $esHonorarios ? ($datos['tiene_suspension_renta_4ta'] ?? false) : false,
         ]);
 
+        $this->registrarCondicionLaboralSiCambio($colaborador);
+
         return $this->obtenerDetalle($empresa, $colaborador);
+    }
+
+    /**
+     * PLAME necesita reconstruir régimen laboral, tipo de contrato y sistema
+     * previsional TAL COMO estaban en cada período pasado (T-Registro es
+     * histórico), pero el motor de cálculo (CalcularBoletaColaborador /
+     * CalcularReciboHonorarios) sigue leyendo estas columnas directamente
+     * desde Colaborador — no se toca ese contrato. Esta tabla es solo un
+     * registro de auditoría paralelo: se inserta una fila nueva cada vez que
+     * algo relevante cambia, nunca se sobrescribe una existente.
+     */
+    private function registrarCondicionLaboralSiCambio(Colaborador $colaborador, ?string $vigenciaDesde = null): void
+    {
+        $colaborador->refresh();
+
+        $actual = [
+            'regimen_laboral' => $colaborador->regimen_laboral,
+            'tipo_contrato' => $colaborador->tipo_contrato,
+            'categoria_trabajador' => $colaborador->categoria_trabajador,
+            'sistema_previsional' => $colaborador->sistema_previsional,
+            'afp_id' => $colaborador->afp_id,
+            'tipo_comision' => $colaborador->tipo_comision,
+        ];
+
+        $vigente = $colaborador->condicionesLaborales()->orderByDesc('vigencia_desde')->orderByDesc('id')->first();
+
+        if ($vigente && $actual == $vigente->only(array_keys($actual))) {
+            return;
+        }
+
+        $colaborador->condicionesLaborales()->create([
+            ...$actual,
+            'vigencia_desde' => $vigenciaDesde ?? now()->toDateString(),
+        ]);
     }
 
     public function cesar(Empresa $empresa, Colaborador $colaborador, string $fechaCese, string $motivo): Colaborador
@@ -552,6 +599,15 @@ class ColaboradorService
                     ->all(),
                 'empresa_id' => $empresa->id,
                 'legajo' => $this->siguienteLegajo($empresa),
+                // Identidad confiable de banco para Telecrédito (nunca se le
+                // pide al usuario que la llene aparte) — ver resolverBancoId().
+                'banco_id' => $this->resolverBancoId($datos['banco'] ?? null),
+                // "apellidos" queda como campo derivado (nunca se pide
+                // directamente al usuario) para no romper a los muchos
+                // consumidores que todavía lo leen tal cual (carnet, ficha,
+                // boletas, resource) — la fuente de verdad real ya es
+                // apellido_paterno/apellido_materno.
+                'apellidos' => trim(($datos['apellido_paterno'] ?? '').' '.($datos['apellido_materno'] ?? '')),
             ]);
 
             $colaborador->remuneraciones()->create([
@@ -559,6 +615,16 @@ class ColaboradorService
                 'moneda_salario' => $datos['moneda_salario'],
                 'periodicidad_pago' => $datos['periodicidad_pago'],
                 'asignacion_familiar' => $datos['asignacion_familiar'] ?? 0,
+                'vigencia_desde' => $datos['fecha_ingreso'],
+            ]);
+
+            $colaborador->condicionesLaborales()->create([
+                'regimen_laboral' => $colaborador->regimen_laboral,
+                'tipo_contrato' => $colaborador->tipo_contrato,
+                'categoria_trabajador' => $colaborador->categoria_trabajador,
+                'sistema_previsional' => $colaborador->sistema_previsional,
+                'afp_id' => $colaborador->afp_id,
+                'tipo_comision' => $colaborador->tipo_comision,
                 'vigencia_desde' => $datos['fecha_ingreso'],
             ]);
 
@@ -595,6 +661,23 @@ class ColaboradorService
             ->value('maximo');
 
         return 'LEG-'.str_pad((int) $ultimoNumero + 1, 4, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Resuelve `banco_id` desde el string libre `banco` (Sección 6 de la
+     * preparación Telecrédito) — coincidencia EXACTA contra `bancos.nombre`
+     * (los mismos valores de BANCO_OPTIONS en el frontend). Nunca adivina:
+     * un valor como "Otro" o cualquiera que no coincida exacto queda en
+     * NULL — Telecrédito lo reportará como banco no identificable, no se
+     * asume ninguno.
+     */
+    private function resolverBancoId(?string $banco): ?int
+    {
+        if (blank($banco)) {
+            return null;
+        }
+
+        return Banco::where('nombre', $banco)->where('activo', true)->value('id');
     }
 
     /**

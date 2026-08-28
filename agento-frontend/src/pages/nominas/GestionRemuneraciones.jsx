@@ -3,6 +3,7 @@ import {
   BarChartOutlined,
   CalendarOutlined,
   CheckCircleOutlined,
+  CreditCardOutlined,
   DollarCircleOutlined,
   DownloadOutlined,
   FileDoneOutlined,
@@ -23,10 +24,14 @@ import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import BoletaImprimibleModal from '../../modules/remuneraciones/components/BoletaImprimibleModal';
+import ComprobanteRhModal from '../../modules/remuneraciones/components/ComprobanteRhModal';
 import ConfiguracionNominaModal from '../../modules/remuneraciones/components/ConfiguracionNominaModal';
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
+import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
+import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
+import TelecreditoBcpModal from '../../modules/remuneraciones/components/TelecreditoBcpModal';
 import { useRemuneraciones } from '../../modules/remuneraciones/hooks/useRemuneraciones';
 import { colorForName, initialsForName } from '../../utils/avatarColor';
 
@@ -72,8 +77,6 @@ const ACCIONES_PROXIMAMENTE = [
   { key: 'pagos', label: 'Pagos Masivos', icon: <SendOutlined /> },
   { key: 'liquidaciones', label: 'Liquidaciones', icon: <FileDoneOutlined /> },
   { key: 'contratos', label: 'Contratos', icon: <FileTextOutlined /> },
-  { key: 'plame', label: 'PDT PLAME', icon: <FilePdfOutlined /> },
-  { key: 'afpnet', label: 'AFP NET', icon: <FileProtectOutlined /> },
   { key: 'contable', label: 'Resumen Contable', icon: <BarChartOutlined /> },
 ];
 
@@ -195,13 +198,16 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas,
     resumen, fetchResumen,
-    verBoleta, aprobarBoleta, pagarBoleta,
+    verBoleta, aprobarBoleta, pagarBoleta, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo,
     previsualizacion, previsualizacionLoading, fetchPrevisualizacion,
+    fetchPlameValidacion, exportarPlame,
+    fetchAfpNetValidacion, exportarAfpNet,
+    fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
   } = useRemuneraciones();
 
   const [cicloId, setCicloId] = useState(null);
@@ -221,6 +227,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
 
   const [tipoFiltro, setTipoFiltro] = useState(null);
   const [boletaImprimirId, setBoletaImprimirId] = useState(null);
+  const [comprobanteRhBoletaId, setComprobanteRhBoletaId] = useState(null);
+  const [guardandoComprobanteRh, setGuardandoComprobanteRh] = useState(false);
+  const [plameModalOpen, setPlameModalOpen] = useState(false);
+  const [afpNetModalOpen, setAfpNetModalOpen] = useState(false);
+  const [telecreditoBcpModalOpen, setTelecreditoBcpModalOpen] = useState(false);
 
   const puedeVer = user?.permisos?.includes('nominas.ver');
   const puedeGestionarCiclos = user?.permisos?.includes('nominas.gestionar_ciclos');
@@ -524,6 +535,19 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     }
   };
 
+  const handleGuardarComprobanteRh = async (boletaId, values) => {
+    setGuardandoComprobanteRh(true);
+    try {
+      await guardarComprobanteRh(boletaId, values);
+      message.success('Comprobante de honorarios guardado');
+      setComprobanteRhBoletaId(null);
+    } catch (err) {
+      message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo guardar el comprobante');
+    } finally {
+      setGuardandoComprobanteRh(false);
+    }
+  };
+
   const columnasCiclos = useMemo(() => [
     { title: 'Nombre', dataIndex: 'nombre', width: 200 },
     {
@@ -666,6 +690,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
               <Button size="small" type="text" icon={<WalletOutlined />} onClick={() => abrirConceptos(boleta)} disabled={!puedeGestionarCiclos} />
             </Tooltip>
           )}
+          {boleta.regimen_laboral === 'Locacion de Servicios' && (
+            <Tooltip title="Comprobante de honorarios (RH)">
+              <Button size="small" type="text" icon={<FileTextOutlined />} onClick={() => setComprobanteRhBoletaId(boleta.id)} disabled={!puedeGestionarCiclos} />
+            </Tooltip>
+          )}
           {boleta.estado === 'calculada' && puedeAprobar && (
             <Tooltip title="Aprobar boleta">
               <Button size="small" type="text" icon={<CheckCircleOutlined />} onClick={() => handleAprobar(boleta)} />
@@ -775,6 +804,21 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
+        <Tooltip title={cicloActivo ? '' : 'Selecciona un ciclo remunerativo primero'}>
+          <Button icon={<FilePdfOutlined />} disabled={!cicloActivo} onClick={() => setPlameModalOpen(true)}>
+            PDT PLAME
+          </Button>
+        </Tooltip>
+        <Tooltip title={cicloActivo ? '' : 'Selecciona un ciclo remunerativo primero'}>
+          <Button icon={<FileProtectOutlined />} disabled={!cicloActivo} onClick={() => setAfpNetModalOpen(true)}>
+            AFPnet
+          </Button>
+        </Tooltip>
+        <Tooltip title={cicloActivo ? '' : 'Selecciona un ciclo remunerativo primero'}>
+          <Button icon={<CreditCardOutlined />} disabled={!cicloActivo} onClick={() => setTelecreditoBcpModalOpen(true)}>
+            Telecrédito BCP
+          </Button>
+        </Tooltip>
         {ACCIONES_PROXIMAMENTE.map((accion) => (
           <Tooltip key={accion.key} title="Próximamente">
             <Button disabled icon={accion.icon}>{accion.label}</Button>
@@ -932,6 +976,39 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setBoletaImprimirId(null)}
         boletaId={boletaImprimirId}
         verBoleta={verBoleta}
+      />
+
+      <ComprobanteRhModal
+        open={!!comprobanteRhBoletaId}
+        onCancel={() => setComprobanteRhBoletaId(null)}
+        boletaId={comprobanteRhBoletaId}
+        verBoleta={verBoleta}
+        submitting={guardandoComprobanteRh}
+        onGuardar={handleGuardarComprobanteRh}
+      />
+
+      <PdtPlameModal
+        open={plameModalOpen}
+        onCancel={() => setPlameModalOpen(false)}
+        ciclo={cicloActivo}
+        fetchValidacion={fetchPlameValidacion}
+        exportarPlame={exportarPlame}
+      />
+
+      <AfpNetModal
+        open={afpNetModalOpen}
+        onCancel={() => setAfpNetModalOpen(false)}
+        ciclo={cicloActivo}
+        fetchValidacion={fetchAfpNetValidacion}
+        exportarAfpNet={exportarAfpNet}
+      />
+
+      <TelecreditoBcpModal
+        open={telecreditoBcpModalOpen}
+        onCancel={() => setTelecreditoBcpModalOpen(false)}
+        ciclo={cicloActivo}
+        fetchValidacion={fetchTelecreditoBcpValidacion}
+        exportarTelecreditoBcp={exportarTelecreditoBcp}
       />
     </div>
   );

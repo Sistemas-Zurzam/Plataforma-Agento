@@ -3,12 +3,15 @@
 namespace App\Modules\Nominas\Services;
 
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Nominas\Models\Boleta;
+use App\Modules\Nominas\Models\BoletaDatosPago;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class CicloRemunerativoService
@@ -82,9 +85,46 @@ class CicloRemunerativoService
             ]);
         }
 
+        $this->congelarDatosPago($ciclo);
+
         $ciclo->update(['estado' => 'cerrado']);
 
         return $ciclo;
+    }
+
+    /**
+     * Congela los datos bancarios de cada boleta vigente EN EL MOMENTO del
+     * cierre (preparación Telecrédito, Sección 22/23/25) — a partir de acá
+     * la boleta ya no se puede recalcular, así que su instrucción de pago
+     * tampoco debe cambiar si el colaborador actualiza su cuenta después.
+     * `firstOrCreate` por boleta_id: idempotente, nunca sobrescribe un
+     * snapshot que ya existía (ej. si cerrar() se reintenta).
+     */
+    private function congelarDatosPago(CicloRemunerativo $ciclo): void
+    {
+        $ahora = Carbon::now();
+
+        $ciclo->boletas()
+            ->where('es_version_vigente', true)
+            ->with('colaborador')
+            ->each(function (Boleta $boleta) use ($ahora) {
+                $colaborador = $boleta->colaborador;
+                if (! $colaborador) {
+                    return;
+                }
+
+                BoletaDatosPago::firstOrCreate(
+                    ['boleta_id' => $boleta->id],
+                    [
+                        'banco_id' => $colaborador->banco_id,
+                        'tipo_cuenta_snapshot' => $colaborador->tipo_cuenta,
+                        'moneda_snapshot' => $colaborador->moneda_cuenta,
+                        'numero_cuenta_snapshot' => $colaborador->numero_cuenta,
+                        'cci_snapshot' => $colaborador->cci,
+                        'fecha_snapshot' => $ahora,
+                    ],
+                );
+            });
     }
 
     /**
@@ -101,6 +141,28 @@ class CicloRemunerativoService
                 'estado' => 'No se puede reabrir un período ya pagado.',
             ]);
         }
+
+        // Un ciclo puede seguir en estado 'cerrado' (nunca pasó por
+        // marcarPagado()) aunque TODAS sus boletas vigentes ya estén
+        // 'pagada' — cada boleta se paga individualmente, no en bloque. Sin
+        // este chequeo, reabrir() dejaba recalcular un período cuyo dinero
+        // ya salió, deshaciendo boletas ya pagadas.
+        $tienePagadas = $ciclo->boletas()->where('es_version_vigente', true)
+            ->where('estado', 'pagada')->exists();
+        if ($tienePagadas) {
+            throw ValidationException::withMessages([
+                'estado' => 'No se puede reabrir el período: ya tiene boletas pagadas.',
+            ]);
+        }
+
+        // El snapshot bancario del cierre anterior queda obsoleto (Sección
+        // 0 de la preparación Telecrédito): reabrir habilita recalcular, y
+        // el colaborador pudo cambiar de cuenta mientras tanto. Se elimina
+        // acá — nunca se conserva en silencio — para que el PRÓXIMO
+        // cerrar() lo regenere con los datos vigentes en ESE momento. Ya
+        // se verificó arriba que ninguna boleta está pagada, así que borrar
+        // esto es seguro (no hay ninguna instrucción de pago ya ejecutada).
+        BoletaDatosPago::whereIn('boleta_id', $ciclo->boletas()->select('id'))->delete();
 
         $ciclo->update(['estado' => 'reabierto']);
 
@@ -172,6 +234,7 @@ class CicloRemunerativoService
             'ciclo_id' => $ciclo->id,
             'colaborador_id' => $colaborador->id,
             'concepto_id' => $concepto->id,
+            'concepto_definicion_id' => $datos['concepto_definicion_id'] ?? null,
             'monto' => $datos['monto'],
             'motivo' => $datos['motivo'] ?? null,
             'creado_por' => $usuarioId,

@@ -18,7 +18,15 @@ use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 class ColaboradorPlantillaGenerator
 {
     private const ENCABEZADOS = [
-        'sede', 'area', 'horario', 'nombres', 'apellidos', 'tipo_documento', 'numero_documento',
+        'sede', 'area', 'horario', 'nombres',
+        // Apellido paterno/materno por separado (antes un solo "apellidos")
+        // — exigido por las estructuras E4/E7 de PLAME (SUNAT). Se insertan
+        // acá, no al final, porque conceptualmente son parte de la
+        // identidad de la persona (junto a nombres/documento) — el resto de
+        // columnas ya calcula su letra dinámicamente (ver agregarValidaciones()/
+        // CAMPOS_TEXTO), así que insertar acá no desalinea nada.
+        'apellido_paterno', 'apellido_materno',
+        'tipo_documento', 'numero_documento',
         'fecha_nacimiento', 'celular_colaborador', 'celular_referencia', 'email', 'direccion',
         'cargo', 'tipo_contrato', 'tipo_trabajador', 'regimen_laboral', 'modalidad_trabajo',
         'fecha_ingreso', 'fecha_fin_contrato', 'salario', 'moneda_salario', 'periodicidad_pago',
@@ -40,8 +48,14 @@ class ColaboradorPlantillaGenerator
         'empresa',
     ];
 
-    /** Columnas que deben quedar en formato texto para evitar interpretación numérica/fecha de Excel. */
-    private const COLUMNAS_TEXTO = ['G', 'H', 'R', 'S', 'AF', 'AI'];
+    /**
+     * Campos que deben quedar en formato texto para evitar interpretación
+     * numérica/fecha de Excel — se resuelven por NOMBRE (ver columna()),
+     * nunca por letra hardcodeada: insertar una columna (como acá,
+     * apellido_paterno/materno) corre todas las letras siguientes, y una
+     * letra fija se habría desalineado en silencio.
+     */
+    private const CAMPOS_TEXTO = ['numero_documento', 'fecha_nacimiento', 'fecha_ingreso', 'fecha_fin_contrato', 'numero_cuenta', 'cci'];
 
     /**
      * @param  array<int, string>  $nombresHorarios  Nombres de los horarios
@@ -68,7 +82,8 @@ class ColaboradorPlantillaGenerator
         $ultimaColumna = $this->columna(count(self::ENCABEZADOS) - 1);
         $hoja->getStyle("A1:{$ultimaColumna}1")->getFont()->setBold(true);
 
-        foreach (self::COLUMNAS_TEXTO as $columna) {
+        foreach (self::CAMPOS_TEXTO as $campo) {
+            $columna = $this->columna($this->indiceDe($campo));
             $hoja->getStyle("{$columna}2:{$columna}200")->getNumberFormat()->setFormatCode(NumberFormat::FORMAT_TEXT);
         }
 
@@ -109,7 +124,8 @@ class ColaboradorPlantillaGenerator
             'area' => 'Sistemas',
             'horario' => $nombreHorarioReal ?? '8:00 - 18:00 | 9h',
             'nombres' => 'JUAN CARLOS',
-            'apellidos' => 'PEREZ RAMIREZ',
+            'apellido_paterno' => 'PEREZ',
+            'apellido_materno' => 'RAMIREZ',
             'tipo_documento' => 'dni',
             'numero_documento' => '09876543',
             'fecha_nacimiento' => '1995-05-20',
@@ -152,20 +168,45 @@ class ColaboradorPlantillaGenerator
         }
     }
 
+    /**
+     * Antes usaba rangos de letra hardcodeados (ej. 'AJ2:AJ200') — con 39
+     * columnas y varias inserciones ya encima (residencia, bancarios,
+     * ahora apellido_paterno/materno), una letra fija por campo es
+     * exactamente el tipo de dato que se desalinea en silencio cada vez
+     * que se agrega una columna. Se resuelve por nombre de campo, no por
+     * letra, para que esto deje de ser un riesgo hacia adelante.
+     */
     private function agregarValidaciones(Worksheet $hoja): void
     {
-        $this->listaDesplegable($hoja, 'F2:F200', 'dni,ce,pasaporte');
-        $this->listaDesplegable($hoja, 'N2:N200', 'plazo_fijo,indefinido,locacion_servicios,practicas');
-        $this->listaDesplegable($hoja, 'O2:O200', 'trabajador,practicante,locador');
-        $this->listaDesplegable($hoja, 'P2:P200', 'General,Micro Empresa,Pequeña Empresa,Locacion de Servicios');
-        $this->listaDesplegable($hoja, 'Q2:Q200', 'presencial,remoto,hibrido');
-        $this->listaDesplegable($hoja, 'U2:U200', 'PEN,USD');
-        $this->listaDesplegable($hoja, 'V2:V200', 'mensual,quincenal,semanal');
-        $this->listaDesplegable($hoja, 'AB2:AB200', 'Sí,No');
-        $this->listaDesplegable($hoja, 'AC2:AC200', 'Sí,No');
-        $this->listaDesplegable($hoja, 'AG2:AG200', 'ahorro,corriente');
-        $this->listaDesplegable($hoja, 'AH2:AH200', 'PEN,USD');
-        $this->listaDesplegable($hoja, 'AJ2:AJ200', 'Sí,No');
+        $listas = [
+            'tipo_documento' => 'dni,ce,pasaporte',
+            'tipo_contrato' => 'plazo_fijo,indefinido,locacion_servicios,practicas',
+            'tipo_trabajador' => 'trabajador,practicante,locador',
+            'regimen_laboral' => 'General,Micro Empresa,Pequeña Empresa,Locacion de Servicios',
+            'modalidad_trabajo' => 'presencial,remoto,hibrido',
+            'moneda_salario' => 'PEN,USD',
+            'periodicidad_pago' => 'mensual,quincenal,semanal',
+            'contabilizar_tardanzas' => 'Sí,No',
+            'contabilizar_horas_extra' => 'Sí,No',
+            'tipo_cuenta' => 'ahorro,corriente',
+            'moneda_cuenta' => 'PEN,USD',
+            'es_trabajador_confianza' => 'Sí,No',
+        ];
+
+        foreach ($listas as $campo => $opciones) {
+            $columna = $this->columna($this->indiceDe($campo));
+            $this->listaDesplegable($hoja, "{$columna}2:{$columna}200", $opciones);
+        }
+    }
+
+    private function indiceDe(string $campo): int
+    {
+        $indice = array_search($campo, self::ENCABEZADOS, true);
+        if ($indice === false) {
+            throw new \LogicException("Campo \"{$campo}\" no está en ENCABEZADOS.");
+        }
+
+        return $indice;
     }
 
     /**
@@ -215,7 +256,8 @@ class ColaboradorPlantillaGenerator
             foreach ($nombresHorarios as $indice => $nombre) {
                 $hojaListas->setCellValueExplicit('A'.($indice + 1), $nombre, DataType::TYPE_STRING);
             }
-            $this->aplicarListaDesdeRango($hojaPrincipal, 'C', 'Listas!$A$1:$A$'.count($nombresHorarios));
+            $columnaHorario = $this->columna($this->indiceDe('horario'));
+            $this->aplicarListaDesdeRango($hojaPrincipal, $columnaHorario, 'Listas!$A$1:$A$'.count($nombresHorarios));
         }
 
         if ($nombresEmpresas !== []) {

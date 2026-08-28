@@ -104,9 +104,12 @@ export default function ConfiguracionNominaModal({ open, onCancel, onSubmit, loa
                   name="cuspp"
                   label="CUSPP"
                   className="sm:col-span-2"
-                  rules={[{ required: true, message: 'El CUSPP es obligatorio para AFP' }]}
+                  rules={[
+                    { required: true, message: 'El CUSPP es obligatorio para AFP' },
+                    { len: 12, message: 'El CUSPP debe tener exactamente 12 caracteres (requerido por PLAME)' },
+                  ]}
                 >
-                  <Input placeholder="Código único del SPP" maxLength={20} />
+                  <Input placeholder="Código único del SPP (12 caracteres)" maxLength={12} />
                 </Form.Item>
               </div>
             )}

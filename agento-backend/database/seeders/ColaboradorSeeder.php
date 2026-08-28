@@ -27,27 +27,30 @@ use Throwable;
 class ColaboradorSeeder extends Seeder
 {
     private const CANTIDAD_POR_EMPRESA = [
-        'Zazu' => 3,
+        'Zazu' => 5,
         'Agento' => 5,
-        'Texajo' => 8,
+        'Texajo' => 5,
         'Overshark' => 5,
-        'Bravos' => 4,
+        'Bravos' => 5,
     ];
 
     /**
      * 25 nombres únicos, consumidos secuencialmente entre las 5 empresas
-     * para que ninguno se repita en todo el seeder.
+     * para que ninguno se repita en todo el seeder. [nombres, apellido
+     * paterno, apellido materno] — separados a mano (no es un split
+     * automático de un string existente, es data de prueba nueva), ver
+     * migración de apellido_paterno/apellido_materno.
      */
     private const NOMBRES = [
-        ['Carlos', 'Ramírez Soto'], ['María', 'Torres Vega'], ['Jorge', 'Quispe Mamani'],
-        ['Lucía', 'Fernández Rojas'], ['Miguel', 'Salazar Castro'], ['Ana', 'Chávez Paredes'],
-        ['Diego', 'Huamán Flores'], ['Valeria', 'Cruz Espinoza'], ['Fernando', 'Rodríguez Loayza'],
-        ['Gabriela', 'Ponce Delgado'], ['Renzo', 'Vargas Injante'], ['Camila', 'Mendoza Ríos'],
-        ['Alonso', 'Guerrero Núñez'], ['Daniela', 'Zapata Cárdenas'], ['Eduardo', 'Pacheco Villar'],
-        ['Fiorella', 'Aguirre Bustamante'], ['Iván', 'Chumpitaz León'], ['Karla', 'Vidal Otero'],
-        ['Luis', 'Bendezú Campos'], ['Milagros', 'Suárez Aranda'], ['Nestor', 'Palacios Contreras'],
-        ['Paola', 'Reyes Manrique'], ['Ricardo', 'Ochoa Del Águila'], ['Sofía', 'Trujillo Peña'],
-        ['Yuri', 'Escalante Vergara'],
+        ['Carlos', 'Ramírez', 'Soto'], ['María', 'Torres', 'Vega'], ['Jorge', 'Quispe', 'Mamani'],
+        ['Lucía', 'Fernández', 'Rojas'], ['Miguel', 'Salazar', 'Castro'], ['Ana', 'Chávez', 'Paredes'],
+        ['Diego', 'Huamán', 'Flores'], ['Valeria', 'Cruz', 'Espinoza'], ['Fernando', 'Rodríguez', 'Loayza'],
+        ['Gabriela', 'Ponce', 'Delgado'], ['Renzo', 'Vargas', 'Injante'], ['Camila', 'Mendoza', 'Ríos'],
+        ['Alonso', 'Guerrero', 'Núñez'], ['Daniela', 'Zapata', 'Cárdenas'], ['Eduardo', 'Pacheco', 'Villar'],
+        ['Fiorella', 'Aguirre', 'Bustamante'], ['Iván', 'Chumpitaz', 'León'], ['Karla', 'Vidal', 'Otero'],
+        ['Luis', 'Bendezú', 'Campos'], ['Milagros', 'Suárez', 'Aranda'], ['Nestor', 'Palacios', 'Contreras'],
+        ['Paola', 'Reyes', 'Manrique'], ['Ricardo', 'Ochoa', 'Del Águila'], ['Sofía', 'Trujillo', 'Peña'],
+        ['Yuri', 'Escalante', 'Vergara'],
     ];
 
     private readonly ColaboradorService $colaboradores;
@@ -97,7 +100,7 @@ class ColaboradorSeeder extends Seeder
 
     private function crearColaborador(Empresa $empresa, array $arquetipo): void
     {
-        [$nombres, $apellidos] = self::NOMBRES[$this->indiceGlobal % count(self::NOMBRES)];
+        [$nombres, $apellidoPaterno, $apellidoMaterno] = self::NOMBRES[$this->indiceGlobal % count(self::NOMBRES)];
         $dni = (string) (70000001 + $this->indiceGlobal);
         $indice = $this->indiceGlobal;
         $this->indiceGlobal++;
@@ -118,7 +121,8 @@ class ColaboradorSeeder extends Seeder
 
         $datosPersonales = [
             'nombres' => $nombres,
-            'apellidos' => $apellidos,
+            'apellido_paterno' => $apellidoPaterno,
+            'apellido_materno' => $apellidoMaterno,
             'tipo_documento' => 'dni',
             'numero_documento' => $dni,
             'fecha_nacimiento' => Carbon::now()->subYears(28)->subDays($indice * 11)->toDateString(),
@@ -144,7 +148,7 @@ class ColaboradorSeeder extends Seeder
         try {
             $datos['calendario'] = $this->colaboradores->calendarioPorDefecto($horario, $datos['fecha_ingreso'])['dias'];
         } catch (Throwable $exception) {
-            $this->command?->warn("ColaboradorSeeder: no se pudo generar el calendario para {$nombres} {$apellidos} ({$exception->getMessage()}) — se omite.");
+            $this->command?->warn("ColaboradorSeeder: no se pudo generar el calendario para {$nombres} {$apellidoPaterno} ({$exception->getMessage()}) — se omite.");
 
             return;
         }
@@ -156,7 +160,7 @@ class ColaboradorSeeder extends Seeder
                 $this->colaboradores->cesar($empresa, $colaborador, $cesarDespues['fecha_cese'], $cesarDespues['motivo']);
             }
         } catch (Throwable $exception) {
-            $this->command?->warn("ColaboradorSeeder: no se pudo crear a {$nombres} {$apellidos} en {$empresa->nombre_comercial} ({$exception->getMessage()}).");
+            $this->command?->warn("ColaboradorSeeder: no se pudo crear a {$nombres} {$apellidoPaterno} en {$empresa->nombre_comercial} ({$exception->getMessage()}).");
         }
     }
 

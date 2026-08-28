@@ -1,5 +1,5 @@
 import { MoreOutlined, PlusOutlined, PoweroffOutlined } from '@ant-design/icons';
-import { App, Avatar, Button, Dropdown, Table, Tag } from 'antd';
+import { App, Avatar, Button, Dropdown, Table, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
 import EmpresaFormModal from '../components/EmpresaFormModal';
 import { useEmpresas } from '../hooks/useEmpresas';
@@ -119,8 +119,17 @@ export default function Empresas({ user }) {
     },
     {
       title: 'RUC',
-      dataIndex: 'ruc',
-      render: (ruc) => ruc ?? '—',
+      key: 'ruc',
+      render: (_, empresa) => (
+        <div className="flex items-center gap-1.5">
+          <span>{empresa.ruc ?? '—'}</span>
+          {!empresa.ruc_valido_para_plame && (
+            <Tooltip title={`${empresa.ruc_motivo_invalidez_plame} No podrá declararse PLAME para esta empresa hasta corregirlo.`}>
+              <Tag color="warning">Pendiente para PLAME</Tag>
+            </Tooltip>
+          )}
+        </div>
+      ),
     },
     {
       title: 'Abreviatura',

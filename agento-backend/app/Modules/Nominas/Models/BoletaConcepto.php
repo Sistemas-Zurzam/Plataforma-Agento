@@ -7,8 +7,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[Fillable([
-    'boleta_id', 'concepto_id', 'tipo', 'es_remunerativo_laboral', 'afecta_renta_5ta',
-    'base_utilizada', 'tasa_aplicada', 'cantidad', 'monto', 'formula_texto',
+    'boleta_id', 'concepto_id', 'concepto_definicion_id', 'tipo', 'es_remunerativo_laboral', 'afecta_renta_5ta',
+    'codigo_plame_snapshot', 'base_utilizada', 'tasa_aplicada', 'cantidad', 'monto',
+    'monto_devengado', 'monto_pagado_descontado', 'formula_texto',
 ])]
 class BoletaConcepto extends Model
 {
@@ -23,6 +24,8 @@ class BoletaConcepto extends Model
             'tasa_aplicada' => 'decimal:4',
             'cantidad' => 'decimal:2',
             'monto' => 'decimal:2',
+            'monto_devengado' => 'decimal:2',
+            'monto_pagado_descontado' => 'decimal:2',
         ];
     }
 
@@ -34,5 +37,10 @@ class BoletaConcepto extends Model
     public function concepto(): BelongsTo
     {
         return $this->belongsTo(ConceptoRemuneracion::class, 'concepto_id');
+    }
+
+    public function conceptoDefinicion(): BelongsTo
+    {
+        return $this->belongsTo(ConceptoDefinicionPlame::class, 'concepto_definicion_id');
     }
 }

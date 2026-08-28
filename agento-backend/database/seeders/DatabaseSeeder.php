@@ -23,33 +23,13 @@ class DatabaseSeeder extends Seeder
         $this->call(AfpSeeder::class);
         $this->call(ConceptoRemuneracionSeeder::class);
         $this->call(TramoRentaSeeder::class);
+        $this->call(TipoAusenciaSeeder::class);
+        $this->call(SunatMapeoSeeder::class);
+        $this->call(EmpresaSeeder::class);
+        $this->call(ColaboradorSeeder::class);
 
-        // User::factory(10)->create();
-
-        $empresa = Empresa::factory()->create([
-            'nombre_comercial' => 'Empresa Demo',
-            'ruc' => '20123456789',
-            'direccion' => 'Av. Principal 123',
-        ]);
-
-        $user = User::factory()->create([
-            'empresa_id' => $empresa->id,
-            'name' => 'Test User',
-            'username' => 'test.user',
-            'email' => 'test@example.com',
-        ]);
-
-        $adminRoleId = Role::administrador()->id;
-
-        $user->empresas()->updateExistingPivot($empresa->id, ['role_id' => $adminRoleId]);
-
-        // Otras empresas que el mismo administrador también gestiona.
-        Empresa::factory()
-            ->count(2)
-            ->create()
-            ->each(fn (Empresa $otraEmpresa) => $user->empresas()->attach($otraEmpresa->id, [
-                'role_id' => $adminRoleId,
-            ]));
+        $empresa = Empresa::where('nombre_comercial', 'Agento')->first();
+        $user = User::where('username', 'test.user')->first();
 
         // Compañeros de equipo en la empresa activa, con distintos roles,
         // para poder ver el listado y los contadores de "Usuarios y Roles".

@@ -1,6 +1,7 @@
 import {
   BankOutlined,
   BellOutlined,
+  FileProtectOutlined,
   FileTextOutlined,
   LockOutlined,
   SafetyOutlined,
@@ -8,6 +9,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { useEffect, useMemo } from 'react';
+import CatalogosSunat from '../../modules/configuracion/pages/CatalogosSunat';
 import Empresas from '../../modules/configuracion/pages/Empresas';
 import ParametrosRemunerativos from '../../modules/configuracion/pages/ParametrosRemunerativos';
 import Permisos from '../../modules/configuracion/pages/Permisos';
@@ -65,6 +67,11 @@ export default function GestionEmpresas({
         key: 'parametros-remunerativos',
         label: 'Parámetros Remunerativos',
         icon: <FileTextOutlined />,
+      },
+      {
+        key: 'catalogos-sunat',
+        label: 'Catálogos SUNAT',
+        icon: <FileProtectOutlined />,
       },
     ];
   }, [puedeVerParametrosRemunerativos]);
@@ -154,6 +161,9 @@ export default function GestionEmpresas({
         {activeTab === 'permisos' && isAdmin && <Permisos />}
         {activeTab === 'parametros-remunerativos' && puedeVerParametrosRemunerativos && (
           <ParametrosRemunerativos user={user} />
+        )}
+        {activeTab === 'catalogos-sunat' && puedeVerParametrosRemunerativos && (
+          <CatalogosSunat user={user} />
         )}
       </section>
     </div>

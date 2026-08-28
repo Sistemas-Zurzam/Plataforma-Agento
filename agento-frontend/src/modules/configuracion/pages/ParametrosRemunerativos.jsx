@@ -36,7 +36,7 @@ export default function ParametrosRemunerativos({ user }) {
     puedeVerCatalogo && {
       key: 'conceptos',
       label: 'Catálogo de Conceptos',
-      children: <CatalogoConceptos />,
+      children: <CatalogoConceptos user={user} />,
     },
     puedeVerPoliticas && {
       key: 'politicas',

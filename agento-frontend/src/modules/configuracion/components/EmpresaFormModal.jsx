@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import { REGIMEN_OPTIONS } from '../constants/regimenLaboral';
 import ColorSwatchPicker from './ColorSwatchPicker';
+import EmpresaCuentasBancarias from './EmpresaCuentasBancarias';
 import EmpresaReglasTardanza from './EmpresaReglasTardanza';
 import EmpresaResponsablesArea from './EmpresaResponsablesArea';
 import EmpresaSedes from './EmpresaSedes';
@@ -257,6 +258,11 @@ export default function EmpresaFormModal({
         key: 'responsables',
         label: 'Responsables',
         children: <EmpresaResponsablesArea empresaId={initialValues.id} empresaNombre={initialValues.nombre_comercial} user={user} />,
+      },
+      {
+        key: 'cuentas-bancarias',
+        label: 'Cuentas Bancarias',
+        children: <EmpresaCuentasBancarias empresaId={initialValues.id} empresaNombre={initialValues.nombre_comercial} user={user} />,
       },
     );
   }

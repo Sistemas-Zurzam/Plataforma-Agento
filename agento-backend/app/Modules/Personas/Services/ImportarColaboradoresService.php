@@ -143,7 +143,7 @@ class ImportarColaboradoresService
         Collection $documentosExistentes,
         Collection $conteoEnArchivo,
     ): array {
-        $nombreCompleto = trim(($fila['nombres'] ?? '').' '.($fila['apellidos'] ?? ''));
+        $nombreCompleto = trim(($fila['nombres'] ?? '').' '.($fila['apellido_paterno'] ?? '').' '.($fila['apellido_materno'] ?? ''));
         $errores = [];
 
         $empresa = $fila['empresa'] ? $empresasPorNombre->get(mb_strtolower($fila['empresa'])) : null;
@@ -214,7 +214,8 @@ class ImportarColaboradoresService
                 'area_id' => $area->id,
                 'horario_id' => $horario->id,
                 'nombres' => $fila['nombres'],
-                'apellidos' => $fila['apellidos'],
+                'apellido_paterno' => $fila['apellido_paterno'],
+                'apellido_materno' => $fila['apellido_materno'],
                 'tipo_documento' => $fila['tipo_documento'],
                 'numero_documento' => $fila['numero_documento'],
                 'fecha_nacimiento' => $fila['fecha_nacimiento'],

@@ -6,12 +6,14 @@ use App\Http\Controllers\Controller;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Http\Resources\BoletaResource;
 use App\Modules\Nominas\Models\Boleta;
+use App\Modules\Nominas\Models\BoletaComprobanteRh;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Services\BoletaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
 
 class BoletaController extends Controller
 {
@@ -108,5 +110,55 @@ class BoletaController extends Controller
             $this->boletas->marcarPagada($empresa, $boleta, $request->user('api')->id, $datos['referencia_pago'])
                 ->load(['colaborador.empresa', 'conceptos.concepto']),
         );
+    }
+
+    /**
+     * Estructura E20/.4ta de PLAME — se completa manualmente cuando RR.HH.
+     * recibe el recibo por honorarios real del locador; no se auto-genera
+     * al calcular la boleta. indicador_retencion_4ta se DERIVA del cálculo
+     * ya existente (nunca una segunda fórmula): basta con leer si la línea
+     * RETENCION_RENTA_4TA de esta boleta tiene monto mayor a cero.
+     */
+    public function guardarComprobanteRh(Request $request, Boleta $boleta): JsonResponse
+    {
+        $this->empresaAutorizadaDeLaBoleta($request, $boleta);
+
+        abort_unless(
+            $boleta->regimen_laboral_snapshot === 'Locacion de Servicios',
+            422,
+            'Esta boleta no corresponde a un recibo por honorarios.',
+        );
+
+        $datos = $request->validate([
+            // Tabla 23 SUNAT — PENDIENTE DE CATÁLOGO SUNAT, no se valida
+            // contra códigos reales todavía.
+            'tipo_comprobante' => ['nullable', 'string', 'max:1'],
+            'serie' => ['nullable', 'string', 'max:4'],
+            'numero' => ['nullable', 'string', 'max:8'],
+            'fecha_emision' => ['nullable', 'date'],
+            'fecha_pago' => ['nullable', 'date', 'after_or_equal:fecha_emision'],
+            'indicador_retencion_regimen_pensionario' => ['nullable', Rule::in(['1', '2', '3'])],
+            'importe_aporte_regimen_pensionario' => [
+                'nullable', 'numeric', 'min:0',
+                'required_if:indicador_retencion_regimen_pensionario,1',
+                'required_if:indicador_retencion_regimen_pensionario,2',
+            ],
+        ]);
+
+        $indicadorRetencion4ta = $boleta->conceptos()
+            ->whereHas('concepto', fn ($q) => $q->where('codigo', 'RETENCION_RENTA_4TA'))
+            ->where('monto', '>', 0)
+            ->exists();
+
+        $comprobante = BoletaComprobanteRh::updateOrCreate(
+            ['boleta_id' => $boleta->id],
+            [
+                ...$datos,
+                'indicador_retencion_4ta' => $indicadorRetencion4ta,
+                'registrado_por' => $request->user('api')->id,
+            ],
+        );
+
+        return response()->json(['data' => $comprobante]);
     }
 }

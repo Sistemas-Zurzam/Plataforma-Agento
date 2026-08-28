@@ -2,6 +2,7 @@
 
 namespace App\Modules\Configuracion\Http\Resources;
 
+use App\Modules\Nominas\Domain\Plame\RequisitoRucPlame;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Storage;
@@ -20,6 +21,8 @@ class EmpresaResource extends JsonResource
             'abreviatura' => $this->abreviatura,
             'grupo' => $this->grupo,
             'ruc' => $this->ruc,
+            'ruc_valido_para_plame' => RequisitoRucPlame::esValido($this->resource),
+            'ruc_motivo_invalidez_plame' => RequisitoRucPlame::motivoInvalidez($this->resource),
             'direccion' => $this->direccion,
             'color' => $this->color,
             'logo_url' => $this->logo_path ? Storage::disk('public')->url($this->logo_path) : null,

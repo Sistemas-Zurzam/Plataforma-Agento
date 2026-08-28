@@ -6,7 +6,7 @@ import AreaSelect from '../../configuracion/components/AreaSelect';
 import SedeSelect from '../../configuracion/components/SedeSelect';
 import { REGIMEN_OPTIONS } from '../../configuracion/constants/regimenLaboral';
 import {
-  BANCO_OPTIONS, MONEDA_OPTIONS, PERIODICIDAD_OPTIONS, TIPO_CONTRATO_OPTIONS, TIPO_CUENTA_OPTIONS, TIPO_DOCUMENTO_OPTIONS,
+  BANCO_OPTIONS, CATEGORIA_TRABAJADOR_OPTIONS, MONEDA_OPTIONS, PERIODICIDAD_OPTIONS, TIPO_CONTRATO_OPTIONS, TIPO_CUENTA_OPTIONS, TIPO_DOCUMENTO_OPTIONS, TIPO_DOCUMENTO_OPTIONS_LOCADOR,
 } from '../constants/opciones';
 
 /**
@@ -16,8 +16,8 @@ import {
  * NuevoColaboradorModal).
  */
 const CAMPOS_POR_TAB = {
-  personal: ['nombres', 'apellidos', 'tipo_documento', 'numero_documento', 'fecha_nacimiento', 'email', 'celular_colaborador', 'celular_referencia', 'direccion'],
-  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'fecha_fin_contrato'],
+  personal: ['nombres', 'apellido_paterno', 'apellido_materno', 'tipo_documento', 'numero_documento', 'fecha_nacimiento', 'email', 'celular_colaborador', 'celular_referencia', 'direccion'],
+  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_fin_contrato'],
   remuneracion: ['salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'vigencia_desde'],
   bancarios: ['banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
 };
@@ -92,8 +92,20 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
       children: (
         <div className="grid gap-x-3 sm:grid-cols-2">
           <Form.Item label="Nombres" name="nombres" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item label="Apellidos" name="apellidos" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item label="Tipo de documento" name="tipo_documento" rules={[{ required: true }]}><Select options={TIPO_DOCUMENTO_OPTIONS} /></Form.Item>
+          <Form.Item
+            label="Apellido paterno"
+            name="apellido_paterno"
+            rules={[{ required: true }]}
+            extra={!colaborador?.apellido_paterno ? 'Falta completar — requerido por SUNAT (PLAME)' : undefined}
+          >
+            <Input />
+          </Form.Item>
+          <Form.Item label="Apellido materno" name="apellido_materno">
+            <Input />
+          </Form.Item>
+          <Form.Item label="Tipo de documento" name="tipo_documento" rules={[{ required: true }]}>
+            <Select options={colaborador?.tipo_trabajador === 'locador' ? TIPO_DOCUMENTO_OPTIONS_LOCADOR : TIPO_DOCUMENTO_OPTIONS} />
+          </Form.Item>
           <Form.Item label="Número de documento" name="numero_documento" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item label="Fecha de nacimiento" name="fecha_nacimiento"><DatePicker className="w-full" format="DD/MM/YYYY" /></Form.Item>
           <Form.Item label="Email" name="email" rules={[{ type: 'email' }]}><Input /></Form.Item>
@@ -115,6 +127,16 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
           <Form.Item label="Cargo" name="cargo" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item label="Tipo de contrato" name="tipo_contrato" rules={[{ required: true }]}><Select options={TIPO_CONTRATO_OPTIONS} /></Form.Item>
           <Form.Item label="Régimen laboral" name="regimen_laboral"><Select allowClear options={REGIMEN_OPTIONS} /></Form.Item>
+          {colaborador?.tipo_trabajador === 'trabajador' && (
+            <Form.Item
+              label="Categoría laboral"
+              name="categoria_trabajador"
+              rules={[{ required: true, message: 'Indica si es Empleado u Obrero' }]}
+              extra="Requerido por SUNAT (Tabla 8) — Empleado u Obrero."
+            >
+              <Select options={CATEGORIA_TRABAJADOR_OPTIONS} />
+            </Form.Item>
+          )}
           <Form.Item label="Fin de contrato" name="fecha_fin_contrato" rules={[{ required: tipoContrato === 'plazo_fijo', message: 'Requerido para plazo fijo' }]} className="sm:col-span-2"><DatePicker className="w-full" format="DD/MM/YYYY" /></Form.Item>
         </div>
       ),

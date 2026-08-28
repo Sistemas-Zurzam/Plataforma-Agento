@@ -1,5 +1,6 @@
 import { Form, Input, InputNumber, Modal, Select, Table, Tag } from 'antd';
 import { useEffect, useState } from 'react';
+import { useConceptoDefinicionesPlame } from '../../configuracion/hooks/useConceptoDefinicionesPlame';
 
 const CONCEPTOS_REGISTRABLES = [
   { codigo: 'COMISION', nombre: 'Comisión por ventas', tipo: 'ingreso' },
@@ -7,6 +8,10 @@ const CONCEPTOS_REGISTRABLES = [
   { codigo: 'BONO_NO_REMUNERATIVO', nombre: 'Bono / liberalidad no remunerativa', tipo: 'ingreso' },
   { codigo: 'ADELANTO_SUELDO', nombre: 'Adelanto de sueldo', tipo: 'egreso' },
 ];
+
+// Demasiado genéricos para PLAME (Tabla 22) por sí solos — exigen elegir
+// una clasificación concreta ya definida en Catálogos SUNAT.
+const CONCEPTOS_CON_DEFINICION = ['BONIFICACION', 'BONO_NO_REMUNERATIVO'];
 
 /**
  * Registra un concepto manual (comisión/bono/adelanto) para UN colaborador
@@ -18,6 +23,7 @@ const CONCEPTOS_REGISTRABLES = [
 export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loading, colaborador, conceptos, conceptosLoading, catalogo }) {
   const [form] = Form.useForm();
   const [tipoSeleccionado, setTipoSeleccionado] = useState(null);
+  const { definiciones, fetchDefiniciones } = useConceptoDefinicionesPlame();
 
   useEffect(() => {
     if (!open) {
@@ -26,11 +32,21 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loadi
     }
   }, [open, form]);
 
+  const handleCambioConcepto = (value) => {
+    setTipoSeleccionado(opcionesDisponibles.find((c) => c.codigo === value)?.tipo);
+    form.setFieldValue('concepto_definicion_id', undefined);
+    if (CONCEPTOS_CON_DEFINICION.includes(value)) {
+      const concepto = catalogo.find((c) => c.codigo === value);
+      if (concepto) fetchDefiniciones(concepto.id);
+    }
+  };
+
   const handleOk = async () => {
     const values = await form.validateFields();
     const concepto = catalogo.find((c) => c.codigo === values.codigo);
     await onSubmit(colaborador.id, {
       concepto_id: concepto.id,
+      concepto_definicion_id: values.concepto_definicion_id,
       monto: values.monto,
       motivo: values.motivo,
     });
@@ -63,9 +79,22 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loadi
                 </span>
               ),
             }))}
-            onChange={(value) => setTipoSeleccionado(opcionesDisponibles.find((c) => c.codigo === value)?.tipo)}
+            onChange={handleCambioConcepto}
           />
         </Form.Item>
+        {CONCEPTOS_CON_DEFINICION.includes(Form.useWatch('codigo', form)) && (
+          <Form.Item
+            name="concepto_definicion_id"
+            label="Clasificación PLAME"
+            rules={[{ required: true, message: 'Selecciona la clasificación específica' }]}
+            extra="Necesaria para declarar este concepto correctamente ante SUNAT — configúrala en Catálogos SUNAT si no aparece la que buscas."
+          >
+            <Select
+              placeholder="Selecciona una clasificación"
+              options={definiciones.filter((d) => d.activo).map((d) => ({ value: d.id, label: `${d.nombre} (${d.codigo_plame})` }))}
+            />
+          </Form.Item>
+        )}
         <Form.Item name="monto" label="Monto (S/)" rules={[{ required: true, message: 'Ingresa un monto' }]}>
           <InputNumber className="w-full" min={0.01} step={0.01} precision={2} />
         </Form.Item>
@@ -87,6 +116,7 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loadi
         locale={{ emptyText: 'Sin conceptos registrados todavía' }}
         columns={[
           { title: 'Concepto', dataIndex: 'nombre' },
+          { title: 'Clasificación', dataIndex: 'concepto_definicion_nombre', render: (v) => v ?? <span className="text-gray-300">—</span> },
           {
             title: 'Tipo',
             dataIndex: 'tipo',

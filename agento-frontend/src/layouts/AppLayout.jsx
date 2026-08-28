@@ -24,6 +24,7 @@ const CONFIG_PATHS = {
   'usuarios-roles': '/usuarios-roles',
   permisos: '/permisos',
   'parametros-remunerativos': '/parametros-remunerativos',
+  'catalogos-sunat': '/catalogos-sunat',
 };
 
 function routeFromPath(pathname) {

@@ -50,6 +50,22 @@ class BoletaResource extends JsonResource
             'aprobado_at' => $this->aprobado_at?->toDateTimeString(),
             'pagado_at' => $this->pagado_at?->toDateTimeString(),
             'referencia_pago' => $this->referencia_pago,
+            'comprobante_rh' => $this->whenLoaded('comprobanteRh', fn () => $this->comprobanteRh ? [
+                // Se resuelve sin ambigüedad desde el concepto ya calculado
+                // (HONORARIO_BRUTO) — nunca se duplica como columna propia
+                // en boleta_comprobantes_rh (ver BoletaService::montoTotalServicioRh).
+                'monto_total_servicio' => $this->whenLoaded('conceptos', fn () => (float) $this->conceptos
+                    ->filter(fn ($c) => $c->concepto?->codigo === 'HONORARIO_BRUTO')
+                    ->sum('monto')),
+                'tipo_comprobante' => $this->comprobanteRh->tipo_comprobante,
+                'serie' => $this->comprobanteRh->serie,
+                'numero' => $this->comprobanteRh->numero,
+                'fecha_emision' => $this->comprobanteRh->fecha_emision?->toDateString(),
+                'fecha_pago' => $this->comprobanteRh->fecha_pago?->toDateString(),
+                'indicador_retencion_4ta' => $this->comprobanteRh->indicador_retencion_4ta,
+                'indicador_retencion_regimen_pensionario' => $this->comprobanteRh->indicador_retencion_regimen_pensionario,
+                'importe_aporte_regimen_pensionario' => $this->comprobanteRh->importe_aporte_regimen_pensionario,
+            ] : null),
             'conceptos' => BoletaConceptoResource::collection($this->whenLoaded('conceptos')),
         ];
     }

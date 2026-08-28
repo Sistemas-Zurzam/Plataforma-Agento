@@ -4,6 +4,14 @@ export const TIPO_DOCUMENTO_OPTIONS = [
   { value: 'pasaporte', label: 'Pasaporte' },
 ];
 
+// "ruc" solo se ofrece para locadores (Tabla 3 de SUNAT lo habilita
+// exclusivamente para prestadores de servicios) — nunca para trabajador/
+// practicante.
+export const TIPO_DOCUMENTO_OPTIONS_LOCADOR = [
+  ...TIPO_DOCUMENTO_OPTIONS,
+  { value: 'ruc', label: 'RUC' },
+];
+
 export const TIPO_CONTRATO_OPTIONS = [
   { value: 'plazo_fijo', label: 'Plazo Fijo' },
   { value: 'indefinido', label: 'Indefinido' },
@@ -15,6 +23,13 @@ export const TIPO_TRABAJADOR_OPTIONS = [
   { value: 'trabajador', label: 'Trabajador' },
   { value: 'practicante', label: 'Practicante' },
   { value: 'locador', label: 'Locador' },
+];
+
+// Solo aplica cuando tipo_trabajador = "trabajador" — SUNAT (Tabla 8)
+// distingue Empleado (21) de Obrero (20); ver Catálogos SUNAT.
+export const CATEGORIA_TRABAJADOR_OPTIONS = [
+  { value: 'empleado', label: 'Empleado' },
+  { value: 'obrero', label: 'Obrero' },
 ];
 
 export const PERIODICIDAD_OPTIONS = [

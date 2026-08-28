@@ -19,12 +19,14 @@ import CalendarioInicialColaborador, { siguienteTipoCiclo } from './CalendarioIn
 import { useColaboradores } from '../hooks/useColaboradores';
 import {
   BANCO_OPTIONS,
+  CATEGORIA_TRABAJADOR_OPTIONS,
   MODALIDAD_TRABAJO_OPTIONS,
   MONEDA_OPTIONS,
   PERIODICIDAD_OPTIONS,
   TIPO_CONTRATO_OPTIONS,
   TIPO_CUENTA_OPTIONS,
   TIPO_DOCUMENTO_OPTIONS,
+  TIPO_DOCUMENTO_OPTIONS_LOCADOR,
   TIPO_TRABAJADOR_OPTIONS,
 } from '../constants/opciones';
 
@@ -39,12 +41,12 @@ const CREAR_HORARIO = '__crear_horario__';
  */
 const CAMPOS_POR_TAB = {
   personal: [
-    'nombres', 'apellidos', 'tipo_documento', 'numero_documento', 'fecha_nacimiento',
+    'nombres', 'apellido_paterno', 'apellido_materno', 'tipo_documento', 'numero_documento', 'fecha_nacimiento',
     'pais_residencia', 'ciudad_residencia', 'distrito_residencia', 'direccion',
     'email', 'celular_colaborador', 'celular_referencia',
   ],
   contrato: [
-    'sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador',
+    'sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador', 'categoria_trabajador',
     'fecha_ingreso', 'fecha_fin_contrato', 'periodicidad_pago', 'moneda_salario', 'salario',
     'contabilizar_tardanzas', 'contabilizar_horas_extra', 'es_trabajador_confianza',
   ],
@@ -135,6 +137,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
   const horarioSeleccionado = horarios.find((h) => h.id === form.getFieldValue('horario_id'));
   const horarioIdActivo = Form.useWatch('horario_id', form);
   const esHorarioRotativo = horarios.find((h) => h.id === horarioIdActivo)?.tipo_turno === 'rotativo';
+  const tipoTrabajador = Form.useWatch('tipo_trabajador', form);
 
   useEffect(() => {
     if (open) {
@@ -311,7 +314,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                         </Button>
                       </Upload>
                     </div>
-                    <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-4">
                       <Form.Item
                         label={campoLabel('Nombres')}
                         name="nombres"
@@ -320,18 +323,24 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                         <Input placeholder="Ej: JUAN" />
                       </Form.Item>
                       <Form.Item
-                        label={campoLabel('Apellidos')}
-                        name="apellidos"
+                        label={campoLabel('Apellido paterno')}
+                        name="apellido_paterno"
                         rules={[{ required: true, message: 'Requerido' }]}
                       >
                         <Input placeholder="Ej: PÉREZ" />
+                      </Form.Item>
+                      <Form.Item label={campoLabel('Apellido materno')} name="apellido_materno">
+                        <Input placeholder="Ej: RAMÍREZ" />
                       </Form.Item>
                       <Form.Item
                         label={campoLabel('Tipo de documento')}
                         name="tipo_documento"
                         rules={[{ required: true, message: 'Requerido' }]}
                       >
-                        <Select placeholder="Selecciona" options={TIPO_DOCUMENTO_OPTIONS} />
+                        <Select
+                          placeholder="Selecciona"
+                          options={tipoTrabajador === 'locador' ? TIPO_DOCUMENTO_OPTIONS_LOCADOR : TIPO_DOCUMENTO_OPTIONS}
+                        />
                       </Form.Item>
                     </div>
                     <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -438,8 +447,22 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                         name="tipo_trabajador"
                         rules={[{ required: true, message: 'Requerido' }]}
                       >
-                        <Select options={TIPO_TRABAJADOR_OPTIONS} placeholder="Selecciona" />
+                        <Select
+                          options={TIPO_TRABAJADOR_OPTIONS}
+                          placeholder="Selecciona"
+                          onChange={(valor) => valor !== 'trabajador' && form.setFieldValue('categoria_trabajador', undefined)}
+                        />
                       </Form.Item>
+                      {tipoTrabajador === 'trabajador' && (
+                        <Form.Item
+                          label={campoLabel('Categoría laboral')}
+                          name="categoria_trabajador"
+                          rules={[{ required: true, message: 'Indica si es Empleado u Obrero' }]}
+                          extra="Requerido por SUNAT (Tabla 8) para distinguir Empleado de Obrero."
+                        >
+                          <Select options={CATEGORIA_TRABAJADOR_OPTIONS} placeholder="Selecciona" />
+                        </Form.Item>
+                      )}
                     </div>
                     <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
                       <Form.Item
