@@ -13,6 +13,15 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['empresa_id', 'resultado_diario_id', 'colaborador_id', 'fecha', 'minutos_observados', 'minutos_solicitados', 'minutos_aprobados', 'tasa', 'estado', 'motivo', 'resuelto_por', 'resuelto_at'])]
 class AsistenciaHoraExtra extends Model
 {
+    // Estados canónicos (V3 Fase 3) — 'aprobado'/'rechazado' en masculino
+    // porque así ya se usaba 'aprobado' desde el inicio para HE (a
+    // diferencia de AsistenciaIncidencia, que usa 'resuelta'/'rechazada').
+    public const ESTADO_PENDIENTE = 'pendiente';
+
+    public const ESTADO_APROBADO = 'aprobado';
+
+    public const ESTADO_RECHAZADO = 'rechazado';
+
     protected $table = 'asistencia_horas_extra';
 
     protected function casts(): array

@@ -197,11 +197,11 @@ export function Legajo({ colaborador, subiendo, viendo, onImportar, onVer, soloL
   </div>;
 }
 
-export default function FichaColaborador({ colaboradorId, onVolver }) {
+export default function FichaColaborador({ colaboradorId, user, onVolver }) {
   const { message, modal } = App.useApp();
   const {
     fetchColaborador, actualizarCalendario, actualizarHorario,
-    actualizarColaborador, actualizarRemuneracion, cesarColaborador, eliminarColaborador, subirDocumento, verDocumento,
+    actualizarColaborador, actualizarConfiguracionNomina, actualizarRemuneracion, cesarColaborador, eliminarColaborador, subirDocumento, verDocumento,
     subirFotoPerfil, fetchFotoPerfil,
   } = useColaboradores();
   const [colaborador, setColaborador] = useState(null);
@@ -345,16 +345,31 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
   };
 
   /**
-   * onGuardar(datosBasicos, remuneracion) — EditarColaboradorModal decide
-   * si `remuneracion` viene o no según si el usuario realmente tocó el
-   * sueldo/moneda/periodicidad/asignación familiar (comparado contra lo que
-   * ya estaba cargado). Si no viene, NO se toca colaborador_remuneraciones
+   * onGuardar(datosBasicos, remuneracion, previsional) — EditarColaboradorModal
+   * decide si `remuneracion` viene o no según si el usuario realmente tocó
+   * el sueldo/moneda/periodicidad/asignación familiar (comparado contra lo
+   * que ya estaba cargado). Si no viene, NO se toca colaborador_remuneraciones
    * — no tiene sentido crear una fila de historial cuando nada cambió.
+   *
+   * V3 P4/P5 — `previsional` (CUSPP/AFP/tipo de comisión/suspensión de 4ta)
+   * viaja al MISMO endpoint que ya usa ConfiguracionNominaModal
+   * (actualizarConfiguracionNomina) — nunca se reimplementa esa validación
+   * acá. Viene null si el usuario no tiene permiso de nómina (la pestaña ni
+   * se mostró).
    */
-  const guardarEdicion = async (values, remuneracion) => {
+  const guardarEdicion = async (values, remuneracion, previsional) => {
     setGuardandoEdicion(true);
     try {
       let actualizado = await actualizarColaborador(colaborador.id, values);
+
+      if (previsional) {
+        try {
+          actualizado = await actualizarConfiguracionNomina(colaborador.id, previsional);
+        } catch (error) {
+          setColaborador(actualizado);
+          message.warning(error.response?.data?.message ?? 'Los datos básicos se guardaron, pero no se pudo actualizar la configuración previsional.');
+        }
+      }
 
       if (remuneracion) {
         try {
@@ -477,7 +492,7 @@ export default function FichaColaborador({ colaboradorId, onVolver }) {
     <Tabs className="mt-5" items={tabs} />
     <EditarHorarioColaboradorModal open={horarioOpen} colaborador={colaborador} submitting={guardandoHorario} onGuardar={guardarHorario} onCancel={() => setHorarioOpen(false)} />
     <EditarCalendarioModal open={calendarioOpen} colaborador={colaborador} submitting={guardandoCalendario} onGuardar={guardarCalendario} onCancel={() => setCalendarioOpen(false)} />
-    <EditarColaboradorModal open={editarOpen} colaborador={colaborador} submitting={guardandoEdicion} onGuardar={guardarEdicion} onCancel={() => setEditarOpen(false)} />
+    <EditarColaboradorModal open={editarOpen} colaborador={colaborador} user={user} submitting={guardandoEdicion} onGuardar={guardarEdicion} onCancel={() => setEditarOpen(false)} />
     <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
     <VerCarnetModal colaborador={carnetOpen ? colaborador : null} onClose={() => setCarnetOpen(false)} />
     <Modal title={documentoVista?.nombre ?? 'Ver documento'} open={Boolean(documentoVista)} onCancel={cerrarDocumento} footer={null} width={{ xs: '95%', sm: '90%', lg: 900 }} centered destroyOnHidden>

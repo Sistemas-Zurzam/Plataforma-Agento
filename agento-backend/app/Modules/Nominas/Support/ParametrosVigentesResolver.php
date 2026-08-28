@@ -43,11 +43,14 @@ class ParametrosVigentesResolver
 
     private static array $cacheTramos = [];
 
+    private static array $cacheRmaAfp = [];
+
     public static function limpiarCache(): void
     {
         self::$cacheParametros = [];
         self::$cacheComisionAfp = [];
         self::$cacheTramos = [];
+        self::$cacheRmaAfp = [];
     }
 
     /**
@@ -171,6 +174,51 @@ class ParametrosVigentesResolver
             'comision' => $comisionPorcentaje / 100,
             'vigencia_desde' => $comision->vigencia_desde->toDateString(),
         ];
+    }
+
+    /**
+     * V3 Fase 6F.2.1/6F.2.2/6F.2.3 — Remuneración Máxima Asegurable (RMA)
+     * del SPP, tope que limita únicamente la base de AFP_PRIMA_SEGURO
+     * (nunca el aporte obligatorio ni la comisión). Reutiliza exactamente
+     * el mismo mecanismo de parametro_laboral_valores ya usado para
+     * rmv/uit — misma desviación de arquitectura ya documentada arriba
+     * (valor por empresa+régimen, no una tabla nacional única), no una
+     * nueva.
+     *
+     * A diferencia de rmv/uit/tasas (que se resuelven por
+     * fecha_corte_asistencia y así deben seguir), la RMA está normada como
+     * "vigente a la fecha de pago" (Fase 6F.2, AFP Habitat/SBS) — por eso
+     * este método recibe explícitamente $fechaPago, nunca $fechaCorte. El
+     * llamador (CalcularBoletaColaborador) es responsable de pasar la
+     * fecha correcta para cada caso.
+     *
+     * Devuelve null si no hay valor configurado — a propósito: quien
+     * necesite tratarlo como error (solo el cálculo de AFP_PRIMA_SEGURO
+     * para un afiliado AFP, nunca ONP) decide fallar explícitamente, en vez
+     * de que este resolver asuma un comportamiento por defecto inseguro
+     * (ej. "sin tope" o "0").
+     */
+    public static function rmaAfp(Empresa $empresa, string $regimenLaboral, string $fechaPago): ?float
+    {
+        $claveCache = "{$empresa->id}:{$regimenLaboral}:{$fechaPago}";
+        if (array_key_exists($claveCache, self::$cacheRmaAfp)) {
+            return self::$cacheRmaAfp[$claveCache];
+        }
+
+        $definicionId = ParametroLaboralDefinicion::where('clave', 'rma_afp')->value('id');
+        if ($definicionId === null) {
+            return self::$cacheRmaAfp[$claveCache] = null;
+        }
+
+        $valor = ParametroLaboralValor::where('empresa_id', $empresa->id)
+            ->where('definicion_id', $definicionId)
+            ->where('regimen_laboral', $regimenLaboral)
+            ->whereDate('vigencia_desde', '<=', $fechaPago)
+            ->orderByDesc('vigencia_desde')
+            ->orderByDesc('id')
+            ->value('valor');
+
+        return self::$cacheRmaAfp[$claveCache] = $valor !== null ? (float) $valor : null;
     }
 
     /**

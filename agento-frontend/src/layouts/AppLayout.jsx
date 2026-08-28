@@ -39,7 +39,11 @@ function routeFromPath(pathname) {
   }
 
   if (normalizedPath === '/nominas/asistencias') {
-    return { section: 'nominas-asistencias', tab: null, colaboradorId: null, asistenciaColaboradorId: null };
+    return { section: 'nominas-asistencias', tab: null, colaboradorId: null, asistenciaColaboradorId: null, asistenciaTab: null };
+  }
+
+  if (normalizedPath === '/nominas/asistencias/planificacion') {
+    return { section: 'nominas-asistencias', tab: null, colaboradorId: null, asistenciaColaboradorId: null, asistenciaTab: 'planificacion' };
   }
 
   if (normalizedPath === '/soporte/tickets') {
@@ -136,6 +140,7 @@ export default function AppLayout({
               colaboradorId={route.colaboradorId}
               onAbrirColaborador={(id) => navigate(`/nominas/personas/${id}`)}
               onVolverColaboradores={() => navigate('/nominas/personas')}
+              onIrAPlanificacion={() => navigate('/nominas/asistencias/planificacion')}
             />
           )}
           {route.section === 'nominas-remuneraciones' && (
@@ -146,6 +151,7 @@ export default function AppLayout({
               user={user}
               onUserRefresh={onUserRefresh}
               colaboradorId={route.asistenciaColaboradorId}
+              initialTab={route.asistenciaTab}
               onVerColaborador={(id) => navigate(`/nominas/asistencias/colaboradores/${id}`)}
               onVolver={() => navigate('/nominas/asistencias')}
             />

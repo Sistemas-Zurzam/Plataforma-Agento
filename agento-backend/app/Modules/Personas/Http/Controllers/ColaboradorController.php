@@ -278,6 +278,15 @@ class ColaboradorController extends Controller
                 Rule::in(Colaborador::CATEGORIAS_TRABAJADOR),
             ],
             'fecha_fin_contrato' => ['nullable', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'required_if:tipo_contrato,plazo_fijo'],
+            // V3 P3 — antes solo editable en Crear.
+            'es_trabajador_confianza' => ['nullable', 'boolean'],
+            // V3 P2 — "contabilizar_tardanzas" ahora tiene efecto real en
+            // nómina (ver CalcularBoletaColaborador), por eso pasa a ser
+            // editable acá igual que en Crear. contabilizar_horas_extra se
+            // homologa por consistencia de formulario (P1), pero sigue sin
+            // efecto en el cálculo — huérfano, fuera de alcance de esta fase.
+            'contabilizar_tardanzas' => ['nullable', 'boolean'],
+            'contabilizar_horas_extra' => ['nullable', 'boolean'],
             'banco' => ['nullable', 'string', 'max:255'],
             'numero_cuenta' => ['nullable', 'string', 'max:255'],
             'tipo_cuenta' => ['nullable', Rule::in(['ahorro', 'corriente'])],

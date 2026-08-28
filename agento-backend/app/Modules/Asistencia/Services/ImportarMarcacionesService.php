@@ -53,7 +53,9 @@ class ImportarMarcacionesService
         Colaborador::query()->whereIn('id', $reconocidosIds)->with([
             'calendario' => fn ($query) => $query->whereBetween('fecha', [$desde, $hasta]),
         ])->get()->each(function ($colaborador) use (&$preparacion) {
-            $horario = $colaborador->horario_id !== null;
+            // V3 P3 — un trabajador de confianza sin horario no es una
+            // preparación incompleta, es la condición esperada.
+            $horario = $colaborador->horario_id !== null || $colaborador->es_trabajador_confianza;
             $calendario = $colaborador->calendario->isNotEmpty();
             $clave = match (true) {
                 $horario && $calendario => 'listos',

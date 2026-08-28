@@ -187,6 +187,11 @@ class BoletaService
                 $ciclo->fecha_fin->toDateString(),
                 $ciclo->fecha_corte_asistencia->toDateString(),
                 $ciclo->id,
+                // V3 Fase 6F.2.3 — únicamente para resolver la RMA de
+                // AFP_PRIMA_SEGURO (Fase 6F.2.2); CalcularReciboHonorarios
+                // ignora este 6to argumento (su firma no lo declara — PHP
+                // no falla por argumentos posicionales de más).
+                $ciclo->fecha_pago->toDateString(),
             );
 
             $versionAnterior = Boleta::where('ciclo_id', $ciclo->id)

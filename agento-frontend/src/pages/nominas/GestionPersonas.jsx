@@ -27,8 +27,8 @@ function etiquetaTipoContrato(valor) {
   return TIPO_CONTRATO_OPTIONS.find((o) => o.value === valor)?.label ?? valor;
 }
 
-function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId, onAbrirColaborador, onVolverColaboradores }) {
-  const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador, restaurarColaborador, subirFotoPerfil, fetchRotativosSinRol } =
+function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId, onAbrirColaborador, onVolverColaboradores, onIrAPlanificacion }) {
+  const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador, actualizarConfiguracionNomina, restaurarColaborador, subirFotoPerfil, fetchRotativosSinRol } =
     useColaboradores();
   const { message, modal } = App.useApp();
   const [busqueda, setBusqueda] = useState('');
@@ -63,7 +63,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.empresa?.id, todasEmpresas, puedeVer]);
 
-  const handleCrear = async (values, fotoPerfil) => {
+  const handleCrear = async (values, fotoPerfil, previsional) => {
     setCreando(true);
     try {
       const nuevoColaborador = await crearColaborador(values);
@@ -75,6 +75,18 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           // La foto es opcional — no revertimos la creación del colaborador
           // por esto, solo avisamos que hay que subirla de nuevo después.
           message.warning('El colaborador se creó, pero no se pudo subir la foto de perfil. Puedes subirla luego desde su ficha.');
+        }
+      }
+
+      // V3 P4/P5 — mismo endpoint que ConfiguracionNominaModal
+      // (actualizarConfiguracionNomina), llamado como segundo paso porque
+      // recién acá existe un id de colaborador. Igual que la foto: si falla,
+      // no se revierte la creación — solo se avisa que falta completarlo.
+      if (previsional) {
+        try {
+          await actualizarConfiguracionNomina(nuevoColaborador.id, previsional);
+        } catch {
+          message.warning('El colaborador se creó, pero no se pudo guardar la configuración previsional. Puedes completarla luego desde su ficha o desde Remuneraciones.');
         }
       }
 
@@ -152,6 +164,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
     return (
       <FichaColaborador
         colaboradorId={colaboradorActivo.id}
+        user={user}
         onVolver={() => {
           setColaboradorSeleccionado(null);
           onVolverColaboradores?.();
@@ -301,12 +314,19 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           className="mb-4"
           message={`${rotativosSinRol.length} colaborador(es) con horario rotativo sin rol de descanso cargado este mes`}
           description={
-            <div className="flex flex-wrap gap-2">
-              {rotativosSinRol.map((c) => (
-                <Button key={c.id} size="small" onClick={() => onAbrirColaborador?.(c.id)}>
-                  {c.nombre_completo}
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                {rotativosSinRol.map((c) => (
+                  <Button key={c.id} size="small" onClick={() => onAbrirColaborador?.(c.id)}>
+                    {c.nombre_completo}
+                  </Button>
+                ))}
+              </div>
+              {onIrAPlanificacion && (
+                <Button type="link" size="small" className="!px-0" onClick={onIrAPlanificacion}>
+                  Ir a Asistencias → Planificación para declarar sus descansos por semana
                 </Button>
-              ))}
+              )}
             </div>
           }
         />
@@ -436,7 +456,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
  * "Gestión de horarios" no tiene su propia entrada de sidebar a propósito
  * (ver Sidebar.jsx) — es un botón dentro de Gestión de personas.
  */
-export default function GestionPersonas({ user, onUserRefresh, colaboradorId, onAbrirColaborador, onVolverColaboradores }) {
+export default function GestionPersonas({ user, onUserRefresh, colaboradorId, onAbrirColaborador, onVolverColaboradores, onIrAPlanificacion }) {
   const [vista, setVista] = useState('personas');
 
   if (vista === 'horarios') {
@@ -457,6 +477,7 @@ export default function GestionPersonas({ user, onUserRefresh, colaboradorId, on
       colaboradorId={colaboradorId}
       onAbrirColaborador={onAbrirColaborador}
       onVolverColaboradores={onVolverColaboradores}
+      onIrAPlanificacion={onIrAPlanificacion}
     />
   );
 }

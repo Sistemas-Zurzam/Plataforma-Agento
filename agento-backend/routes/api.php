@@ -118,8 +118,14 @@ Route::middleware('jwt')->group(function () {
     Route::get('/asistencia/marcaciones-no-asociadas', [AsistenciaController::class, 'marcacionesNoAsociadas'])->middleware('permiso:asistencia.ver');
     Route::post('/asistencia/marcaciones-no-asociadas/{colaborador}/asociar', [AsistenciaController::class, 'asociarPersonId'])->middleware('permiso:asistencia.importar');
     Route::post('/asistencia/reprocesar', [AsistenciaController::class, 'reprocesar'])->middleware('permiso:asistencia.procesar');
+    Route::get('/asistencia/planificacion', [AsistenciaController::class, 'planificacion'])->middleware('permiso:asistencia.ver');
+    Route::put('/asistencia/planificacion', [AsistenciaController::class, 'guardarPlanificacion'])->middleware('permiso:asistencia.incidencias');
+    Route::put('/asistencia/planificacion/masivo', [AsistenciaController::class, 'guardarPlanificacionMasivo'])->middleware('permiso:asistencia.incidencias');
     Route::get('/asistencia/incidencias', [AsistenciaController::class, 'incidencias'])->middleware('permiso:asistencia.ver');
     Route::patch('/asistencia/incidencias/{incidencia}', [AsistenciaController::class, 'resolverIncidencia'])->middleware('permiso:asistencia.incidencias');
+    Route::patch('/asistencia/incidencias/{incidencia}/permiso', [AsistenciaController::class, 'resolverIncidenciaConPermiso'])->middleware('permiso:asistencia.incidencias');
+    Route::patch('/asistencia/incidencias/{incidencia}/clasificar-dia', [AsistenciaController::class, 'clasificarDiaSinRol'])->middleware('permiso:asistencia.incidencias');
+    Route::patch('/asistencia/incidencias/{incidencia}/resolver-trabajo-descanso', [AsistenciaController::class, 'resolverTrabajoEnDescanso'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/incidencias', [AsistenciaController::class, 'resolverIncidenciasMasivo'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/resultados/{resultado}', [AsistenciaController::class, 'editarDia'])->middleware('permiso:asistencia.incidencias');
     Route::get('/asistencia/horas-extra', [AsistenciaController::class, 'horasExtra'])->middleware('permiso:asistencia.ver');

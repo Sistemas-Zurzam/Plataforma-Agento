@@ -73,6 +73,9 @@ class ConceptoRemuneracionSeeder extends Seeder
             // Adelanto de sueldo — SIEMPRE egreso, nunca un ingreso (Sección 47).
             ['codigo' => 'ADELANTO_SUELDO', 'nombre' => 'Adelanto de sueldo', 'tipo' => 'egreso', 'codigo_plame' => '0701'],
             ['codigo' => 'DESCUENTO_TARDANZA', 'nombre' => 'Descuento por tardanza', 'tipo' => 'egreso', 'codigo_plame' => '0704'],
+            // V3 A9/A10 — sin codigo_plame a propósito, ver migración
+            // 2026_08_28_000093 (clasificación SUNAT pendiente, fuera de esta fase).
+            ['codigo' => 'DESCUENTO_HORAS_INCOMPLETAS', 'nombre' => 'Descuento por horas incompletas (HI)', 'tipo' => 'egreso'],
             ['codigo' => 'AFP_APORTE_OBLIGATORIO', 'nombre' => 'AFP — aporte obligatorio (10%)', 'tipo' => 'egreso', 'codigo_plame' => '0608'],
             ['codigo' => 'AFP_PRIMA_SEGURO', 'nombre' => 'AFP — prima de seguro', 'tipo' => 'egreso', 'codigo_plame' => '0606'],
             ['codigo' => 'AFP_COMISION', 'nombre' => 'AFP — comisión de la administradora', 'tipo' => 'egreso', 'codigo_plame' => '0601'],

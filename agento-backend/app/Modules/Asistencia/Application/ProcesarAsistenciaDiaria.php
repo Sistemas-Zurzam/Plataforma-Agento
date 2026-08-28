@@ -9,13 +9,18 @@ use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\HorarioDia;
+use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
 class ProcesarAsistenciaDiaria
 {
-    public function __construct(private readonly ResolverJornadaDiaria $resolverJornada) {}
+    public function __construct(
+        private readonly ResolverJornadaDiaria $resolverJornada,
+        private readonly AsistenciaAuditoriaService $auditoria,
+    ) {}
 
     public function procesar(Colaborador $colaborador, Carbon $fecha): AsistenciaResultadoDiario
     {
@@ -28,14 +33,18 @@ class ProcesarAsistenciaDiaria
             ->exists();
         abort_if($periodoProtegido, 422, 'La fecha pertenece a un período de asistencia protegido.');
 
+        // V3 P3 — se resuelve la condición vigente EN ESA FECHA (histórico,
+        // nunca colaborador.es_trabajador_confianza actual) antes de tocar
+        // horario/rol — un trabajador de confianza puede no tener horario
+        // asignado y nunca debe fallar por eso. CalcularBoletaColaborador
+        // vuelve a resolver esta misma condición por su cuenta al calcular
+        // la boleta (no confía ciegamente en lo que quedó guardado acá).
+        $condicionVigente = ColaboradorCondicionLaboral::vigenteEn($colaborador->id, $fecha->toDateString());
+        if ($condicionVigente?->es_trabajador_confianza) {
+            return $this->procesarNeutralConfianza($colaborador, $fecha);
+        }
+
         $jornada = $this->resolverJornada->resolver($colaborador, $fecha);
-        // El sistema nunca adivina el día de descanso de un horario
-        // rotativo -- si nadie lo declaró a mano para esta fecha, se
-        // rechaza el procesamiento en vez de asumir laborable o descanso.
-        abort_if(
-            $jornada['tipo_dia'] === 'sin_rol_definido', 422,
-            "Falta declarar el rol de turnos rotativos de {$colaborador->nombres} {$colaborador->apellidos} para el {$fecha->toDateString()}.",
-        );
         $horarioDia = $jornada['horario_dia'];
         [$inicioProgramado, $finProgramado] = $this->limitesProgramados($fecha, $horarioDia);
         $marcaciones = $this->obtenerMarcaciones($colaborador, $fecha, $inicioProgramado, $finProgramado, (bool) $horarioDia?->jornada_nocturna);
@@ -47,9 +56,19 @@ class ProcesarAsistenciaDiaria
             ->where('colaborador_id', $colaborador->id)->where('estado', 'aprobado')
             ->whereDate('fecha_inicio', '<=', $fecha->toDateString())
             ->whereDate('fecha_fin', '>=', $fecha->toDateString())->first();
-        $estado = $permiso && $marcaciones->isEmpty()
-            ? 'permiso'
-            : $this->resolverEstado($jornada['tipo_dia'], $marcaciones->count());
+        // Rotativo Fase 1 — un rotativo sin planificación NUNCA se adivina
+        // como laborable ni descanso, tenga o no marcaciones (Sección 2/12/
+        // 13 del encargo): el permiso real sigue teniendo prioridad (ya
+        // resuelve la ambigüedad, no hace falta pedir clasificación), pero
+        // si no hay permiso, el día queda pendiente de clasificación en vez
+        // de pasar por resolverEstado() — que de otro modo, con marcaciones
+        // presentes, lo convertiría en 'presente'/'marcacion_incompleta'
+        // sin que nadie lo haya decidido.
+        $estadoBase = match (true) {
+            (bool) $permiso && $marcaciones->isEmpty() => 'permiso',
+            $jornada['tipo_dia'] === 'sin_rol_definido' => AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR,
+            default => $this->resolverEstado($jornada['tipo_dia'], $marcaciones->count()),
+        };
 
         $minutosProgramados = $esLaborable
             ? $this->minutosProgramados($inicioProgramado, $finProgramado, $fecha, $horarioDia)
@@ -67,8 +86,22 @@ class ProcesarAsistenciaDiaria
             ? (int) max(0, $salida->diffInMinutes($finProgramado, false))
             : 0;
 
-        $extraObservada = $entrada && $salida
-            ? $this->minutosExtraObservados($jornada['tipo_dia'], $minutosTrabajados, $minutosProgramados, $horarioDia)
+        // HD/HI solo refinan el caso "presente" (2+ marcaciones) — falta,
+        // marcación incompleta, permiso y descanso/feriado no se tocan.
+        // Requiere tardanza/salida anticipada/minutos ya calculados arriba,
+        // por eso el estado final se resuelve acá y no antes (Sección V3 A7/A9).
+        $estado = $estadoBase === 'presente'
+            ? $this->refinarEstadoPresente($tardanza, $salidaAnticipada, $minutosTrabajados, $minutosProgramados)
+            : $estadoBase;
+
+        // Rotativo Fase 1 — un día "sin_rol_definido" nunca debe generar
+        // horas extra observadas: no tiene minutos_programados de
+        // referencia (0, porque no es laborable ni home_office) y aún no
+        // se sabe si esas horas trabajadas corresponden a un día laboral o
+        // a un descanso trabajado — cero impacto financiero hasta que
+        // RR.HH. lo clasifique (Sección 11 del encargo).
+        $extraObservada = ($entrada && $salida && $jornada['tipo_dia'] !== 'sin_rol_definido')
+            ? $this->minutosExtraObservados($jornada['tipo_dia'], $minutosTrabajados, $minutosProgramados, (bool) $colaborador->contabilizar_horas_extra)
             : 0;
         $esDiaDescanso = in_array($jornada['tipo_dia'], ['descanso', 'feriado'], true);
 
@@ -110,6 +143,79 @@ class ProcesarAsistenciaDiaria
 
             $resultado->marcaciones()->sync($marcaciones->modelKeys());
             $this->sincronizarIncidencia($resultado, $estado);
+            // Fase 3.1 — ortogonal al $estado de arriba: 'presente' con
+            // tipo_dia='descanso' sigue siendo 'presente' (nunca se
+            // reemplaza), pero además queda marcado explícitamente como
+            // trabajo sobre un descanso planificado. Nunca aplica a
+            // 'feriado' (Sección 36/37 del encargo — backlog, no mezclar
+            // todavía) ni al camino de confianza (procesarNeutralConfianza
+            // no la llama).
+            $this->sincronizarTrabajoEnDescanso($resultado, $jornada['tipo_dia'] === 'descanso' && $minutosTrabajados > 0);
+            $this->sincronizarHorasExtra($resultado);
+
+            return $resultado->load('marcaciones', 'incidencias');
+        });
+    }
+
+    /**
+     * V3 P3 — camino neutral para trabajador de confianza: NUNCA resuelve
+     * horario/rol/jornada (puede no tener horario_id), nunca genera falta,
+     * marcación incompleta, tardanza, HD, HI ni horas extra. Las
+     * marcaciones reales (si las hay, vía biométrico) SÍ se conservan y
+     * asocian — es registro de presencia informativo, nunca control
+     * remunerativo (Sección 15 del encargo). El resultado sigue
+     * guardándose (no se deja el día sin procesar) para que calendario y
+     * reportes tengan algo que mostrar, con `estado='presente'` (valor ya
+     * existente, no se inventa uno nuevo) y todos los campos derivados en
+     * cero — CalcularBoletaColaborador nunca lee este resultado para pagar
+     * de todas formas, vuelve a resolver la condición por fecha con su
+     * propia fuente (ColaboradorCondicionLaboral), así que este resultado
+     * es solo informativo/de calendario.
+     */
+    private function procesarNeutralConfianza(Colaborador $colaborador, Carbon $fecha): AsistenciaResultadoDiario
+    {
+        $marcaciones = $this->obtenerMarcaciones($colaborador, $fecha, null, null, false);
+        $entrada = $marcaciones->first()?->marcado_at;
+        $salida = $marcaciones->count() > 1 ? $marcaciones->last()?->marcado_at : null;
+
+        return DB::transaction(function () use ($colaborador, $fecha, $marcaciones, $entrada, $salida) {
+            $periodo = AsistenciaPeriodo::query()
+                ->where('empresa_id', $colaborador->empresa_id)
+                ->whereDate('fecha_inicio', '<=', $fecha->toDateString())
+                ->whereDate('fecha_fin', '>=', $fecha->toDateString())
+                ->first();
+
+            $resultado = AsistenciaResultadoDiario::query()->updateOrCreate(
+                [
+                    'empresa_id' => $colaborador->empresa_id,
+                    'colaborador_id' => $colaborador->id,
+                    'fecha' => $fecha->toDateString(),
+                ],
+                [
+                    'periodo_id' => $periodo?->id,
+                    'horario_asignacion_id' => null,
+                    'tipo_dia' => 'no_sujeto_control',
+                    'estado' => 'presente',
+                    'entrada_at' => $entrada,
+                    'salida_at' => $salida,
+                    'minutos_programados' => 0,
+                    'minutos_trabajados' => 0,
+                    'minutos_tardanza' => 0,
+                    'minutos_salida_anticipada' => 0,
+                    'minutos_extra_observados' => 0,
+                    'minutos_extra_25' => 0,
+                    'minutos_extra_35' => 0,
+                    'minutos_extra_100' => 0,
+                    'procesado_at' => now(),
+                ]
+            );
+
+            $resultado->marcaciones()->sync($marcaciones->modelKeys());
+            // Reutiliza el mismo saneamiento con auditoría: si el día tenía
+            // una incidencia/HE automática pendiente de ANTES de pasar a
+            // confianza, queda obsoleta y se limpia con rastro (nunca borra
+            // una ya resuelta/rechazada).
+            $this->sincronizarIncidencia($resultado, 'presente');
             $this->sincronizarHorasExtra($resultado);
 
             return $resultado->load('marcaciones', 'incidencias');
@@ -181,6 +287,35 @@ class ProcesarAsistenciaDiaria
         return $tipoDia;
     }
 
+    /**
+     * V3 A7/A9 — dentro del caso "presente" (2+ marcaciones), distingue si
+     * el día es realmente normal o si corresponde a una de las dos nuevas
+     * incidencias automáticas:
+     *
+     * HI (horas incompletas) tiene prioridad sobre HD: si la persona se
+     * retiró antes de lo programado, sus horas quedan incompletas sin
+     * importar si también llegó tarde — HD solo aplica cuando el
+     * desplazamiento de horario NO dejó ningún déficit real de horas
+     * trabajadas (llegó tarde pero se quedó para compensarlo).
+     *
+     * Ambas reutilizan exactamente los minutos ya calculados por este mismo
+     * método (tardanza, salida anticipada, trabajados, programados) — nunca
+     * se recalculan por separado, así heredan automáticamente el manejo de
+     * refrigerio, jornada nocturna y horario variable por día ya resuelto
+     * más arriba.
+     */
+    private function refinarEstadoPresente(int $tardanza, int $salidaAnticipada, int $minutosTrabajados, int $minutosProgramados): string
+    {
+        if ($salidaAnticipada > 0) {
+            return AsistenciaIncidencia::TIPO_HORAS_INCOMPLETAS;
+        }
+        if ($tardanza > 0 && $minutosTrabajados >= $minutosProgramados) {
+            return AsistenciaIncidencia::TIPO_HORARIO_DESPLAZADO;
+        }
+
+        return 'presente';
+    }
+
     private function minutosProgramados(?Carbon $inicio, ?Carbon $fin, Carbon $fecha, ?HorarioDia $dia): int
     {
         if (! $inicio || ! $fin) {
@@ -202,33 +337,81 @@ class ProcesarAsistenciaDiaria
         return $fin->gt($inicio) ? (int) $inicio->diffInMinutes($fin) : 0;
     }
 
+    /**
+     * "Permitir horas extra" dejó de ser un flag por día de horario
+     * (horario_dias.permitir_horas_extra) y pasó a ser una condición del
+     * propio colaborador (colaboradores.contabilizar_horas_extra) — mismo
+     * campo que ya existía desde Personas, ahora sí conectado al cálculo
+     * real en vez de quedar huérfano.
+     */
     private function minutosExtraObservados(
         string $tipoDia,
         int $trabajados,
         int $programados,
-        ?HorarioDia $dia
+        bool $contabilizarHorasExtra
     ): int {
         if (in_array($tipoDia, ['descanso', 'feriado'], true)) {
             return $trabajados;
         }
-        if (! $dia?->permitir_horas_extra) {
+        if (! $contabilizarHorasExtra) {
             return 0;
         }
 
         return max(0, $trabajados - $programados);
     }
 
+    /**
+     * V3 A5/A29/A30 — extendido de 2 a 4 tipos automáticos (+ HD/HI). Reglas:
+     *
+     * 1. Cualquier incidencia automática PENDIENTE de un tipo que ya no
+     *    corresponde a esta jornada reprocesada queda obsoleta y se elimina
+     *    — pero ahora deja rastro de auditoría antes de borrarla (hueco
+     *    detectado en la auditoría V3: antes se eliminaba en silencio).
+     * 2. Una incidencia ya resuelta o rechazada NUNCA se toca acá: es una
+     *    decisión de RR.HH. ya tomada, y reprocesar el día (p. ej. con el
+     *    botón "Reprocesar" sin cambiar marcaciones) no debe revertirla a
+     *    pendiente ni pisar su motivo_resolucion.
+     */
     private function sincronizarIncidencia(AsistenciaResultadoDiario $resultado, string $estado): void
     {
-        $tiposAutomaticos = ['falta', 'marcacion_incompleta'];
-        if (! in_array($estado, $tiposAutomaticos, true)) {
-            $resultado->incidencias()
-                ->whereIn('tipo', $tiposAutomaticos)
-                ->where('estado', 'pendiente')
-                ->delete();
+        $tiposAutomaticos = [
+            AsistenciaIncidencia::TIPO_FALTA,
+            AsistenciaIncidencia::TIPO_MARCACION_INCOMPLETA,
+            AsistenciaIncidencia::TIPO_HORARIO_DESPLAZADO,
+            AsistenciaIncidencia::TIPO_HORAS_INCOMPLETAS,
+            AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR,
+        ];
 
+        $obsoletas = $resultado->incidencias()
+            ->whereIn('tipo', array_diff($tiposAutomaticos, [$estado]))
+            ->where('estado', AsistenciaIncidencia::ESTADO_PENDIENTE)
+            ->get();
+        foreach ($obsoletas as $obsoleta) {
+            $this->auditoria->registrar(
+                $resultado->empresa_id, null, 'incidencia_auto_eliminada', $obsoleta,
+                'La jornada se reprocesó y la condición que originó esta incidencia automática ya no aplica.',
+                $obsoleta->toArray(), null,
+            );
+            $obsoleta->delete();
+        }
+
+        if (! in_array($estado, $tiposAutomaticos, true)) {
             return;
         }
+
+        $existente = AsistenciaIncidencia::query()
+            ->where('resultado_diario_id', $resultado->id)->where('tipo', $estado)->first();
+        if ($existente && $existente->estado !== AsistenciaIncidencia::ESTADO_PENDIENTE) {
+            return;
+        }
+
+        $descripciones = [
+            AsistenciaIncidencia::TIPO_FALTA => 'No se encontraron marcaciones para una jornada laborable.',
+            AsistenciaIncidencia::TIPO_MARCACION_INCOMPLETA => 'Solo se encontró una marcación para la jornada.',
+            AsistenciaIncidencia::TIPO_HORARIO_DESPLAZADO => 'El horario marcado no coincide con el programado, pero cumple la duración de la jornada.',
+            AsistenciaIncidencia::TIPO_HORAS_INCOMPLETAS => 'La salida se registró antes de lo programado — quedan horas de la jornada sin trabajar.',
+            AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR => 'Horario rotativo sin planificación para esta fecha — falta que RR.HH. clasifique el día como descanso, laborable o permiso.',
+        ];
 
         AsistenciaIncidencia::query()->updateOrCreate(
             ['resultado_diario_id' => $resultado->id, 'tipo' => $estado],
@@ -236,10 +419,58 @@ class ProcesarAsistenciaDiaria
                 'empresa_id' => $resultado->empresa_id,
                 'colaborador_id' => $resultado->colaborador_id,
                 'fecha' => $resultado->fecha,
-                'estado' => 'pendiente',
-                'descripcion' => $estado === 'falta'
-                    ? 'No se encontraron marcaciones para una jornada laborable.'
-                    : 'Solo se encontró una marcación para la jornada.',
+                'estado' => AsistenciaIncidencia::ESTADO_PENDIENTE,
+                'descripcion' => $descripciones[$estado],
+            ]
+        );
+    }
+
+    /**
+     * Fase 3.1 — mismo patrón de "obsoleta se limpia con auditoría / ya
+     * resuelta nunca se toca" que sincronizarIncidencia(), pero para un
+     * evento que puede coexistir con cualquier $estado (no es 1 estado → 1
+     * tipo, ver docblock de la constante). Reprocesar un día que YA NO
+     * tiene trabajo sobre su descanso (p. ej. se corrigió una marcación
+     * mal importada) limpia la incidencia PENDIENTE automáticamente; una
+     * ya resuelta/rechazada por RR.HH. queda intacta.
+     */
+    private function sincronizarTrabajoEnDescanso(AsistenciaResultadoDiario $resultado, bool $trabajoEnDescanso): void
+    {
+        $existente = AsistenciaIncidencia::query()
+            ->where('resultado_diario_id', $resultado->id)
+            ->where('tipo', AsistenciaIncidencia::TIPO_TRABAJO_EN_DESCANSO)
+            ->first();
+
+        if (! $trabajoEnDescanso) {
+            if ($existente && $existente->estado === AsistenciaIncidencia::ESTADO_PENDIENTE) {
+                $this->auditoria->registrar(
+                    $resultado->empresa_id, null, 'incidencia_auto_eliminada', $existente,
+                    'La jornada se reprocesó y ya no hay trabajo registrado sobre el día de descanso planificado.',
+                    $existente->toArray(), null,
+                );
+                $existente->delete();
+            }
+
+            return;
+        }
+
+        if ($existente && $existente->estado !== AsistenciaIncidencia::ESTADO_PENDIENTE) {
+            return;
+        }
+
+        AsistenciaIncidencia::query()->updateOrCreate(
+            ['resultado_diario_id' => $resultado->id, 'tipo' => AsistenciaIncidencia::TIPO_TRABAJO_EN_DESCANSO],
+            [
+                'empresa_id' => $resultado->empresa_id,
+                'colaborador_id' => $resultado->colaborador_id,
+                'fecha' => $resultado->fecha,
+                'estado' => AsistenciaIncidencia::ESTADO_PENDIENTE,
+                'descripcion' => sprintf(
+                    'El colaborador registró marcaciones (%s–%s, %d min trabajados) en un día planificado como descanso. Horas extra 100%% pendiente de decisión.',
+                    $resultado->entrada_at?->format('H:i') ?? '—',
+                    $resultado->salida_at?->format('H:i') ?? '—',
+                    $resultado->minutos_trabajados,
+                ),
             ]
         );
     }

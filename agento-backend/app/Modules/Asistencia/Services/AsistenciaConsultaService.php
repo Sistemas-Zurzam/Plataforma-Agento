@@ -24,7 +24,10 @@ class AsistenciaConsultaService
                 ->with('horario'),
             'calendario' => fn ($query) => $query->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']]),
             'resultadosAsistencia' => fn ($query) => $query->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']]),
-            'incidenciasAsistencia' => fn ($query) => $query->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']])->orderByDesc('fecha'),
+            // V3 Fase 3 — A4: el perfil único necesita poder abrir "Editar
+            // marcaciones" para una incidencia sin una segunda consulta;
+            // reutiliza el mismo resultado ya cargado por la pestaña Calendario.
+            'incidenciasAsistencia' => fn ($query) => $query->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']])->orderByDesc('fecha')->with('resultado'),
             'marcacionesAsistencia' => fn ($query) => $query->whereBetween('marcado_at', [
                 $filtros['fecha_desde'].' 00:00:00', $filtros['fecha_hasta'].' 23:59:59',
             ])->latest('marcado_at'),
@@ -66,9 +69,13 @@ class AsistenciaConsultaService
             ->when($filtros['sede'] ?? null, fn ($query, $sede) => $query->whereHas('sede', fn ($q) => $q->where('nombre', $sede)))
             ->when($filtros['area'] ?? null, fn ($query, $area) => $query->whereHas('area', fn ($q) => $q->where('nombre', $area)))
             ->when($filtros['preparacion'] ?? null, function ($query, $preparacion) use ($desde, $hasta) {
-                if ($preparacion === 'sin_horario') $query->whereNull('horario_id');
+                // V3 P3 — un trabajador de confianza sin horario_id no es una
+                // preparación incompleta, es la condición esperada.
+                if ($preparacion === 'sin_horario') $query->whereNull('horario_id')->where('es_trabajador_confianza', false);
                 if ($preparacion === 'sin_calendario') $query->whereDoesntHave('calendario', fn ($q) => $q->whereBetween('fecha', [$desde, $hasta]));
-                if ($preparacion === 'listos') $query->whereNotNull('horario_id')->whereHas('calendario', fn ($q) => $q->whereBetween('fecha', [$desde, $hasta]));
+                if ($preparacion === 'listos') $query
+                    ->where(fn ($q) => $q->whereNotNull('horario_id')->orWhere('es_trabajador_confianza', true))
+                    ->whereHas('calendario', fn ($q) => $q->whereBetween('fecha', [$desde, $hasta]));
             })
             ->when($filtros['estado'] ?? null, function ($query, $estado) {
                 if ($estado === 'activo') {
@@ -94,13 +101,17 @@ class AsistenciaConsultaService
     {
         $base = Colaborador::query()->where('empresa_id', $empresa->id);
         $total = (clone $base)->count();
-        $conHorario = (clone $base)->whereNotNull('horario_id')->count();
+        // V3 P3 — un trabajador de confianza sin horario_id no es una
+        // preparación incompleta, se cuenta como "con horario" igual.
+        $conHorario = (clone $base)->where(fn ($q) => $q->whereNotNull('horario_id')->orWhere('es_trabajador_confianza', true))->count();
         $conCalendario = (clone $base)->whereHas('calendario', fn ($query) => $query
             ->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']]))->count();
 
         return [
             'total' => $total,
-            'listos' => (clone $base)->whereNotNull('horario_id')->whereHas('calendario', fn ($query) => $query
+            'listos' => (clone $base)
+                ->where(fn ($q) => $q->whereNotNull('horario_id')->orWhere('es_trabajador_confianza', true))
+                ->whereHas('calendario', fn ($query) => $query
                 ->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']]))->count(),
             'falta_horario' => max(0, $total - $conHorario),
             'falta_calendario' => max(0, $total - $conCalendario),

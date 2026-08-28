@@ -181,9 +181,16 @@ class ImportarColaboradoresService
                 : "Área \"{$fila['area']}\" no se pudo validar porque la empresa no fue reconocida.";
         }
 
+        // V3 P3 — trabajador de confianza no necesita horario obligatorio;
+        // para cualquier otro sigue siendo requerido.
+        $esConfianza = (bool) $fila['es_trabajador_confianza'];
         $horario = $fila['horario'] ? $horarios->get(mb_strtolower($fila['horario'])) : null;
         if (! $horario) {
-            $errores[] = "Horario \"{$fila['horario']}\" no existe o está inactivo.";
+            if (! $esConfianza) {
+                $errores[] = $fila['horario']
+                    ? "Horario \"{$fila['horario']}\" no existe o está inactivo."
+                    : 'horario es obligatorio — indica cuál le corresponde (déjalo vacío solo si es trabajador de confianza).';
+            }
         } elseif ($fila['fecha_ingreso'] && ! $this->horarioVigente($horario, $fila['fecha_ingreso'])) {
             $errores[] = 'El horario indicado no está vigente para la fecha de ingreso.';
         }
@@ -208,11 +215,11 @@ class ImportarColaboradoresService
         }
 
         $datos = null;
-        if ($errores === [] && $empresa && $sede && $area && $horario) {
+        if ($errores === [] && $empresa && $sede && $area && ($horario || $esConfianza)) {
             $datos = [
                 'sede_id' => $sede->id,
                 'area_id' => $area->id,
-                'horario_id' => $horario->id,
+                'horario_id' => $horario?->id,
                 'nombres' => $fila['nombres'],
                 'apellido_paterno' => $fila['apellido_paterno'],
                 'apellido_materno' => $fila['apellido_materno'],
@@ -262,8 +269,10 @@ class ImportarColaboradoresService
                 $errores = array_merge($errores, $validador->errors()->all());
                 $datos = null;
             } else {
-                $datos['calendario'] = $this->colaboradores
-                    ->calendarioPorDefecto($horario, $fila['fecha_ingreso'])['dias'];
+                // Sin horario (confianza) no hay calendario que generar.
+                $datos['calendario'] = $horario
+                    ? $this->colaboradores->calendarioPorDefecto($horario, $fila['fecha_ingreso'])['dias']
+                    : [];
             }
         }
 

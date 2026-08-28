@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Domain;
 
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Personas\Models\Colaborador;
+use RuntimeException;
 
 /**
  * Implementación única para Régimen General, MYPE-Micro y MYPE-Pequeña.
@@ -138,7 +139,34 @@ class PlanillaDependienteCalculator implements RegimenCalculator
         ];
     }
 
-    public function calcularAporteAfpOnp(Colaborador $colaborador, float $baseRemunerativa, array $parametros, string $fechaCorte): array
+    public function calcularDescuentoHorasIncompletas(float $sueldoBasico, int $minutosHorasIncompletas): array
+    {
+        $valorMinuto = ($sueldoBasico / 240) / 60;
+
+        if ($minutosHorasIncompletas <= 0) {
+            return [
+                'codigo' => 'DESCUENTO_HORAS_INCOMPLETAS',
+                'monto' => 0.0,
+                'base_utilizada' => round($valorMinuto, 4),
+                'tasa_aplicada' => null,
+                'cantidad' => 0,
+                'formula_texto' => 'Sin horas incompletas (HI) aprobadas en el período.',
+            ];
+        }
+
+        $monto = round($valorMinuto * $minutosHorasIncompletas, 2);
+
+        return [
+            'codigo' => 'DESCUENTO_HORAS_INCOMPLETAS',
+            'monto' => $monto,
+            'base_utilizada' => round($valorMinuto, 4),
+            'tasa_aplicada' => null,
+            'cantidad' => $minutosHorasIncompletas,
+            'formula_texto' => "({$sueldoBasico}/240/60) × {$minutosHorasIncompletas} min de salida anticipada aprobados como Horas Incompletas (HI)",
+        ];
+    }
+
+    public function calcularAporteAfpOnp(Colaborador $colaborador, float $baseRemunerativa, array $parametros, string $fechaCorte, ?float $rmaAfp = null): array
     {
         if ($colaborador->sistema_previsional === 'onp') {
             $tasa = $parametros['tasa_onp'];
@@ -158,6 +186,23 @@ class PlanillaDependienteCalculator implements RegimenCalculator
             ? ParametrosVigentesResolver::comisionAfp($colaborador->afp_id, $colaborador->tipo_comision, $fechaCorte)
             : ['aporte_obligatorio' => $parametros['tasa_afp_obligatoria'], 'prima_seguro' => 0.0, 'comision' => 0.0];
 
+        // V3 Fase 6F.2.1 — la Remuneración Máxima Asegurable (RMA, Art. 67°
+        // Título VII del Compendio de Normas Reglamentarias del SPP) topa
+        // ÚNICAMENTE la base de AFP_PRIMA_SEGURO (invalidez/sobrevivencia/
+        // sepelio) — nunca el aporte obligatorio ni la comisión, que siguen
+        // usando $baseRemunerativa completa sin cambios (Fase 6F.2). Fallar
+        // explícitamente si no hay RMA vigente en vez de calcular la prima
+        // silenciosamente sobre la base sin topar (Fase 6F.2, Sección 11) —
+        // este RuntimeException solo puede ocurrir para colaboradores AFP,
+        // nunca para ONP (esa rama retorna antes de llegar acá).
+        if ($rmaAfp === null) {
+            throw new RuntimeException(
+                "No hay Remuneración Máxima Asegurable (RMA) configurada para calcular la prima de seguro AFP del colaborador #{$colaborador->id} a la fecha {$fechaCorte}. ".
+                'Configúrala en Configuración → Parámetros Laborales (clave "rma_afp") antes de calcular la planilla.'
+            );
+        }
+        $basePrimaSeguro = min($baseRemunerativa, $rmaAfp);
+
         return [
             [
                 'codigo' => 'AFP_APORTE_OBLIGATORIO',
@@ -169,11 +214,13 @@ class PlanillaDependienteCalculator implements RegimenCalculator
             ],
             [
                 'codigo' => 'AFP_PRIMA_SEGURO',
-                'monto' => round($baseRemunerativa * $comisionAfp['prima_seguro'], 2),
-                'base_utilizada' => $baseRemunerativa,
+                'monto' => round($basePrimaSeguro * $comisionAfp['prima_seguro'], 2),
+                'base_utilizada' => $basePrimaSeguro,
                 'tasa_aplicada' => $comisionAfp['prima_seguro'],
                 'cantidad' => null,
-                'formula_texto' => "{$comisionAfp['prima_seguro']} × base remunerativa ({$baseRemunerativa})",
+                'formula_texto' => $basePrimaSeguro < $baseRemunerativa
+                    ? "{$comisionAfp['prima_seguro']} × MIN(base remunerativa {$baseRemunerativa}, RMA {$rmaAfp}) = {$basePrimaSeguro}"
+                    : "{$comisionAfp['prima_seguro']} × base remunerativa ({$basePrimaSeguro}) — no supera la RMA vigente ({$rmaAfp})",
             ],
             [
                 'codigo' => 'AFP_COMISION',

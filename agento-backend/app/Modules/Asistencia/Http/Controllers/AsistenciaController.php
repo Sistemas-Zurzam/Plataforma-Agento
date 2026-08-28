@@ -7,6 +7,9 @@ use App\Modules\Asistencia\Application\ProcesarAsistenciaDiaria;
 use App\Modules\Asistencia\Application\ReprocesarAsistenciaRango;
 use App\Modules\Asistencia\Http\Requests\ReprocesarAsistenciaRequest;
 use App\Modules\Asistencia\Http\Requests\ResumenAsistenciaRequest;
+use App\Modules\Asistencia\Http\Requests\ClasificarDiaSinRolRequest;
+use App\Modules\Asistencia\Http\Requests\ResolverTrabajoEnDescansoRequest;
+use App\Modules\Asistencia\Http\Requests\ResolverIncidenciaConPermisoRequest;
 use App\Modules\Asistencia\Http\Requests\StoreAsistenciaPermisoRequest;
 use App\Modules\Asistencia\Http\Requests\StoreSolicitudAreaRequest;
 use App\Modules\Asistencia\Http\Requests\StoreAsistenciaPeriodoRequest;
@@ -15,6 +18,9 @@ use App\Modules\Asistencia\Http\Requests\AsociarPersonIdRequest;
 use App\Modules\Asistencia\Http\Requests\EditarAsistenciaDiaRequest;
 use App\Modules\Asistencia\Http\Requests\ResolverAsistenciaMasivaRequest;
 use App\Modules\Asistencia\Http\Requests\ImportarMarcacionesRequest;
+use App\Modules\Asistencia\Http\Requests\ConsultarPlanificacionRequest;
+use App\Modules\Asistencia\Http\Requests\PlanificarDiaRequest;
+use App\Modules\Asistencia\Http\Requests\PlanificarDiaMasivoRequest;
 use App\Modules\Asistencia\Http\Resources\AsistenciaResultadoResource;
 use App\Modules\Asistencia\Http\Resources\AsistenciaColaboradorResource;
 use App\Modules\Asistencia\Http\Resources\AsistenciaPermisoResource;
@@ -26,6 +32,7 @@ use App\Modules\Asistencia\Services\ImportarMarcacionesService;
 use App\Modules\Asistencia\Services\AsistenciaDecisionService;
 use App\Modules\Asistencia\Services\AsistenciaOperacionService;
 use App\Modules\Asistencia\Services\AsistenciaPeriodoService;
+use App\Modules\Asistencia\Services\PlanificacionRotativaService;
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
@@ -49,6 +56,7 @@ class AsistenciaController extends Controller
         private readonly AsistenciaOperacionService $operaciones,
         private readonly AsistenciaPeriodoService $periodos,
         private readonly ReprocesarAsistenciaRango $reprocesador,
+        private readonly PlanificacionRotativaService $planificacion,
     ) {}
 
     public function index(ResumenAsistenciaRequest $request): AnonymousResourceCollection
@@ -172,6 +180,27 @@ class AsistenciaController extends Controller
         )]);
     }
 
+    public function resolverIncidenciaConPermiso(ResolverIncidenciaConPermisoRequest $request, AsistenciaIncidencia $incidencia): JsonResponse
+    {
+        return response()->json(['data' => $this->decisiones->resolverIncidenciaConPermiso(
+            $request->user('api')->empresa, $incidencia, $request->validated(), $request->user('api')
+        )]);
+    }
+
+    public function clasificarDiaSinRol(ClasificarDiaSinRolRequest $request, AsistenciaIncidencia $incidencia): JsonResponse
+    {
+        return response()->json(['data' => $this->decisiones->resolverDiaSinClasificar(
+            $request->user('api')->empresa, $incidencia, $request->validated(), $request->user('api')
+        )]);
+    }
+
+    public function resolverTrabajoEnDescanso(ResolverTrabajoEnDescansoRequest $request, AsistenciaIncidencia $incidencia): JsonResponse
+    {
+        return response()->json(['data' => $this->decisiones->resolverTrabajoEnDescanso(
+            $request->user('api')->empresa, $incidencia, $request->validated(), $request->user('api')
+        )]);
+    }
+
     public function resolverIncidenciasMasivo(ResolverAsistenciaMasivaRequest $request): JsonResponse
     {
         $usuario = $request->user('api'); $datos = $request->validated();
@@ -250,6 +279,42 @@ class AsistenciaController extends Controller
         ));
     }
 
+
+    public function planificacion(ConsultarPlanificacionRequest $request): JsonResponse
+    {
+        $datos = $request->validated();
+
+        return response()->json($this->planificacion->consultarSemana(
+            $request->user('api')->empresa,
+            $datos['semana'],
+            $datos['busqueda'] ?? null,
+            $request->boolean('solo_rotativos', true),
+            $datos['sede_id'] ?? null,
+        ));
+    }
+
+    public function guardarPlanificacion(PlanificarDiaRequest $request): JsonResponse
+    {
+        $datos = $request->validated();
+        $empresa = $request->user('api')->empresa;
+        $colaborador = Colaborador::where('empresa_id', $empresa->id)->findOrFail($datos['colaborador_id']);
+
+        $this->planificacion->planificarDia($empresa, $colaborador, $datos['fecha'], $datos['tipo'] ?? null, $request->user('api'));
+
+        return response()->json(['message' => 'Planificación actualizada.']);
+    }
+
+    public function guardarPlanificacionMasivo(PlanificarDiaMasivoRequest $request): JsonResponse
+    {
+        $datos = $request->validated();
+        $empresa = $request->user('api')->empresa;
+
+        $procesadas = $this->planificacion->planificarMasivo(
+            $empresa, $datos['colaborador_ids'], $datos['fechas'], $datos['tipo'], $request->user('api'),
+        );
+
+        return response()->json(['message' => 'Planificación masiva aplicada.', 'procesadas' => $procesadas]);
+    }
 
     public function reprocesar(ReprocesarAsistenciaRequest $request): JsonResponse
     {

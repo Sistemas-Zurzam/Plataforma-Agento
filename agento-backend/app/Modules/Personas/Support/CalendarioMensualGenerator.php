@@ -136,8 +136,10 @@ class CalendarioMensualGenerator
      * edición tenga los días del mes completos para hacer click. Nunca se
      * insertan por sí solas: si nadie las guarda explícitamente
      * (POST/PUT del calendario), no quedan en la base, y por lo tanto
-     * ProcesarAsistenciaDiaria las trata como "sin_rol_definido" y bloquea
-     * el procesamiento en vez de asumir cualquier valor.
+     * ResolverJornadaDiaria las resuelve como "sin_rol_definido" — Rotativo
+     * Fase 1: ProcesarAsistenciaDiaria ya no bloquea el procesamiento por
+     * esto, persiste el día con una incidencia TIPO_DIA_SIN_CLASIFICAR
+     * pendiente en vez de asumir cualquier valor.
      */
     private static function completarSinPersistir(
         Colaborador $colaborador,

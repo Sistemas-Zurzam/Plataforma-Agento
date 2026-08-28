@@ -27,10 +27,21 @@ import {
   TIPO_CUENTA_OPTIONS,
   TIPO_DOCUMENTO_OPTIONS,
   TIPO_DOCUMENTO_OPTIONS_LOCADOR,
-  TIPO_TRABAJADOR_OPTIONS,
 } from '../constants/opciones';
 
 const CREAR_HORARIO = '__crear_horario__';
+
+// Local a este modal (no en constants/opciones.js): "confianza" es un valor
+// puramente visual del selector, nunca se guarda como tipo_trabajador real
+// — ver el onChange del selector más abajo. TIPO_TRABAJADOR_OPTIONS (la
+// lista real de 3 valores) sigue viviendo en opciones.js para todo lo demás
+// que sí necesita el valor real de tipo_trabajador (tablas, filtros, etc.).
+const TIPO_TRABAJADOR_SELECTOR_OPTIONS = [
+  { value: 'trabajador', label: 'Trabajador' },
+  { value: 'confianza', label: 'Trabajador de confianza' },
+  { value: 'practicante', label: 'Practicante' },
+  { value: 'locador', label: 'Locador' },
+];
 
 /**
  * A qué pestaña del Paso 1 pertenece cada campo — se usa para saltar
@@ -50,7 +61,7 @@ const CAMPOS_POR_TAB = {
     'fecha_ingreso', 'fecha_fin_contrato', 'periodicidad_pago', 'moneda_salario', 'salario',
     'contabilizar_tardanzas', 'contabilizar_horas_extra', 'es_trabajador_confianza',
   ],
-  remunerativa: ['cts_cuenta', 'asignacion_familiar', 'sistema_previsional', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
+  remunerativa: ['cts_cuenta', 'asignacion_familiar', 'sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_suspension_renta_4ta', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
   trabajo: ['horario_id', 'modalidad_trabajo', 'tolerancia_particular_minutos', 'dias_descanso_rotativo_por_semana'],
 };
 
@@ -138,6 +149,23 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
   const horarioIdActivo = Form.useWatch('horario_id', form);
   const esHorarioRotativo = horarios.find((h) => h.id === horarioIdActivo)?.tipo_turno === 'rotativo';
   const tipoTrabajador = Form.useWatch('tipo_trabajador', form);
+  // V3 P3 — trabajador de confianza no necesita horario obligatorio: sin
+  // horario no hay calendario inicial que generar (paso 2 queda vacío).
+  const esConfianza = Form.useWatch('es_trabajador_confianza', form);
+  // Valor mostrado en el selector "Tipo de trabajador": "confianza" es
+  // puramente visual (combina tipo_trabajador='trabajador' + es_trabajador_confianza=true).
+  const selectorTipoTrabajador = tipoTrabajador === 'trabajador' && esConfianza ? 'confianza' : tipoTrabajador;
+  // V3 P4/P5 — AFP/tipo de comisión/CUSPP/suspensión de 4ta viajan a
+  // actualizarConfiguracionNomina() DESPUÉS de crear() (necesita un id de
+  // colaborador que todavía no existe en este formulario) — mismo endpoint
+  // que ya usa ConfiguracionNominaModal, gateado por el mismo permiso real
+  // que exige el backend (nominas.gestionar_ciclos), para no mostrar
+  // campos que igual serían rechazados con 403.
+  const puedeGestionarNomina = user?.role === 'administrador' || user?.permisos?.includes('nominas.gestionar_ciclos');
+  const regimenLaboral = Form.useWatch('regimen_laboral', form);
+  const sistemaPrevisionalActivo = Form.useWatch('sistema_previsional', form);
+  const esHonorarios = regimenLaboral === 'Locacion de Servicios';
+  const esAfp = !esHonorarios && sistemaPrevisionalActivo && sistemaPrevisionalActivo !== 'onp';
 
   useEffect(() => {
     if (open) {
@@ -200,6 +228,30 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
       return;
     }
 
+    // Trabajador de confianza sin horario: no hay con qué generar un
+    // calendario inicial — se deja vacío en vez de llamar al endpoint
+    // (que exige horario_id) y se avanza directo al paso 2.
+    if (valores.es_trabajador_confianza && !valores.horario_id) {
+      setCalendarioDias([]);
+      setCalendarioDiasOriginal([]);
+      setPaso(2);
+      return;
+    }
+
+    // Rotativo Fase 1 — un horario rotativo NUNCA propone un calendario
+    // inicial "laborable todos los días" (eso era exactamente la
+    // inferencia que la auditoría pidió eliminar: esos días quedaban
+    // persistidos como definitivos aunque nadie los hubiera planificado
+    // de verdad). Las fechas concretas se declaran después desde
+    // Planificación — acá solo se guarda cuántos descansos corresponden
+    // (dias_descanso_rotativo_por_semana), sin filas de calendario.
+    if (esHorarioRotativo) {
+      setCalendarioDias([]);
+      setCalendarioDiasOriginal([]);
+      setPaso(2);
+      return;
+    }
+
     setCargandoCalendario(true);
     try {
       const dias = await fetchCalendarioDefecto(valores.horario_id, valores.fecha_ingreso.format('YYYY-MM-DD'));
@@ -245,15 +297,30 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
       .filter((dia) => dia.editable || dia.tipo === 'feriado')
       .map((dia) => ({ fecha: dia.fecha, tipo: dia.tipo }));
 
+    // V3 P4/P5 — afp_id/tipo_comision/cuspp/tiene_suspension_renta_4ta NO
+    // van en el payload de creación (StoreColaboradorRequest no los acepta,
+    // a propósito — ver actualizarConfiguracionNomina): se separan acá y el
+    // padre los envía en un segundo paso, ya con el id del colaborador recién
+    // creado. sistema_previsional SÍ sigue viajando en la creación normal.
+    const { afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta, ...datosCreacion } = valores;
+    // Solo se dispara la segunda llamada si RR.HH. de verdad completó algo
+    // previsional acá — si lo deja vacío (piensa completarlo después desde
+    // Remuneraciones, como hoy), actualizarConfiguracionNomina() exigiría
+    // sistema_previsional y fallaría sin necesidad.
+    const previsional = puedeGestionarNomina && (valores.sistema_previsional || valores.tiene_suspension_renta_4ta)
+      ? { regimen_laboral: valores.regimen_laboral, sistema_previsional: valores.sistema_previsional, afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta }
+      : null;
+
     onSubmit(
       {
-        ...valores,
+        ...datosCreacion,
         fecha_nacimiento: valores.fecha_nacimiento ? valores.fecha_nacimiento.format('YYYY-MM-DD') : null,
         fecha_ingreso: valores.fecha_ingreso.format('YYYY-MM-DD'),
         fecha_fin_contrato: valores.fecha_fin_contrato ? valores.fecha_fin_contrato.format('YYYY-MM-DD') : null,
         calendario,
       },
       fotoPerfil,
+      previsional,
     );
   };
 
@@ -442,17 +509,47 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                       <Form.Item label={campoLabel('Régimen laboral')} name="regimen_laboral">
                         <Select allowClear placeholder="Sin especificar" options={REGIMEN_OPTIONS} />
                       </Form.Item>
-                      <Form.Item
-                        label={campoLabel('Tipo de trabajador')}
-                        name="tipo_trabajador"
-                        rules={[{ required: true, message: 'Requerido' }]}
-                      >
+                      <Form.Item label={campoLabel('Tipo de trabajador')} required>
+                        {/* Selector "virtual": no está atado directamente a
+                            tipo_trabajador porque "Trabajador de confianza"
+                            no es un valor nuevo de esa columna — sigue
+                            guardándose como tipo_trabajador="trabajador" +
+                            es_trabajador_confianza=true (dos campos reales,
+                            ver los Form.Item ocultos debajo). Convertirlo en
+                            un 4to valor real de tipo_trabajador rompería en
+                            silencio la validación de categoria_trabajador y
+                            de PLAME (ambas exigen === 'trabajador' exacto). */}
                         <Select
-                          options={TIPO_TRABAJADOR_OPTIONS}
+                          value={selectorTipoTrabajador}
                           placeholder="Selecciona"
-                          onChange={(valor) => valor !== 'trabajador' && form.setFieldValue('categoria_trabajador', undefined)}
+                          options={TIPO_TRABAJADOR_SELECTOR_OPTIONS}
+                          onChange={(valor) => {
+                            const esConfianzaSeleccionada = valor === 'confianza';
+                            const tipoReal = esConfianzaSeleccionada ? 'trabajador' : valor;
+                            form.setFieldsValue({
+                              tipo_trabajador: tipoReal,
+                              es_trabajador_confianza: esConfianzaSeleccionada,
+                            });
+                            if (tipoReal !== 'trabajador') {
+                              form.setFieldValue('categoria_trabajador', undefined);
+                            }
+                          }}
                         />
                       </Form.Item>
+                      <Form.Item name="tipo_trabajador" hidden rules={[{ required: true, message: 'Requerido' }]}>
+                        <input type="hidden" />
+                      </Form.Item>
+                      <Form.Item name="es_trabajador_confianza" hidden>
+                        <input type="hidden" />
+                      </Form.Item>
+                      {selectorTipoTrabajador === 'confianza' && (
+                        <Alert
+                          type="info"
+                          showIcon
+                          message="No se le descuenta por faltas ni tardanzas, no se le paga horas extra — se le paga su sueldo básico completo cada período. AFP/ONP, EsSalud y renta 5ta se siguen calculando normal."
+                          className="sm:col-span-2 lg:col-span-3"
+                        />
+                      )}
                       {tipoTrabajador === 'trabajador' && (
                         <Form.Item
                           label={campoLabel('Categoría laboral')}
@@ -515,15 +612,6 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                       >
                         <Checkbox>Contabilizar horas extra</Checkbox>
                       </Form.Item>
-                      <Form.Item
-                        label={<span className="invisible">.</span>}
-                        name="es_trabajador_confianza"
-                        valuePropName="checked"
-                        extra="No se le descuenta por faltas ni tardanzas, no se le paga horas extra — se le paga su sueldo básico completo cada período. AFP/ONP, EsSalud y renta 5ta se siguen calculando normal."
-                        className="sm:col-span-2 lg:col-span-3"
-                      >
-                        <Checkbox>Trabajador de confianza</Checkbox>
-                      </Form.Item>
                     </div>
                   </div>
                 ),
@@ -541,17 +629,44 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                       <Form.Item label={campoLabel('Asignación Familiar')} name="asignacion_familiar">
                         <InputNumber min={0} step={0.01} className="w-full" placeholder="0.00" />
                       </Form.Item>
-                      <Form.Item label={campoLabel('Sistema previsional')} name="sistema_previsional">
-                        <Select
-                          allowClear
-                          placeholder="Sin especificar"
-                          options={[
-                            { value: 'onp', label: 'ONP' },
-                            ...afps.map((afp) => ({ value: afp.clave, label: `AFP ${afp.nombre}` })),
-                          ]}
-                        />
-                      </Form.Item>
+                      {!esHonorarios && (
+                        <Form.Item label={campoLabel('Sistema previsional')} name="sistema_previsional">
+                          <Select
+                            allowClear
+                            placeholder="Sin especificar"
+                            options={[
+                              { value: 'onp', label: 'ONP' },
+                              ...afps.map((afp) => ({ value: afp.clave, label: `AFP ${afp.nombre}` })),
+                            ]}
+                          />
+                        </Form.Item>
+                      )}
                     </div>
+                    {puedeGestionarNomina && esHonorarios && (
+                      <Form.Item name="tiene_suspension_renta_4ta" valuePropName="checked">
+                        <Checkbox>¿Presentó suspensión de retenciones de cuarta categoría?</Checkbox>
+                      </Form.Item>
+                    )}
+                    {puedeGestionarNomina && esAfp && (
+                      <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
+                        <Form.Item label={campoLabel('Administradora AFP')} name="afp_id" rules={[{ required: true, message: 'Requerido' }]}>
+                          <Select options={afps.map((afp) => ({ value: afp.id, label: afp.nombre }))} />
+                        </Form.Item>
+                        <Form.Item label={campoLabel('Tipo de comisión')} name="tipo_comision" rules={[{ required: true, message: 'Requerido' }]}>
+                          <Select options={[{ value: 'flujo', label: 'Comisión por flujo' }, { value: 'mixta', label: 'Comisión mixta' }]} />
+                        </Form.Item>
+                        <Form.Item
+                          label={campoLabel('CUSPP')}
+                          name="cuspp"
+                          rules={[
+                            { required: true, message: 'El CUSPP es obligatorio para AFP' },
+                            { len: 12, message: 'El CUSPP debe tener exactamente 12 caracteres (requerido por PLAME)' },
+                          ]}
+                        >
+                          <Input placeholder="Código único del SPP (12 caracteres)" maxLength={12} />
+                        </Form.Item>
+                      </div>
+                    )}
                     <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
                       <Form.Item label={campoLabel('Banco')} name="banco">
                         <Select allowClear placeholder="Selecciona banco" options={BANCO_OPTIONS} />
@@ -587,7 +702,8 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                     <Form.Item
                       label={campoLabel('Horario asignado')}
                       name="horario_id"
-                      rules={[{ required: true, message: 'Requerido' }]}
+                      rules={[{ required: !esConfianza, message: 'Requerido' }]}
+                      extra={esConfianza ? 'Opcional para un trabajador de confianza — puede dejarse sin asignar o conservarse solo como referencia.' : undefined}
                     >
                       <HorarioSelect
                         horarios={horarios}
@@ -612,10 +728,10 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                           showIcon
                           className="sm:col-span-2 lg:col-span-3 mb-1"
                           message="Horario rotativo"
-                          description="El sistema nunca adivina el día de descanso — deberás declarar manualmente en su calendario cuáles fechas son su descanso cada mes."
+                          description="Los días de descanso pueden variar semanalmente. Aquí solo defines cuántos descansos corresponden al colaborador. Las fechas específicas se programarán posteriormente desde Planificación de horarios. Si una fecha llega sin programación, Agento no la considerará automáticamente falta ni descanso; quedará pendiente de clasificación."
                         />
                         <Form.Item
-                          label={campoLabel('Días de descanso a la semana')}
+                          label={campoLabel('Días de descanso por semana')}
                           name="dias_descanso_rotativo_por_semana"
                           extra="Cuántos días libres le corresponden por semana (varía por persona)."
                           rules={[{ required: true, message: 'Obligatorio para un horario rotativo' }]}
@@ -632,7 +748,19 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
         </div>
       </Form>
 
-      {paso === 2 && (
+      {paso === 2 && calendarioDias.length === 0 && (
+        <Alert
+          type="info"
+          showIcon
+          message="Sin calendario inicial"
+          description={
+            esHorarioRotativo
+              ? 'Horario rotativo — las fechas de descanso se planifican después desde Planificación de horarios, nunca al crear el colaborador. Puedes registrarlo directamente.'
+              : 'Trabajador de confianza sin horario asignado — no hay un calendario que configurar. Puedes registrar el colaborador directamente.'
+          }
+        />
+      )}
+      {paso === 2 && calendarioDias.length > 0 && (
         <CalendarioInicialColaborador
           dias={calendarioDias}
           horario={horarioSeleccionado}

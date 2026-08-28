@@ -29,8 +29,23 @@ interface RegimenCalculator
      */
     public function calcularDescuentoTardanza(float $sueldoBasico, int $minutosTardanza, array $reglas = []): array;
 
-    /** @return array<int, array> */
-    public function calcularAporteAfpOnp(Colaborador $colaborador, float $baseRemunerativa, array $parametros, string $fechaCorte): array;
+    /**
+     * V3 A10 — descuento proporcional por horas incompletas (HI) aprobadas:
+     * el día ya se pagó completo en calcularBasico(), este descuento por los
+     * minutos de salida anticipada aprobados es lo que deja el resultado
+     * final equivalente a "pagar solo las horas efectivamente trabajadas".
+     */
+    public function calcularDescuentoHorasIncompletas(float $sueldoBasico, int $minutosHorasIncompletas): array;
+
+    /**
+     * @param  ?float  $rmaAfp  Remuneración Máxima Asegurable vigente (V3
+     *   Fase 6F.2.1) — topa únicamente AFP_PRIMA_SEGURO, nunca el aporte
+     *   obligatorio ni la comisión. Irrelevante para ONP (esa rama no la
+     *   usa); obligatorio (no-null) para afiliados AFP — la implementación
+     *   debe fallar explícitamente si falta.
+     * @return array<int, array>
+     */
+    public function calcularAporteAfpOnp(Colaborador $colaborador, float $baseRemunerativa, array $parametros, string $fechaCorte, ?float $rmaAfp = null): array;
 
     /**
      * @param  string  $seguroSalud  'essalud' | 'sis' — de Empresa::seguro_salud.

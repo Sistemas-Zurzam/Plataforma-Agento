@@ -34,6 +34,15 @@ class ParametroLaboralDefinicionSeeder extends Seeder
             ['clave' => 'afp_aporte_porcentaje', 'grupo' => 'Aportes y Tasas', 'nombre' => 'AFP Aporte', 'unidad' => '%', 'orden' => 8],
             ['clave' => 'afp_prima_seguro_porcentaje', 'grupo' => 'Aportes y Tasas', 'nombre' => 'AFP Prima Seguro', 'unidad' => '%', 'orden' => 9],
             ['clave' => 'asignacion_familiar_porcentaje', 'grupo' => 'Aportes y Tasas', 'nombre' => 'Asignación Familiar', 'unidad' => '%', 'orden' => 10],
+            // V3 Fase 6F.2.1 — Remuneración Máxima Asegurable (RMA) del SPP:
+            // topa únicamente la base de AFP_PRIMA_SEGURO, nunca el aporte
+            // obligatorio ni la comisión. Publicada trimestralmente por la
+            // SBS (Art. 67°, Título VII, Compendio de Normas Reglamentarias
+            // del SPP) — el admin de cada empresa debe cargar/actualizar su
+            // valor vigente en Configuración → Parámetros Laborales, igual
+            // que hace hoy con rmv/uit. NO se seedea ningún valor acá (esta
+            // clase solo define el catálogo, nunca valores por empresa).
+            ['clave' => 'rma_afp', 'grupo' => 'Aportes y Tasas', 'nombre' => 'RMA (Remuneración Máxima Asegurable AFP)', 'unidad' => 'S/', 'orden' => 22],
 
             // Beneficios Laborales
             ['clave' => 'gratificacion_porcentaje', 'grupo' => 'Beneficios Laborales', 'nombre' => 'Gratificación', 'unidad' => '%', 'orden' => 11],

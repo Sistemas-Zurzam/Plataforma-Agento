@@ -71,6 +71,18 @@ export default function ComprobanteRhModal({ open, boletaId, verBoleta, submitti
         <span className="font-semibold text-gray-900">S/ {(boleta?.comprobante_rh?.monto_total_servicio ?? 0).toFixed(2)}</span>
         <span className="ml-1 text-xs text-gray-400">(calculado del honorario bruto, no editable acá)</span>
       </div>
+      {/* V3 P5 — resultado derivado de CalcularReciboHonorarios, nunca un
+          valor que el usuario pueda fijar manualmente (Sección 25 del
+          encargo): solo lectura, distinto de tiene_suspension_renta_4ta
+          (la configuración de entrada, que se gestiona en el formulario del
+          colaborador). */}
+      <div className="mb-4 rounded-lg bg-gray-50 px-3 py-2 text-sm">
+        <span className="text-gray-500">Retención de 4ta categoría aplicada: </span>
+        <span className={`font-semibold ${boleta?.comprobante_rh?.indicador_retencion_4ta ? 'text-amber-700' : 'text-gray-900'}`}>
+          {boleta?.comprobante_rh?.indicador_retencion_4ta ? 'Sí' : 'No'}
+        </span>
+        <span className="ml-1 text-xs text-gray-400">(calculado automáticamente, no editable acá)</span>
+      </div>
       <Form form={form} layout="vertical" onFinish={guardar}>
         <div className="grid grid-cols-2 gap-x-3">
           <Form.Item label="Serie" name="serie"><Input maxLength={4} placeholder="Ej: E001" /></Form.Item>

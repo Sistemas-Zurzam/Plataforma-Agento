@@ -1,9 +1,10 @@
-import { ArrowLeftOutlined, CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, EyeOutlined, FileExcelOutlined, FolderOpenOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, SearchOutlined, SendOutlined, TeamOutlined, UploadOutlined, UsergroupAddOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Calendar, Card, DatePicker, Empty, Form, Input, Modal, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload } from 'antd';
+import { ArrowLeftOutlined, CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, DownOutlined, EditOutlined, ExclamationCircleOutlined, EyeOutlined, FileExcelOutlined, FolderOpenOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, ScheduleOutlined, SearchOutlined, SendOutlined, TeamOutlined, UploadOutlined, UsergroupAddOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Calendar, Card, DatePicker, Dropdown, Empty, Form, Input, Modal, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/es';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../configuracion/components/EmpresaActivaFiltro';
+import PlanificacionRotativos from '../components/PlanificacionRotativos';
 import api from '../../../services/api';
 
 const { RangePicker } = DatePicker;
@@ -12,9 +13,12 @@ dayjs.locale('es');
 const ESTADOS = {
   presente: ['P', 'Presente', 'green'], tardanza: ['T', 'Tardanza', 'gold'], falta: ['F', 'Falta', 'red'],
   marcacion_incompleta: ['MI', 'Marcación incompleta', 'orange'],
+  horario_desplazado: ['HD', 'Horario desplazado', 'purple'],
+  horas_incompletas: ['HI', 'Horas incompletas', 'volcano'],
   home_office: ['TR', 'Trabajo remoto', 'blue'], descanso: ['D', 'Descanso', 'default'],
   feriado: ['D', 'Feriado', 'default'], no_programado: ['—', 'Sin procesar', 'default'],
   permiso: ['PE', 'Permiso', 'cyan'], falta_justificada: ['FJ', 'Falta justificada', 'gold'],
+  dia_sin_clasificar: ['?', 'Rotativo sin planificar — pendiente de clasificación', 'magenta'],
 };
 const duracion = (minutos) => `${Math.floor((minutos ?? 0) / 60)}h ${String((minutos ?? 0) % 60).padStart(2, '0')}m`;
 const hora = (valor) => (valor ? dayjs(valor).format('HH:mm') : '—');
@@ -34,7 +38,7 @@ const ESTADOS_CORREGIBLES = [
   { value: 'feriado', label: 'Feriado' },
 ];
 
-function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, reprocesando, onCorregir, corrigiendo }) {
+function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, reprocesando, onCorregir, corrigiendo, puedeCorregir: puedeCorregirPermiso = true }) {
   const [motivo, setMotivo] = useState('');
   const [entrada, setEntrada] = useState('');
   const [salida, setSalida] = useState('');
@@ -70,15 +74,22 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
         >
           Reprocesar
         </Button>,
-        <Button
-          key="corregir"
-          type="primary"
-          loading={corrigiendo}
-          disabled={!motivo.trim() || !puedeCorregir || (!entrada && !salida && !estadoManual)}
-          onClick={() => onCorregir(resultado.id, { entrada: entrada || undefined, salida: salida || undefined, estado: estadoManual, motivo: motivo.trim() }).then(onCerrar).catch(() => {})}
-        >
-          Guardar corrección
-        </Button>,
+        // V3 Fase 3 — A1: visible/habilitado solo si el usuario tiene el
+        // permiso real (asistencia.incidencias), no solo si backend
+        // devolvería 403 — y con ícono para que no compita visualmente con
+        // "Reprocesar".
+        puedeCorregirPermiso && (
+          <Button
+            key="corregir"
+            type="primary"
+            icon={<EditOutlined />}
+            loading={corrigiendo}
+            disabled={!motivo.trim() || !puedeCorregir || (!entrada && !salida && !estadoManual)}
+            onClick={() => onCorregir(resultado.id, { entrada: entrada || undefined, salida: salida || undefined, estado: estadoManual, motivo: motivo.trim() }).then(onCerrar).catch(() => {})}
+          >
+            Guardar corrección
+          </Button>
+        ),
       ]}
     >
       <div className="grid grid-cols-2 gap-4">
@@ -150,7 +161,66 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
   );
 }
 
-function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reprocesando, onReprocesarDia, reprocesandoDia, onCorregirDia, corrigiendoDia }) {
+/**
+ * V3 Fase 3 — A8/A11/A16/A22: formulario mínimo para resolver una
+ * incidencia (Falta u Horas Incompletas, aunque funciona para cualquier
+ * tipo) creando un AsistenciaPermiso REAL, nunca una etiqueta
+ * resultado.estado='permiso'. Compartido entre Vista general y Perfil
+ * único — un solo modal, un solo endpoint (PATCH .../incidencias/{id}/permiso).
+ */
+function ModalResolverConPermiso({ open, incidencia, form, onCancel, onSubmit, submitting }) {
+  const tipo = Form.useWatch('tipo', form);
+
+  return (
+    <Modal title="Resolver incidencia registrando un permiso" open={open} onCancel={onCancel} footer={null} destroyOnHidden width={520}>
+      {incidencia && (
+        <Alert
+          className="mb-4"
+          type="info"
+          showIcon
+          message={`${incidencia.colaborador ? `${incidencia.colaborador.nombres ?? ''} ${incidencia.colaborador.apellidos ?? ''}`.trim() : ''} · ${dayjs(incidencia.fecha).format('DD/MM/YYYY')} · ${(incidencia.tipo ?? '').replaceAll('_', ' ')}`}
+          description="Se creará y aprobará un permiso real para este colaborador — la incidencia quedará resuelta con trazabilidad de ambas acciones."
+        />
+      )}
+      <Form form={form} layout="vertical" onFinish={onSubmit} requiredMark="optional">
+        <Form.Item name="tipo" label="Tipo de permiso" rules={[{ required: true }]}>
+          <Select options={[{ value: 'personal', label: 'Personal' }, { value: 'medico', label: 'Médico' }, { value: 'capacitacion', label: 'Capacitación' }, { value: 'comision_servicio', label: 'Comisión de servicio' }, { value: 'vacaciones', label: 'Vacaciones' }, { value: 'otro', label: 'Otro' }]} />
+        </Form.Item>
+        {['personal', 'capacitacion'].includes(tipo) && (
+          <Form.Item
+            name="con_goce"
+            label="¿Con goce de haber?"
+            rules={[{ required: true, message: 'Indica si el permiso es con o sin goce de haber' }]}
+          >
+            <Select placeholder="Selecciona" options={[{ value: true, label: 'Con goce de haber' }, { value: false, label: 'Sin goce de haber' }]} />
+          </Form.Item>
+        )}
+        {tipo === 'medico' && (
+          <Form.Item name="pagador_subsidio" label="Pagador del subsidio" extra="Déjalo vacío si no lo sabes todavía.">
+            <Select allowClear placeholder="No indicado" options={[{ value: 'empleador', label: 'Empleador' }, { value: 'essalud_directo', label: 'EsSalud directamente' }]} />
+          </Form.Item>
+        )}
+        <Form.Item
+          name="fechas"
+          label="Período del permiso"
+          rules={[{ required: true, message: 'Selecciona las fechas' }]}
+          extra="La implementación actual de permisos es por día completo — no permite un tramo de horas dentro del día."
+        >
+          <RangePicker className="w-full" format="DD/MM/YYYY" />
+        </Form.Item>
+        <Form.Item name="motivo" label="Motivo" rules={[{ required: true, message: 'Ingresa el motivo' }, { max: 1000 }]}>
+          <Input.TextArea rows={3} placeholder="Motivo del permiso" />
+        </Form.Item>
+        <div className="flex justify-end gap-2">
+          <Button onClick={onCancel}>Cancelar</Button>
+          <Button type="primary" htmlType="submit" loading={submitting}>Registrar permiso y resolver</Button>
+        </div>
+      </Form>
+    </Modal>
+  );
+}
+
+function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reprocesando, onReprocesarDia, reprocesandoDia, onCorregirDia, corrigiendoDia, puedeResolverIncidencias, accionesIncidencia }) {
   const [diaSeleccionado, setDiaSeleccionado] = useState(null);
 
   if (loading || !colaborador) return <Card loading className="min-h-72" />;
@@ -164,14 +234,24 @@ function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reproc
     { title: 'Dispositivo', dataIndex: 'dispositivo', render: (value) => value ?? '—' },
     { title: 'Estado', dataIndex: 'estado_procesamiento', render: (value) => <Tag color={value === 'asociada' ? 'green' : value === 'anulada' ? 'red' : 'gold'}>{value}</Tag> },
   ]} locale={{ emptyText: <Empty description="No hay marcaciones en este período" /> }} />;
+  // V3 Fase 3 — A4: mismas acciones (Aprobar/Rechazar/Resolver) y mismo
+  // endpoint que la vista general — accionesIncidencia() se reutiliza tal
+  // cual, solo se le indica que "Editar marcaciones" debe abrir
+  // DetalleDiaModal (estado local de este componente) en vez del
+  // Modal.confirm que usa la vista general.
   const incidencias = <Table size="small" rowKey="id" dataSource={colaborador.incidencias ?? []} columns={[
     { title: 'Fecha', dataIndex: 'fecha', render: (value) => dayjs(value).format('DD/MM/YYYY') }, { title: 'Tipo', dataIndex: 'tipo', render: (value) => value.replaceAll('_', ' ') },
     { title: 'Descripción', dataIndex: 'descripcion' }, { title: 'Estado', dataIndex: 'estado', render: (value) => <Tag>{value}</Tag> },
+    {
+      title: 'Acciones', width: 160,
+      render: (_, row) => accionesIncidencia(row, { onEditarMarcaciones: () => setDiaSeleccionado(dayjs(row.fecha)) }),
+    },
   ]} locale={{ emptyText: <Empty description="No hay incidencias en este período" /> }} />;
   const extras = <Table size="small" rowKey="id" dataSource={colaborador.horas_extra ?? []} columns={[
     { title: 'Fecha', dataIndex: 'fecha', render: (value) => dayjs(value).format('DD/MM/YYYY') }, { title: 'Tasa', dataIndex: 'tasa', render: (value) => `${value}%` },
     { title: 'Observadas', dataIndex: 'minutos_observados', render: duracion }, { title: 'Aprobadas', dataIndex: 'minutos_aprobados', render: duracion },
     { title: 'Estado', dataIndex: 'estado', render: (value) => <Tag>{value}</Tag> },
+    { title: 'Motivo', dataIndex: 'motivo', ellipsis: true, render: (value) => value || '—' },
   ]} locale={{ emptyText: <Empty description="No hay horas extra en este período" /> }} />;
   const permisos = <Table size="small" rowKey="id" dataSource={colaborador.permisos ?? []} columns={[
     { title: 'Tipo', dataIndex: 'tipo', render: (value) => value.replaceAll('_', ' ') }, { title: 'Desde', dataIndex: 'fecha_inicio', render: (value) => dayjs(value).format('DD/MM/YYYY') },
@@ -212,16 +292,22 @@ function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reproc
       reprocesando={reprocesandoDia}
       onCorregir={(resultadoId, datos) => onCorregirDia(resultadoId, datos)}
       corrigiendo={corrigiendoDia}
+      puedeCorregir={puedeResolverIncidencias}
     />
   </div>;
 }
 
-export default function GestionAsistencias({ user, onUserRefresh, colaboradorId, onVerColaborador, onVolver }) {
+export default function GestionAsistencias({ user, onUserRefresh, colaboradorId, initialTab, onVerColaborador, onVolver }) {
   const { message } = App.useApp();
   const [permisoForm] = Form.useForm();
   const [solicitudForm] = Form.useForm();
+  const tipoPermiso = Form.useWatch('tipo', permisoForm);
   const [rango, setRango] = useState([dayjs().startOf('month'), dayjs()]);
-  const [activeTab, setActiveTab] = useState('resumen');
+  const [activeTab, setActiveTab] = useState(initialTab || 'resumen');
+
+  useEffect(() => {
+    if (initialTab) setActiveTab(initialTab);
+  }, [initialTab]);
   const [busqueda, setBusqueda] = useState('');
   const [filtroSede, setFiltroSede] = useState();
   const [filtroArea, setFiltroArea] = useState();
@@ -250,6 +336,10 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const [incidencias, setIncidencias] = useState([]);
   const [filtroEstadoIncidencia, setFiltroEstadoIncidencia] = useState('todos');
   const [colaboradorFiltroIncidencia, setColaboradorFiltroIncidencia] = useState(null);
+  const [permisoIncidenciaModalOpen, setPermisoIncidenciaModalOpen] = useState(false);
+  const [incidenciaParaPermiso, setIncidenciaParaPermiso] = useState(null);
+  const [resolviendoConPermiso, setResolviendoConPermiso] = useState(false);
+  const [permisoIncidenciaForm] = Form.useForm();
   const [horasExtra, setHorasExtra] = useState([]);
   const [importaciones, setImportaciones] = useState([]);
   const [periodos, setPeriodos] = useState([]);
@@ -440,11 +530,14 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     finally { setImportandoMarcaciones(false); }
   };
 
-  const solicitarDecision = (titulo, endpoint, accion, extra = {}) => {
+  const solicitarDecision = (titulo, endpoint, accion, extra = {}, advertencia = null) => {
     let motivo = '';
     Modal.confirm({
       title: titulo,
-      content: <Input.TextArea className="mt-3" rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} />,
+      content: <div>
+        {advertencia && <Alert className="mb-3" type="info" showIcon message={advertencia} />}
+        <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} />
+      </div>,
       okText: accion === 'aprobar' ? 'Aprobar' : accion === 'rechazar' ? 'Rechazar' : 'Confirmar',
       okButtonProps: { danger: accion === 'rechazar' },
       cancelText: 'Cancelar',
@@ -491,6 +584,174 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
         await api.patch(`/asistencia/resultados/${resultado.id}`, valores); message.success('Jornada corregida y auditada'); await cargar();
       },
     });
+  };
+
+  // V3 Fase 3 — A8/A11/A20: abre "Editar jornada" (mismo Modal.confirm que
+  // ya usa la pestaña Asistencia diaria) a partir de una fila de incidencia,
+  // que trae el resultado en forma cruda (entrada_at/salida_at) en vez del
+  // shape simplificado (entrada/salida) que espera editarJornada().
+  const editarMarcacionesDeIncidencia = (row) => {
+    if (!row.resultado) { message.warning('Este día todavía no tiene un resultado procesado — usa "Reprocesar" primero.'); return; }
+    editarJornada({
+      id: row.resultado.id, fecha: row.fecha, estado: row.resultado.estado,
+      entrada: row.resultado.entrada_at, salida: row.resultado.salida_at,
+    });
+  };
+
+  const abrirModalPermiso = (row) => {
+    setIncidenciaParaPermiso(row);
+    permisoIncidenciaForm.resetFields();
+    permisoIncidenciaForm.setFieldsValue({ tipo: 'personal', fechas: [dayjs(row.fecha), dayjs(row.fecha)] });
+    setPermisoIncidenciaModalOpen(true);
+  };
+
+  // V3 Fase 3 — A8/A11/A16: crea un AsistenciaPermiso REAL y resuelve la
+  // incidencia en un solo paso atómico (backend), nunca un
+  // resultado.estado='permiso' de mentira.
+  const resolverConPermiso = async (values) => {
+    setResolviendoConPermiso(true);
+    try {
+      await api.patch(`/asistencia/incidencias/${incidenciaParaPermiso.id}/permiso`, {
+        tipo: values.tipo,
+        fecha_inicio: values.fechas[0].format('YYYY-MM-DD'),
+        fecha_fin: values.fechas[1].format('YYYY-MM-DD'),
+        motivo: values.motivo,
+        con_goce: values.con_goce ?? undefined,
+        pagador_subsidio: values.tipo === 'medico' ? (values.pagador_subsidio ?? undefined) : undefined,
+      });
+      message.success('Incidencia resuelta: permiso registrado y aprobado con trazabilidad');
+      setPermisoIncidenciaModalOpen(false);
+      await cargar();
+      await cargarIncidencias();
+      if (colaboradorId) {
+        const perfilResponse = await api.get(`/asistencia/colaboradores/${colaboradorId}`, { params: parametros });
+        setPerfil(perfilResponse.data.data ?? perfilResponse.data);
+      }
+    } catch (error) {
+      message.error(error.response?.data?.message ?? 'No se pudo resolver la incidencia con un permiso');
+    } finally {
+      setResolviendoConPermiso(false);
+    }
+  };
+
+  /**
+   * V3 Fase 3 — principio: un solo motor de acciones para Vista general y
+   * Perfil único, mismos endpoints (Aprobar/Rechazar → PATCH incidencias/{id};
+   * Resolver → editar marcaciones o permiso real). `opciones.onEditarMarcaciones`
+   * permite que el Perfil abra su propio DetalleDiaModal en vez del
+   * Modal.confirm que usa la Vista general — el resto es idéntico.
+   */
+  // Rotativo Fase 1 — "día sin clasificar" nunca usa Aprobar/Rechazar: no
+  // hay nada que aprobar en un día que todavía no se sabe qué es. Reutiliza
+  // solicitarDecision() tal cual (mismo payload {accion, motivo}), solo con
+  // acciones de dominio ('descanso'/'laboral') en vez de aprobar/rechazar,
+  // contra el nuevo endpoint /clasificar-dia. "Registrar permiso" reutiliza
+  // el mismo modal de permiso ya existente para las demás incidencias.
+  const accionesDiaSinClasificar = (row) => {
+    const endpoint = `/asistencia/incidencias/${row.id}/clasificar-dia`;
+    return <Space size={2} wrap>
+      <Button type="link" size="small" onClick={() => solicitarDecision('Marcar como descanso', endpoint, 'descanso')}>Marcar descanso</Button>
+      <Button type="link" size="small" onClick={() => solicitarDecision('Marcar como día laborable', endpoint, 'laboral')}>Marcar laborable</Button>
+      <Button type="link" size="small" onClick={() => abrirModalPermiso(row)}>Registrar permiso</Button>
+    </Space>;
+  };
+
+  // Fase 3.1 — resuelve trabajo_en_descanso con 3 acciones de dominio,
+  // nunca Aprobar/Rechazar genérico (no hay nada que "aprobar" en la
+  // incidencia misma — lo que se decide es qué pasa con la HE 100%
+  // asociada y, si corresponde, con la planificación). Reutiliza
+  // solicitarDecision() para "pago" (solo motivo); sustitutorio/corregir
+  // necesitan un campo extra, así que siguen el mismo patrón de
+  // Modal.confirm con variable mutable que ya usan editarJornada()/
+  // asociarIdentidad() en este mismo archivo.
+  const abrirSustitutorio = (row) => {
+    // Fase 3.2.1 — ciclo de 7 días desde el día trabajado (Informe N°
+    // 027-2021-MTPE/14: "semana" para el descanso es un ciclo de 7 días,
+    // no necesariamente la semana calendario lunes-domingo), no la semana
+    // calendario. El sustitutorio siempre es posterior al día trabajado.
+    const diaTrabajado = dayjs(row.fecha);
+    const limiteCiclo = diaTrabajado.add(6, 'day');
+    const valores = { fecha_sustitutoria: null, motivo: '' };
+    Modal.confirm({
+      title: 'Otorgar descanso sustitutorio',
+      width: 480,
+      content: <div className="mt-3 space-y-3">
+        <Alert type="info" showIcon message={`Debe caer entre ${diaTrabajado.add(1, 'day').format('DD/MM')} y ${limiteCiclo.format('DD/MM/YYYY')} — ciclo de 7 días desde el descanso trabajado.`} />
+        <DatePicker
+          className="w-full" format="DD/MM/YYYY" placeholder="Fecha del descanso sustitutorio"
+          disabledDate={(d) => !d.isAfter(diaTrabajado, 'day') || d.isAfter(limiteCiclo, 'day')}
+          onChange={(value) => { valores.fecha_sustitutoria = value ? value.format('YYYY-MM-DD') : null; }}
+        />
+        <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { valores.motivo = event.target.value; }} />
+      </div>,
+      okText: 'Confirmar', cancelText: 'Cancelar',
+      onOk: async () => {
+        if (!valores.fecha_sustitutoria) { message.warning('Selecciona la fecha del descanso sustitutorio'); throw new Error('fecha_requerida'); }
+        if (!valores.motivo.trim()) { message.warning('Ingresa el motivo'); throw new Error('motivo_requerido'); }
+        await api.patch(`/asistencia/incidencias/${row.id}/resolver-trabajo-descanso`, {
+          accion: 'sustitutorio', fecha_sustitutoria: valores.fecha_sustitutoria, motivo: valores.motivo.trim(),
+        });
+        message.success('Descanso sustitutorio registrado');
+        await cargar();
+        await cargarIncidencias();
+      },
+    });
+  };
+
+  const abrirCorregirPlanificacion = (row) => {
+    const valores = { tipo: 'laborable_presencial', motivo: '' };
+    Modal.confirm({
+      title: 'Corregir planificación',
+      width: 480,
+      content: <div className="mt-3 space-y-3">
+        <Alert type="warning" showIcon message="El día se recalculará por completo con el motor normal de asistencia (puede quedar presente, con tardanza, HD, HI, etc.)." />
+        <Select
+          className="w-full" defaultValue={valores.tipo} onChange={(value) => { valores.tipo = value; }}
+          options={[{ value: 'laborable_presencial', label: 'Trabajo presencial' }, { value: 'home_office', label: 'Home office' }]}
+        />
+        <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { valores.motivo = event.target.value; }} />
+      </div>,
+      okText: 'Confirmar', cancelText: 'Cancelar',
+      onOk: async () => {
+        if (!valores.motivo.trim()) { message.warning('Ingresa el motivo'); throw new Error('motivo_requerido'); }
+        await api.patch(`/asistencia/incidencias/${row.id}/resolver-trabajo-descanso`, {
+          accion: 'corregir_planificacion', tipo: valores.tipo, motivo: valores.motivo.trim(),
+        });
+        message.success('Planificación corregida y jornada reprocesada');
+        await cargar();
+        await cargarIncidencias();
+      },
+    });
+  };
+
+  const accionesTrabajoEnDescanso = (row) => <Space size={2} wrap>
+    <Button type="link" size="small" onClick={() => solicitarDecision('Corresponde pago', `/asistencia/incidencias/${row.id}/resolver-trabajo-descanso`, 'pago')}>Corresponde pago</Button>
+    <Button type="link" size="small" onClick={() => abrirSustitutorio(row)}>Descanso sustitutorio</Button>
+    <Button type="link" size="small" onClick={() => abrirCorregirPlanificacion(row)}>Corregir planificación</Button>
+  </Space>;
+
+  const accionesIncidencia = (row, opciones = {}) => {
+    if (row.estado !== 'pendiente' || !puedeResolverIncidencias) return '—';
+    if (row.tipo === 'dia_sin_clasificar') return accionesDiaSinClasificar(row);
+    if (row.tipo === 'trabajo_en_descanso') return accionesTrabajoEnDescanso(row);
+    const onEditarMarcaciones = opciones.onEditarMarcaciones ?? (() => editarMarcacionesDeIncidencia(row));
+    const advertencia = row.tipo === 'horario_desplazado'
+      ? 'Al aprobar, el día quedará como presente sin descuento de tardanza.'
+      : row.tipo === 'horas_incompletas'
+        ? 'Al aprobar, el día será remunerado según las horas efectivamente trabajadas.'
+        : null;
+    const menuResolver = {
+      items: [
+        { key: 'marcaciones', label: 'Editar marcaciones' },
+        { key: 'permiso', label: 'Registrar permiso' },
+      ],
+      onClick: ({ key }) => (key === 'marcaciones' ? onEditarMarcaciones(row) : abrirModalPermiso(row)),
+    };
+    return <Space size={2}>
+      <Button type="link" size="small" onClick={() => solicitarDecision('Aprobar incidencia', `/asistencia/incidencias/${row.id}`, 'aprobar', {}, advertencia)}>Aprobar</Button>
+      <Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar incidencia', `/asistencia/incidencias/${row.id}`, 'rechazar')}>Rechazar</Button>
+      <Dropdown menu={menuResolver}><Button type="link" size="small">Resolver <DownOutlined /></Button></Dropdown>
+    </Space>;
   };
 
   const fechasVisibles = useMemo(() => {
@@ -646,24 +907,47 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
 
   const vistaIncidencias = <div className="space-y-2">
     <div className="flex flex-wrap items-center gap-2">
+      <Input
+        size="small"
+        prefix={<SearchOutlined />}
+        placeholder="Buscar colaborador (nombre, documento, legajo)"
+        value={busqueda}
+        onChange={(event) => setBusqueda(event.target.value)}
+        allowClear
+        className="w-72"
+      />
       <Select size="small" className="w-40" value={filtroEstadoIncidencia} onChange={setFiltroEstadoIncidencia} options={[
         { value: 'todos', label: 'Todos los estados' }, { value: 'pendiente', label: 'Pendiente' },
         { value: 'resuelta', label: 'Resuelta' }, { value: 'rechazada', label: 'Rechazada' }, { value: 'observada', label: 'Observada' },
       ]} />
-      <Text type="secondary" className="text-xs">Búsqueda, sede y área usan los filtros de la pestaña Colaboradores.</Text>
+      <Text type="secondary" className="text-xs">Sede y área usan los filtros de la pestaña Colaboradores.</Text>
       {colaboradorFiltroIncidencia && (
         <Tag closable onClose={() => setColaboradorFiltroIncidencia(null)} color="blue">
           Filtrando por colaborador #{colaboradorFiltroIncidencia}
         </Tag>
       )}
     </div>
-    <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={incidencias} columns={[
+    <Card styles={{ body: { padding: 0 } }}><Table
+      size="small"
+      rowKey="id"
+      dataSource={incidencias}
+      expandable={{
+        rowExpandable: (row) => ['horario_desplazado', 'horas_incompletas'].includes(row.tipo) && Boolean(row.resultado),
+        expandedRowRender: (row) => {
+          const r = row.resultado;
+          const campos = row.tipo === 'horario_desplazado'
+            ? [['Entrada marcada', hora(r.entrada_at)], ['Salida marcada', hora(r.salida_at)], ['Horas programadas', duracion(r.minutos_programados)], ['Horas trabajadas', duracion(r.minutos_trabajados)], ['Tardanza detectada', duracion(r.minutos_tardanza)]]
+            : [['Entrada marcada', hora(r.entrada_at)], ['Salida marcada', hora(r.salida_at)], ['Horas programadas', duracion(r.minutos_programados)], ['Horas trabajadas', duracion(r.minutos_trabajados)], ['Horas incompletas', duracion(r.minutos_salida_anticipada)]];
+          return <div className="grid grid-cols-2 gap-x-6 gap-y-1 py-1 text-xs sm:grid-cols-5">{campos.map(([label, value]) => <div key={label}><Text type="secondary" className="block">{label}</Text><span className="font-medium">{value}</span></div>)}</div>;
+        },
+      }}
+      columns={[
       { title: 'Fecha', dataIndex: 'fecha', width: 110, render: (value) => dayjs(value).format('DD/MM/YYYY') },
       { title: 'Colaborador', render: (_, row) => `${row.colaborador?.nombres ?? ''} ${row.colaborador?.apellidos ?? ''}`.trim() },
       { title: 'Tipo', dataIndex: 'tipo', width: 170, render: (value) => value.replaceAll('_', ' ') },
       { title: 'Descripción', dataIndex: 'descripcion', ellipsis: true },
       { title: 'Estado', dataIndex: 'estado', width: 115, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'resuelta' ? 'green' : 'red'}>{value}</Tag> },
-      { title: 'Acciones', width: 160, render: (_, row) => row.estado === 'pendiente' && puedeResolverIncidencias ? <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Resolver incidencia', `/asistencia/incidencias/${row.id}`, 'aprobar')}>Resolver</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar incidencia', `/asistencia/incidencias/${row.id}`, 'rechazar')}>Rechazar</Button></Space> : '—' },
+      { title: 'Acciones', width: 210, render: (_, row) => accionesIncidencia(row) },
     ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay incidencias en el período" /> }} /></Card>
   </div>;
 
@@ -674,6 +958,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Observadas', dataIndex: 'minutos_observados', width: 105, render: duracion },
     { title: 'Aprobadas', dataIndex: 'minutos_aprobados', width: 105, render: duracion },
     { title: 'Estado', dataIndex: 'estado', width: 110, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'aprobado' ? 'green' : 'red'}>{value}</Tag> },
+    { title: 'Motivo', dataIndex: 'motivo', ellipsis: true, render: (value) => value || '—' },
     { title: 'Acciones', width: 160, render: (_, row) => row.estado === 'pendiente' && puedeGestionarHorasExtra ? <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Aprobar horas extra', `/asistencia/horas-extra/${row.id}`, 'aprobar', { minutos_aprobados: row.minutos_observados })}>Aprobar</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar horas extra', `/asistencia/horas-extra/${row.id}`, 'rechazar')}>Rechazar</Button></Space> : '—' },
   ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay horas extra en el período" /> }} /></Card>;
 
@@ -701,16 +986,37 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { key: 'importaciones', label: 'Importaciones', icon: <FolderOpenOutlined />, children: vistaImportaciones },
     { key: 'periodos', label: 'Períodos', icon: <CalendarOutlined />, children: vistaPeriodos },
     { key: 'gestiones-area', label: 'Gestiones del área', icon: <UsergroupAddOutlined />, children: vistaGestionesArea },
+    {
+      key: 'planificacion', label: 'Planificación', icon: <ScheduleOutlined />,
+      children: <PlanificacionRotativos
+        puedeEditar={puedeResolverIncidencias}
+        onAbrirIncidencia={(_incidenciaId, colaboradorId) => {
+          setColaboradorFiltroIncidencia(colaboradorId);
+          setFiltroEstadoIncidencia('todos');
+          setActiveTab('incidencias');
+        }}
+      />,
+    },
   ];
 
-  if (colaboradorId) return <PerfilAsistencia colaborador={perfil} loading={loading} onVolver={onVolver} onReprocesar={reprocesar} reprocesando={reprocesando} onReprocesarDia={reprocesarDia} reprocesandoDia={reprocesandoDia} onCorregirDia={corregirDia} corrigiendoDia={corrigiendoDia} />;
+  if (colaboradorId) return <>
+    <PerfilAsistencia colaborador={perfil} loading={loading} onVolver={onVolver} onReprocesar={reprocesar} reprocesando={reprocesando} onReprocesarDia={reprocesarDia} reprocesandoDia={reprocesandoDia} onCorregirDia={corregirDia} corrigiendoDia={corrigiendoDia} puedeResolverIncidencias={puedeResolverIncidencias} accionesIncidencia={accionesIncidencia} />
+    <ModalResolverConPermiso
+      open={permisoIncidenciaModalOpen}
+      incidencia={incidenciaParaPermiso}
+      form={permisoIncidenciaForm}
+      onCancel={() => setPermisoIncidenciaModalOpen(false)}
+      onSubmit={resolverConPermiso}
+      submitting={resolviendoConPermiso}
+    />
+  </>;
 
   return <div className="space-y-4"><div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><Title level={3} className="!mb-1">Gestión de asistencias</Title><Text type="secondary">Control diario de {user?.empresa?.nombre_comercial ?? 'la empresa activa'}</Text></div><Space wrap><RangePicker value={rango} allowClear={false} format="DD/MM/YYYY" onChange={(value) => value && setRango(value)} />{puedeProcesar && <Button icon={<ReloadOutlined />} loading={reprocesando} onClick={reprocesar}>Reprocesar</Button>}</Space></div><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
     <Modal title="Nuevo permiso" open={permisoModalOpen} onCancel={() => setPermisoModalOpen(false)} footer={null} destroyOnHidden width={520}>
       <Form form={permisoForm} layout="vertical" onFinish={crearPermiso} initialValues={{ tipo: 'personal' }} requiredMark="optional">
         <Form.Item name="colaborador_id" label="Empleado" rules={[{ required: true, message: 'Selecciona un empleado' }]}><Select showSearch optionFilterProp="label" placeholder="Seleccionar empleado" options={colaboradores.map((item) => ({ value: item.id, label: `${item.nombre_completo} · ${item.legajo}` }))} /></Form.Item>
         <Form.Item name="tipo" label="Tipo" rules={[{ required: true }]}><Select className="w-48" options={[{ value: 'personal', label: 'Personal' }, { value: 'medico', label: 'Médico' }, { value: 'capacitacion', label: 'Capacitación' }, { value: 'comision_servicio', label: 'Comisión de servicio' }, { value: 'vacaciones', label: 'Vacaciones' }, { value: 'otro', label: 'Otro' }]} /></Form.Item>
-        {['personal', 'capacitacion'].includes(Form.useWatch('tipo', permisoForm)) && (
+        {['personal', 'capacitacion'].includes(tipoPermiso) && (
           <Form.Item
             name="con_goce"
             label="¿Con goce de haber?"
@@ -723,7 +1029,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
             />
           </Form.Item>
         )}
-        {Form.useWatch('tipo', permisoForm) === 'medico' && (
+        {tipoPermiso === 'medico' && (
           <Form.Item
             name="pagador_subsidio"
             label="Pagador del subsidio"
@@ -758,5 +1064,13 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
         <div className="flex justify-end gap-2"><Button onClick={() => setPeriodoModalOpen(false)}>Cancelar</Button><Button type="primary" htmlType="submit">Crear período</Button></div>
       </Form>
     </Modal>
+    <ModalResolverConPermiso
+      open={permisoIncidenciaModalOpen}
+      incidencia={incidenciaParaPermiso}
+      form={permisoIncidenciaForm}
+      onCancel={() => setPermisoIncidenciaModalOpen(false)}
+      onSubmit={resolverConPermiso}
+      submitting={resolviendoConPermiso}
+    />
   </div>;
 }

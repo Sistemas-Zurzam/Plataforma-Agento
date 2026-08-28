@@ -48,11 +48,15 @@ class ColaboradorResource extends JsonResource
             ]),
             'sede' => $this->whenLoaded('sede', fn () => ['id' => $this->sede->id, 'nombre' => $this->sede->nombre]),
             'area' => $this->whenLoaded('area', fn () => ['id' => $this->area->id, 'nombre' => $this->area->nombre]),
-            'horario' => $this->whenLoaded('horario', fn () => [
+            // V3 P3 — un trabajador de confianza puede no tener horario_id;
+            // la relación queda "cargada" igual (whenLoaded no distingue
+            // "cargada con null" de "no cargada"), así que hay que revisar
+            // el valor real, no solo si la relación fue eager-loaded.
+            'horario' => $this->whenLoaded('horario', fn () => $this->horario ? [
                 'id' => $this->horario->id,
                 'nombre' => $this->horario->nombre,
                 'tipo_turno' => $this->horario->tipo_turno,
-            ]),
+            ] : null),
             'dias_descanso_rotativo_por_semana' => $this->whenLoaded(
                 'asignacionesHorario',
                 fn () => $this->asignacionesHorario->firstWhere('vigencia_hasta', null)?->dias_descanso_rotativo_por_semana,

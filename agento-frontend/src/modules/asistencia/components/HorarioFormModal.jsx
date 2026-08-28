@@ -97,15 +97,6 @@ function PanelDia({ form, index, label, oculto }) {
           <TimePicker format="HH:mm" className="w-full" />
         </Form.Item>
       </div>
-
-      <div className="mt-2 flex gap-4">
-        <Form.Item name={['dias', index, 'jornada_nocturna']} valuePropName="checked" className="mb-0">
-          <Checkbox>Jornada nocturna</Checkbox>
-        </Form.Item>
-        <Form.Item name={['dias', index, 'permitir_horas_extra']} valuePropName="checked" className="mb-0">
-          <Checkbox>Permitir horas extra</Checkbox>
-        </Form.Item>
-      </div>
     </div>
   );
 }
@@ -184,12 +175,20 @@ export default function HorarioFormModal({ open, horario, onSubmit, onCancel, su
   };
 
   const handleFinish = (values) => {
+    // "Jornada nocturna" ya no se marca día por día — se deriva del único
+    // selector "Tipo de turno" del horario completo. "Permitir horas
+    // extra" se retiró de aquí: ahora es una condición del colaborador
+    // (contabilizar_horas_extra, en su ficha), no del horario/día.
+    const esNocturno = values.tipo_turno === 'nocturno';
+
     onSubmit({
       ...values,
       vigencia_desde: values.vigencia_desde.format('YYYY-MM-DD'),
       vigencia_hasta: values.vigencia_hasta ? values.vigencia_hasta.format('YYYY-MM-DD') : null,
       dias: values.dias.map((dia) => ({
         ...dia,
+        jornada_nocturna: esNocturno,
+        permitir_horas_extra: false,
         hora_entrada: horaTexto(dia.hora_entrada),
         hora_salida: horaTexto(dia.hora_salida),
         refrigerio_inicio: horaTexto(dia.refrigerio_inicio),

@@ -34,7 +34,19 @@ class StoreColaboradorRequest extends FormRequest
         return [
             'sede_id' => ['required', 'integer', 'exists:sedes,id'],
             'area_id' => ['required', 'integer', 'exists:areas,id'],
-            'horario_id' => ['required', 'integer', 'exists:horarios,id'],
+            // V3 P3 — un trabajador de confianza no necesita horario
+            // obligatorio; para cualquier otro sigue siendo requerido.
+            // required_unless (regla string, evaluada contra los datos
+            // reales) y NO Rule::requiredIf(closure) a propósito:
+            // ImportarColaboradoresService::evaluarFila() reutiliza este
+            // rules() vía Validator::make() sobre una instancia "en frío" de
+            // este FormRequest (nunca recibe una request HTTP real) — un
+            // closure que lea $this->boolean(...) siempre leería del
+            // request vacío, nunca de los datos de la fila del Excel.
+            'horario_id' => [
+                'required_unless:es_trabajador_confianza,true',
+                'nullable', 'integer', 'exists:horarios,id',
+            ],
 
             'nombres' => ['required', 'string', 'max:255'],
             // Apellido paterno/materno por separado — exigido por las
@@ -93,7 +105,34 @@ class StoreColaboradorRequest extends FormRequest
             'periodicidad_pago' => ['required', Rule::in(['mensual', 'quincenal', 'semanal'])],
             'asignacion_familiar' => ['nullable', 'numeric', 'min:0'],
 
-            'calendario' => ['required', 'array', 'min:1'],
+            // Sin horario no hay calendario que generar (ver horario_id) —
+            // 'required' ya falla para un array vacío, no hace falta 'min:1'
+            // aparte.
+            //
+            // Rotativo Fase 1 — un horario rotativo TAMPOCO tiene calendario
+            // inicial que generar: las fechas de descanso se planifican
+            // después (Planificación de horarios), nunca se inventa un mes
+            // "laborable" ficticio al crear el colaborador. Se detecta vía
+            // dias_descanso_rotativo_por_semana (ya es obligatorio solo
+            // cuando el horario elegido es rotativo, ver withValidator())
+            // en vez de consultar Horario::tipo_turno acá. Este closure SÍ
+            // usa $this->input()/$this->boolean() a propósito — a
+            // diferencia de horario_id, ImportarColaboradoresService
+            // EXCLUYE explícitamente las reglas 'calendario*' antes de
+            // reutilizar este Request en bruto (ver evaluarFila()), así que
+            // el bug de la Fase 4 (closure leyendo un FormRequest vacío) no
+            // puede repetirse acá: este closure nunca corre en ese flujo.
+            'calendario' => [
+                function ($attribute, $value, $fail) {
+                    if ($this->boolean('es_trabajador_confianza') || filled($this->input('dias_descanso_rotativo_por_semana'))) {
+                        return;
+                    }
+                    if (! is_array($value) || count($value) === 0) {
+                        $fail('El calendario inicial es obligatorio.');
+                    }
+                },
+                'array',
+            ],
             'calendario.*.fecha' => ['required', 'date'],
             'calendario.*.tipo' => [
                 'required',

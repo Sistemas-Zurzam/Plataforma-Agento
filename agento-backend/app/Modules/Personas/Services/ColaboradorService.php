@@ -3,12 +3,14 @@
 namespace App\Modules\Personas\Services;
 
 use App\Models\User;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Banco;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Sede;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Models\ColaboradorCalendarioDia;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorDocumento;
 use App\Modules\Personas\Support\CalendarioMensualGenerator;
@@ -19,6 +21,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 use Illuminate\Http\UploadedFile;
 use Intervention\Image\ImageManager;
 
@@ -121,6 +124,8 @@ class ColaboradorService
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
         }
 
+        $this->rechazarSiBorraTrabajoEnDescanso($colaborador, $dias);
+
         DB::transaction(function () use ($colaborador, $dias) {
             foreach ($dias as $dia) {
                 $colaborador->calendario()->updateOrCreate(
@@ -131,6 +136,52 @@ class ColaboradorService
         });
 
         return $this->obtenerDetalle($empresa, $colaborador);
+    }
+
+    /**
+     * Fase 3.2.1 — mismo candado que ya protege
+     * PlanificacionRotativaService::planificarDia() (Asistencia): si una
+     * fecha ya tenía descanso planificado y además registra trabajo real
+     * (minutos_trabajados > 0), este endpoint genérico de calendario no
+     * puede pisarla en silencio — antes solo estaba protegida la vía nueva
+     * de Planificación, dejando este modal viejo (EditarCalendarioModal)
+     * como hueco para borrar la evidencia de "trabajó su descanso". Debe
+     * resolverse primero la incidencia especializada
+     * (AsistenciaDecisionService::resolverTrabajoEnDescanso()).
+     */
+    private function rechazarSiBorraTrabajoEnDescanso(Colaborador $colaborador, array $dias): void
+    {
+        $fechasQueDejanDeSerDescanso = collect($dias)
+            ->filter(fn (array $dia) => $dia['tipo'] !== 'descanso')
+            ->pluck('fecha')
+            ->all();
+
+        if (empty($fechasQueDejanDeSerDescanso)) {
+            return;
+        }
+
+        $fechasActualmenteDescanso = $colaborador->calendario()
+            ->whereIn('fecha', $fechasQueDejanDeSerDescanso)
+            ->where('tipo', 'descanso')
+            ->get()
+            ->map(fn (ColaboradorCalendarioDia $dia) => $dia->fecha->toDateString())
+            ->all();
+
+        if (empty($fechasActualmenteDescanso)) {
+            return;
+        }
+
+        $tieneTrabajoRegistrado = AsistenciaResultadoDiario::query()
+            ->where('colaborador_id', $colaborador->id)
+            ->whereIn('fecha', $fechasActualmenteDescanso)
+            ->where('minutos_trabajados', '>', 0)
+            ->exists();
+
+        if ($tieneTrabajoRegistrado) {
+            throw ValidationException::withMessages([
+                'dias' => ['Una o más fechas registran trabajo sobre un día de descanso. Resuelve primero la incidencia "Trabajo en descanso" desde Asistencia.'],
+            ]);
+        }
     }
 
     /**
@@ -242,6 +293,18 @@ class ColaboradorService
             throw new AuthorizationException('La sede o área no pertenece a la empresa activa.');
         }
 
+        // V3 P3 — si se está desactivando la condición de confianza y el
+        // colaborador no tiene horario asignado, no se puede dejarlo así:
+        // sin horario y sin confianza, Asistencia no podría procesarlo.
+        // No se auto-asigna ninguno — se le pide a RR.HH. que lo asigne
+        // primero vía "Asignar horario".
+        if (array_key_exists('es_trabajador_confianza', $datos)
+            && ! $datos['es_trabajador_confianza']
+            && $colaborador->es_trabajador_confianza
+            && ! $colaborador->horario_id) {
+            throw new AuthorizationException('Este colaborador no tiene horario asignado — asígnale uno antes de quitarle la condición de trabajador de confianza.');
+        }
+
         $apellidoPaterno = mb_strtoupper(trim($datos['apellido_paterno']), 'UTF-8');
         $apellidoMaterno = mb_strtoupper(trim($datos['apellido_materno'] ?? ''), 'UTF-8');
 
@@ -348,6 +411,14 @@ class ColaboradorService
             'sistema_previsional' => $colaborador->sistema_previsional,
             'afp_id' => $colaborador->afp_id,
             'tipo_comision' => $colaborador->tipo_comision,
+            // V3 P3/T1 — historizado igual que el resto: una nómina de mayo
+            // debe poder reconstruir si el colaborador era o no de confianza
+            // en mayo, sin importar el valor actual.
+            'es_trabajador_confianza' => $colaborador->es_trabajador_confianza,
+            // V3 P2/T1 — mismo criterio: afecta directamente el descuento
+            // por tardanza, un cambio a mitad de mes no debe reinterpretar
+            // boletas ya calculadas con otras fechas.
+            'contabilizar_tardanzas' => $colaborador->contabilizar_tardanzas,
         ];
 
         $vigente = $colaborador->condicionesLaborales()->orderByDesc('vigencia_desde')->orderByDesc('id')->first();
@@ -545,15 +616,23 @@ class ColaboradorService
         $dias = [];
         for ($fecha = $inicioMes->copy(); $fecha->lte($finMes); $fecha->addDay()) {
             $fechaTexto = $fecha->toDateString();
+            $esFeriado = FeriadosPeru::esFeriado($fechaTexto);
 
-            if (FeriadosPeru::esFeriado($fechaTexto)) {
+            // Rotativo Fase 1 — un horario rotativo NUNCA propone laborable
+            // ni descanso por defecto: no tiene un patrón semanal fijo, y
+            // "proponer laborable para que RR.HH. lo corrija" terminaba
+            // persistiéndose tal cual si nadie tocaba esa fecha (justo la
+            // inferencia que la auditoría pidió eliminar). Feriado SÍ se
+            // propone — es un hecho legal fijo para todos, no una
+            // suposición sobre el patrón de descanso de esta persona en
+            // particular. El resto de fechas simplemente no se incluye:
+            // ausencia de fila = fecha todavía no planificada.
+            if ($horario->tipo_turno === 'rotativo' && ! $esFeriado) {
+                continue;
+            }
+
+            if ($esFeriado) {
                 $tipo = 'feriado';
-            } elseif ($horario->tipo_turno === 'rotativo') {
-                // Un horario rotativo no tiene un patrón semanal fijo de
-                // descanso -- se propone laborable en todos los días para
-                // que RR.HH. marque a mano cuáles son los de descanso real
-                // (Sección: rotativos, cero inferencia).
-                $tipo = 'laborable_presencial';
             } else {
                 // dia_semana en Horario: 0=Lunes...6=Domingo; dayOfWeekIso: 1=Lunes...7=Domingo.
                 $horarioDia = $diasPorSemana->get($fecha->dayOfWeekIso - 1);
@@ -588,7 +667,7 @@ class ColaboradorService
             $empresa,
             $datos['sede_id'],
             $datos['area_id'],
-            $datos['horario_id'],
+            $datos['horario_id'] ?? null,
             $datos['fecha_ingreso'],
         );
 
@@ -625,16 +704,24 @@ class ColaboradorService
                 'sistema_previsional' => $colaborador->sistema_previsional,
                 'afp_id' => $colaborador->afp_id,
                 'tipo_comision' => $colaborador->tipo_comision,
+                'es_trabajador_confianza' => $colaborador->es_trabajador_confianza,
+                // V3 P2/T1 — mismo tratamiento histórico que es_trabajador_confianza.
+                'contabilizar_tardanzas' => $colaborador->contabilizar_tardanzas,
                 'vigencia_desde' => $datos['fecha_ingreso'],
             ]);
 
-            $colaborador->asignacionesHorario()->create([
-                'empresa_id' => $empresa->id,
-                'horario_id' => $datos['horario_id'],
-                'dias_descanso_rotativo_por_semana' => $datos['dias_descanso_rotativo_por_semana'] ?? null,
-                'vigencia_desde' => $datos['fecha_ingreso'],
-                'vigencia_hasta' => null,
-            ]);
+            // Sin horario_id no hay nada que asignar (V3 P3: trabajador de
+            // confianza puede no tenerlo) — se omite la fila en vez de
+            // forzar un valor.
+            if ($datos['horario_id'] ?? null) {
+                $colaborador->asignacionesHorario()->create([
+                    'empresa_id' => $empresa->id,
+                    'horario_id' => $datos['horario_id'],
+                    'dias_descanso_rotativo_por_semana' => $datos['dias_descanso_rotativo_por_semana'] ?? null,
+                    'vigencia_desde' => $datos['fecha_ingreso'],
+                    'vigencia_hasta' => null,
+                ]);
+            }
 
             // Se descarta cualquier día anterior a fecha_ingreso por
             // defensividad, aunque el frontend ya no debería enviarlos.
@@ -687,7 +774,7 @@ class ColaboradorService
         Empresa $empresa,
         int $sedeId,
         int $areaId,
-        int $horarioId,
+        ?int $horarioId,
         string $fechaIngreso,
     ): void
     {
@@ -696,6 +783,18 @@ class ColaboradorService
             ->where('activa', true)
             ->exists();
         $areaValida = Area::where('id', $areaId)->where('empresa_id', $empresa->id)->exists();
+
+        if (! $sedeValida || ! $areaValida) {
+            throw new AuthorizationException('La sede o área indicadas no pertenecen a la empresa activa.');
+        }
+
+        // Sin horario_id no hay nada que validar acá (V3 P3: trabajador de
+        // confianza puede no tenerlo) — StoreColaboradorRequest ya garantiza
+        // que solo llega null cuando es_trabajador_confianza=true.
+        if ($horarioId === null) {
+            return;
+        }
+
         // Horarios es un catálogo global (compartido entre empresas de un
         // mismo grupo) — no se restringe a esta empresa, solo se valida que
         // esté activo y vigente para la fecha de ingreso.
@@ -707,9 +806,6 @@ class ColaboradorService
                 ->orWhereDate('vigencia_hasta', '>=', $fechaIngreso))
             ->exists();
 
-        if (! $sedeValida || ! $areaValida) {
-            throw new AuthorizationException('La sede o área indicadas no pertenecen a la empresa activa.');
-        }
         if (! $horarioValido) {
             throw new AuthorizationException('El horario indicado no está activo o vigente para la fecha de ingreso.');
         }

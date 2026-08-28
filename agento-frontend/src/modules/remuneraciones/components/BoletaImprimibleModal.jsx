@@ -50,6 +50,16 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
 
   const conceptos = detalle?.conceptos ?? [];
   const esOficial = detalle?.estado === 'pagada';
+  // V3 R1 — la boleta entregada al trabajador solo muestra EsSalud en
+  // "Aportaciones", aunque el catálogo interno (ConceptoRemuneracion.tipo)
+  // siga clasificando CTS/gratificación/bonificación extraordinaria/
+  // vacaciones/SIS como 'aportacion' — eso NO se toca (sigue siendo
+  // correcto para PLAME, contabilidad y CalcularBoletaColaborador). Se
+  // filtra acá, en la presentación, por el código estable del catálogo
+  // (nunca por el nombre visible) para no depender de que "EsSalud" se siga
+  // llamando igual en el futuro.
+  const aportacionesVisibles = conceptos.filter((c) => c.tipo === 'aportacion' && c.codigo === 'ESSALUD');
+  const totalAportacionesVisibles = aportacionesVisibles.reduce((suma, c) => suma + Number(c.monto ?? 0), 0);
 
   return (
     <Modal
@@ -85,11 +95,14 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
 
           <BloqueImprimible titulo="Ingresos" lineas={conceptos.filter((c) => c.tipo === 'ingreso')} />
           <BloqueImprimible titulo="Egresos / descuentos" lineas={conceptos.filter((c) => c.tipo === 'egreso')} />
-          <BloqueImprimible titulo="Aportaciones del empleador" lineas={conceptos.filter((c) => c.tipo === 'aportacion')} />
+          <BloqueImprimible titulo="Aportaciones del empleador" lineas={aportacionesVisibles} />
 
           <div className="mt-3 space-y-1 border-t border-gray-200 pt-3 text-sm">
             <div className="flex justify-between"><span>Total ingresos</span><span className="font-semibold text-green-600">{soles(detalle.total_ingresos)}</span></div>
             <div className="flex justify-between"><span>Total descuentos</span><span className="font-semibold text-red-500">{soles(detalle.total_egresos)}</span></div>
+            {aportacionesVisibles.length > 0 && (
+              <div className="flex justify-between"><span>Total aportaciones (EsSalud)</span><span className="font-semibold text-gray-600">{soles(totalAportacionesVisibles)}</span></div>
+            )}
             <div className="flex justify-between text-base"><span className="font-semibold">Neto a pagar</span><span className="font-bold">{soles(detalle.neto_a_pagar)}</span></div>
           </div>
 

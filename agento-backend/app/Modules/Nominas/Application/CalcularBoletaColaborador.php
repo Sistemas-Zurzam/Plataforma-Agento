@@ -2,6 +2,8 @@
 
 namespace App\Modules\Nominas\Application;
 
+use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
+use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaOperacionService;
@@ -12,9 +14,11 @@ use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Configuracion\Models\ReglaDescuentoTardanza;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use RuntimeException;
 
 /**
@@ -33,6 +37,14 @@ class CalcularBoletaColaborador
      *   (colaborador_conceptos_periodo) y para excluir la boleta del propio
      *   ciclo del histórico de gratificaciones/renta anual. Null solo en
      *   contexto de prueba manual sin ciclo real todavía creado.
+     * @param  string|null  $fechaPago  V3 Fase 6F.2.3 — ciclo.fecha_pago,
+     *   ÚNICA fecha que debe usarse para resolver la Remuneración Máxima
+     *   Asegurable (RMA) de AFP_PRIMA_SEGURO (Fase 6F.2.2: la RMA está
+     *   normada como "vigente a la fecha de pago", a diferencia de RMV/UIT/
+     *   tasas, que siguen usando $fechaCorte sin cambios). Null solo en
+     *   flujos sin ciclo real (previsualización) — en ese caso se usa
+     *   $fechaCorte como estimación explícita, marcada en `alertas`, nunca
+     *   de forma silenciosa.
      * @return array{
      *   regimen_laboral: string, sueldo_basico: float, dias_pagados: float,
      *   asistencia_procesada: bool, dias_falta: float, minutos_tardanza: int,
@@ -41,7 +53,7 @@ class CalcularBoletaColaborador
      *   snapshot_parametros_version: string, snapshot_reglas_version: string, alertas: array<int, string>,
      * }
      */
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?string $fechaPago = null): array
     {
         $regimen = $colaborador->regimen_laboral ?: 'General';
         $calculadora = RegimenCalculatorFactory::paraRegimen($regimen);
@@ -60,28 +72,28 @@ class CalcularBoletaColaborador
         $sueldoBasico = (float) $remuneracion->salario;
         $alertas = [];
 
-        if ($colaborador->es_trabajador_confianza) {
-            // Trabajador de confianza: no importa si faltó ni si tuvo horas
-            // extra — se le paga el sueldo básico completo cada período, sin
-            // descuento por tardanza ni ingreso por horas extra. Los aportes
-            // obligatorios (AFP/ONP, EsSalud, renta 5ta) NO cambian por esto
-            // — siguen calculándose normal más abajo, porque dependen del
-            // sueldo básico completo, no de esta asistencia "neutral".
-            // Tampoco necesita asistencia procesada en absoluto para poder
-            // calcularle planilla (ni siquiera el rol de un horario rotativo).
-            $asistencia = $this->asistenciaNeutralConfianza();
-            $alertas[] = 'Trabajador de confianza — no se aplican descuentos por tardanza ni ingresos por horas extra; se paga el sueldo básico completo.';
-        } else {
-            $asistencia = $this->obtenerAsistenciaDelPeriodo($colaborador, $fechaInicio, $fechaFin);
+        // V3 P3/T1 — la condición de confianza SIEMPRE se resuelve por
+        // fecha dentro de obtenerAsistenciaDelPeriodo() (nunca acá con un
+        // solo booleano para todo el período): un cambio de condición a
+        // mitad de mes solo debe neutralizar los días posteriores a su
+        // vigencia real, nunca el mes completo retroactivamente.
+        $asistencia = $this->obtenerAsistenciaDelPeriodo($colaborador, $fechaInicio, $fechaFin);
 
-            if (! $asistencia['asistencia_procesada']) {
-                // El básico/tardanza de este cálculo se basan en 0 faltas y 0
-                // minutos de tardanza porque Asistencia todavía no procesó el
-                // período — NO porque el colaborador tenga asistencia perfecta.
-                // La UI debe mostrar "Sin procesar", nunca el número como si
-                // fuera un resultado confirmado.
-                $alertas[] = 'Asistencia del período aún no procesada — el cálculo asume 0 faltas y 0 minutos de tardanza hasta que se procese.';
-            }
+        $condicionVigenteCorte = ColaboradorCondicionLaboral::vigenteEn($colaborador->id, $fechaCorte);
+        if ($condicionVigenteCorte?->es_trabajador_confianza) {
+            // Los aportes obligatorios (AFP/ONP, EsSalud, renta 5ta) NO
+            // cambian por esto — siguen calculándose normal más abajo,
+            // dependen del sueldo básico completo, no de esta neutralización.
+            $alertas[] = 'Trabajador de confianza — no se aplican descuentos por tardanza, horario desplazado, horas incompletas ni ingresos por horas extra en los días bajo esa condición; se paga el sueldo básico completo.';
+        }
+
+        if (! $asistencia['asistencia_procesada']) {
+            // El básico/tardanza de este cálculo se basan en 0 faltas y 0
+            // minutos de tardanza porque Asistencia todavía no procesó el
+            // período — NO porque el colaborador tenga asistencia perfecta.
+            // La UI debe mostrar "Sin procesar", nunca el número como si
+            // fuera un resultado confirmado.
+            $alertas[] = 'Asistencia del período aún no procesada — el cálculo asume 0 faltas y 0 minutos de tardanza hasta que se procese.';
         }
         $ingresos = [];
         $egresos = [];
@@ -149,10 +161,19 @@ class CalcularBoletaColaborador
         $baseAfectaRenta5ta = $this->sumarPorFlag($ingresos, $catalogoIngresos, 'afecta_renta_5ta');
 
         // --- Egresos ---
-        foreach ($calculadora->calcularAporteAfpOnp($colaborador, $baseRemunerativa, $parametros, $fechaCorte) as $linea) {
-            $egresos[] = $linea;
-        }
-
+        // V3 Fase 6D/6F.1 — la tardanza se calcula ANTES de AFP/ONP (antes
+        // ocurría al revés) porque ONP, Renta 5ta y (desde Fase 6F.1) AFP
+        // necesitan consumir la base YA neta de tardanza — Informe SUNAT
+        // N.° 004-2014-SUNAT/5D0000, Conclusión 1, para ONP/Renta 5ta, y el
+        // Artículo 30 del TUO de la Ley del SPP (D.S. 054-97-EF) para AFP:
+        // "toda vez que ésta debe estar integrada únicamente por los
+        // importes que hubieren sido efectivamente percibidos".
+        //
+        // $asistencia['minutos_tardanza'] ya llega consolidado desde
+        // obtenerAsistenciaDelPeriodo() (HD aprobado, contabilizar_tardanzas
+        // = false y trabajador de confianza ya la neutralizan ahí) — por eso
+        // $tardanza['monto'] es directamente la tardanza REMUNERATIVA final,
+        // nunca los minutos brutos detectados por Asistencia.
         $reglasDescuentoTardanza = ReglaDescuentoTardanza::where('empresa_id', $colaborador->empresa_id)
             ->orderBy('orden')
             ->get(['minutos_desde', 'minutos_hasta', 'tipo', 'valor'])
@@ -161,23 +182,112 @@ class CalcularBoletaColaborador
         $tardanza = $calculadora->calcularDescuentoTardanza($sueldoBasico, $asistencia['minutos_tardanza'], $reglasDescuentoTardanza);
         $egresos[] = $tardanza;
 
-        $renta5ta = $this->calcularRenta5ta($colaborador, $baseAfectaRenta5ta, $parametros, $fechaCorte, $cicloId);
+        // V3 A10 — HI aprobado: el día se sigue pagando completo en
+        // calcularBasico() (sí asistió), y este descuento proporcional por
+        // los minutos de salida anticipada aprobados es lo que efectivamente
+        // deja el pago equivalente a "solo las horas trabajadas". Mismo
+        // divisor que la tardanza (sueldo/240/60) — no se inventa uno nuevo.
+        //
+        // V3 Fase 6A — a diferencia de DESCUENTO_TARDANZA (que sí tiene
+        // codigo_plame configurado y por eso puede mostrarse siempre en
+        // S/0.00 sin problema), este concepto todavía no tiene clasificación
+        // PLAME homologada. calcularDescuentoHorasIncompletas() SIEMPRE
+        // devuelve una línea (por diseño, no se toca esa fórmula) — pero acá
+        // solo se agrega a egresos (y por tanto solo se persiste en
+        // boleta_conceptos) cuando el monto es efectivamente > 0. Mismo
+        // patrón ya usado en este método para asignación familiar/renta 5ta
+        // (conceptos opcionales que solo se agregan si aplican), no una
+        // abstracción nueva. Sin esta guarda, CADA boleta —tuviera HI o
+        // no— quedaba con una fila S/0.00 sin codigo_plame, y
+        // PlameValidator bloqueaba el .rem de absolutamente todas. El código
+        // PLAME de este concepto sigue sin homologar (V3 Fase 6B) — eso NO
+        // cambia acá, solo su efecto sobre las bases previsionales (6E.1).
+        $horasIncompletas = $calculadora->calcularDescuentoHorasIncompletas($sueldoBasico, $asistencia['minutos_horas_incompletas_aprobadas']);
+        if ((float) $horasIncompletas['monto'] > 0) {
+            $egresos[] = $horasIncompletas;
+        }
+
+        // V3 Fase 6E.1/6F.1 — tardanza e HI remunerativas se calculan ANTES
+        // de AFP/ONP (y se suman en un solo descuento) porque ONP, EsSalud,
+        // Renta 5ta y (desde Fase 6F.1) AFP deben consumir la base ya neta de
+        // AMBAS. Fundamento: Informe SUNAT 004-2014-SUNAT/5D0000 (ONP/Renta
+        // 5ta, tardanza y permisos) + definición SUNAT de la base de EsSalud
+        // como "remuneración DEVENGADA en el mes" (Fase 6E) + Artículo 30 del
+        // TUO de la Ley del SPP — D.S. 054-97-EF (Fase 6F): la remuneración
+        // asegurable es "el total de las rentas... percibidas en dinero" —
+        // el mismo test de "percibido/devengado" que ya se aplicó a
+        // ESSALUD/ONP/Quinta, ahora también a AFP. Un trabajador con
+        // tardanza o HI aprobada no percibió ni devengó esos minutos, así
+        // que tampoco forman parte de ninguna de las 4 bases.
+        //
+        // $asistencia['minutos_tardanza'] y
+        // $asistencia['minutos_horas_incompletas_aprobadas'] ya llegan
+        // consolidados desde obtenerAsistenciaDelPeriodo() (HD aprobado,
+        // contabilizar_tardanzas=false y confianza ya los neutralizan ahí) —
+        // por eso $tardanza['monto']/$horasIncompletas['monto'] son
+        // directamente el descuento REMUNERATIVO final de cada uno, nunca
+        // los minutos brutos detectados por Asistencia. HI pendiente o
+        // rechazada ya llega en 0 desde ese mismo punto (V3 A2/T2, mismo
+        // criterio que HE), por lo que nunca reduce estas bases.
+        $descuentoRemunerativoAsistencia = $tardanza['monto'] + $horasIncompletas['monto'];
+        $baseRemunerativaNetaAsistencia = max(0, $baseRemunerativa - $descuentoRemunerativoAsistencia);
+        // Renta 5ta usa su propio flag (afecta_renta_5ta), distinto de
+        // es_remunerativo_laboral — no necesariamente suman lo mismo (ej. un
+        // concepto puede ser remunerativo pero no afecto a renta 5ta, o
+        // viceversa), así que se resuelve como una base separada, no
+        // reutilizando $baseRemunerativaNetaAsistencia.
+        $baseAfectaRenta5taNetaAsistencia = max(0, $baseAfectaRenta5ta - $descuentoRemunerativoAsistencia);
+
+        // V3 Fase 6F.1 — ONP y AFP ya usan la misma base neta de asistencia
+        // (Art. 30 TUO SPP homologado en Fase 6F), así que la distinción por
+        // sistema_previsional que existía desde la Fase 6D ya no aplica acá
+        // — se retira en vez de mantenerla sin uso real.
+        //
+        // V3 Fase 6F.2.1 — la Remuneración Máxima Asegurable (RMA) SOLO se
+        // resuelve para afiliados AFP: ONP nunca la usa (su rama ni siquiera
+        // recibe el parámetro dentro de calcularAporteAfpOnp()), así que
+        // consultarla únicamente en la rama AFP evita que la ausencia de
+        // este parámetro bloquee a colaboradores ONP o cualquier otro flujo
+        // que no la necesite (Fase 6F.2, Sección 14).
+        //
+        // V3 Fase 6F.2.3 — la RMA se resuelve por $fechaPago (ciclo.fecha_pago),
+        // NUNCA por $fechaCorte — son fechas distintas a propósito (Fase
+        // 6F.2.2). Una boleta real siempre trae $fechaPago (columna
+        // required desde la creación del ciclo); solo la previsualización
+        // sin ciclo (BoletaService::previsualizarPlanilla()) no la tiene,
+        // y en ese caso se usa $fechaCorte como estimación EXPLÍCITA — vía
+        // `alertas`, el mismo mecanismo ya usado para otras advertencias no
+        // vinculantes de este método (ej. "asistencia aún no procesada") —
+        // nunca de forma silenciosa.
+        $fechaRma = $fechaPago ?? $fechaCorte;
+        if ($colaborador->sistema_previsional !== 'onp' && $fechaPago === null) {
+            $alertas[] = 'Fecha de pago no disponible (cálculo sin ciclo real) — la Remuneración Máxima Asegurable (RMA) de la prima AFP se estimó usando la fecha de corte de asistencia; el monto real puede variar si la fecha de pago efectiva cae en un trimestre distinto de RMA.';
+        }
+        $rmaAfp = $colaborador->sistema_previsional === 'onp'
+            ? null
+            : ParametrosVigentesResolver::rmaAfp($colaborador->empresa, $regimen, $fechaRma);
+
+        foreach ($calculadora->calcularAporteAfpOnp($colaborador, $baseRemunerativaNetaAsistencia, $parametros, $fechaCorte, $rmaAfp) as $linea) {
+            $egresos[] = $linea;
+        }
+
+        // V3 Fase 6D/6E.1 — misma lógica que ONP, con su propia base
+        // (afecta_renta_5ta) ya neta de tardanza e HI: el Informe SUNAT
+        // 004-2014-SUNAT/5D0000 cubre explícitamente Renta de 5ta junto con
+        // ESSALUD/ONP. $baseAfectaRenta5taNetaAsistencia es el parámetro que
+        // calcularRenta5ta() usa como "ingreso mensual afecto" tanto para el
+        // mes en curso como para la proyección de gratificación — no hay
+        // reconstrucción interna de la base que este cambio deje sin efecto.
+        $renta5ta = $this->calcularRenta5ta($colaborador, $baseAfectaRenta5taNetaAsistencia, $parametros, $fechaCorte, $cicloId);
         if ($renta5ta) {
             $egresos[] = $renta5ta;
         }
 
         // --- Aportaciones ---
-        // BLOQUEANTE DE DEFINICIÓN NORMATIVA reportado, no resuelto en
-        // silencio: la Sección 2.5 dice textualmente que la tardanza "no
-        // afecta la base remunerativa de AFP/EsSalud". Pero el caso numérico
-        // verificado de la Sección 2.13 SÍ resta la tardanza de la base usada
-        // para EsSalud (1,518.75 − 0.83 = 1,517.92) para llegar a S/136.62.
-        // Se replica aquí el caso numérico —el propio documento lo marca como
-        // el que hay que cuadrar "al centavo"— no el texto. Esta es la única
-        // línea a invertir (quitar "- $tardanza['monto']") si se confirma que
-        // el texto es la regla correcta.
-        $baseEsSalud = $baseRemunerativa - $tardanza['monto'];
-        $essalud = $calculadora->calcularEsSalud($baseEsSalud, $parametros, $colaborador->empresa->seguro_salud);
+        // V3 Fase 6D/6E.1 — EsSalud ya restaba la tardanza desde antes; ahora
+        // reutiliza $baseRemunerativaNetaAsistencia (tardanza + HI, calculada
+        // una sola vez más arriba) en vez de repetir la resta acá.
+        $essalud = $calculadora->calcularEsSalud($baseRemunerativaNetaAsistencia, $parametros, $colaborador->empresa->seguro_salud);
         $aportaciones[] = $essalud['linea'];
         if ($essalud['piso_activado']) {
             $alertas[] = 'Se aplicó el piso legal de EsSalud (9% de la RMV vigente) porque el cálculo sobre la base remunerativa fue menor.';
@@ -350,22 +460,6 @@ class CalcularBoletaColaborador
     }
 
     /**
-     * @return array{asistencia_procesada: bool, dias_falta: float, horas_permiso_sin_goce: float, minutos_tardanza: int, horas_he25: float, horas_he35: float, horas_he100: float}
-     */
-    private function asistenciaNeutralConfianza(): array
-    {
-        return [
-            'asistencia_procesada' => true,
-            'dias_falta' => 0.0,
-            'horas_permiso_sin_goce' => 0.0,
-            'minutos_tardanza' => 0,
-            'horas_he25' => 0.0,
-            'horas_he35' => 0.0,
-            'horas_he100' => 0.0,
-        ];
-    }
-
-    /**
      * @return array{dias_falta: float, horas_permiso_sin_goce: float, minutos_tardanza: int, horas_he25: float, horas_he35: float, horas_he100: float}
      */
     private function obtenerAsistenciaDelPeriodo(Colaborador $colaborador, string $fechaInicio, string $fechaFin): array
@@ -376,6 +470,34 @@ class CalcularBoletaColaborador
 
         $this->verificarRolRotativoCompleto($colaborador, $fechaInicio, $fechaFin, $resultados);
 
+        // V3 P3/T1 — días donde el colaborador fue trabajador de confianza
+        // según su HISTORIAL real (nunca colaborador.es_trabajador_confianza
+        // actual) quedan fuera de todo efecto remunerativo de asistencia
+        // (falta/tardanza/HD/HI/HE) — pero siguen contando como día pagado
+        // (no se excluyen de dias_pagados, solo de los descuentos/ingresos
+        // derivados de asistencia). Respeta un cambio de condición a mitad
+        // de período: solo los días bajo la vigencia confianza se filtran.
+        $fechasConfianza = $this->fechasConCondicionLaboral(
+            $colaborador, $fechaInicio, $fechaFin, fn (ColaboradorCondicionLaboral $c) => (bool) $c->es_trabajador_confianza
+        );
+        $resultadosControlados = $fechasConfianza->isEmpty()
+            ? $resultados
+            : $resultados->reject(fn (AsistenciaResultadoDiario $r) => $fechasConfianza->contains($r->fecha->toDateString()));
+
+        // V3 P2/T1 — "contabilizar_tardanzas" resuelto por HISTORIAL (nunca
+        // el valor actual), mismo criterio que confianza: un cambio a mitad
+        // de mes solo afecta los días posteriores a su vigencia. Por
+        // defecto (fila sin valor, ej. históricos previos a esta migración)
+        // se asume true — NO excluir — igual que el default real de la
+        // columna en `colaboradores` (default true).
+        $fechasSinContabilizarTardanzas = $this->fechasConCondicionLaboral(
+            $colaborador, $fechaInicio, $fechaFin,
+            fn (ColaboradorCondicionLaboral $c) => $c->contabilizar_tardanzas === false
+        );
+
+        // Permisos sin goce NO se neutralizan por confianza — es una
+        // decisión funcional explícita (V3 Sección 31): la condición solo
+        // cubre falta/tardanza/HD/HI/HE, nunca una licencia formal.
         $horasPermisoSinGoce = AsistenciaPermiso::where('colaborador_id', $colaborador->id)
             ->where('estado', 'aprobado')
             ->where('con_goce', false)
@@ -389,23 +511,144 @@ class CalcularBoletaColaborador
                 return max(0, $desde->diffInDays($hasta) + 1) * 8;
             });
 
+        // Las horas extra NUNCA se leen de AsistenciaResultadoDiario.minutos_extra_*
+        // para efectos de pago: esas columnas son la detección automática de
+        // ProcesarAsistenciaDiaria (dato operativo para que Asistencia muestre
+        // "posible HE"), no una aprobación. La única fuente de verdad para
+        // Nómina es AsistenciaHoraExtra.estado='aprobado' con sus
+        // minutos_aprobados — pendientes y rechazadas pagan 0 (V3 A2/T2).
+        $minutosHeAprobados = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
+            ->whereBetween('fecha', [$fechaInicio, $fechaFin])
+            ->where('estado', 'aprobado')
+            ->when($fechasConfianza->isNotEmpty(), fn ($q) => $q->whereNotIn('fecha', $fechasConfianza->all()))
+            ->selectRaw('tasa, SUM(minutos_aprobados) as minutos')
+            ->groupBy('tasa')
+            ->pluck('minutos', 'tasa');
+
+        // HD/HI (V3 A7/A9/A10): igual que con HE, el dato DETECTADO
+        // (minutos_tardanza / minutos_salida_anticipada en el resultado
+        // diario) nunca se usa directo para pagar — solo la DECISIÓN de
+        // RR.HH. sobre la incidencia (AsistenciaIncidencia.estado) decide el
+        // efecto remunerativo final. Pendiente o rechazada = sin efecto
+        // especial (se mantiene el comportamiento de hoy).
+        $incidenciasHdHi = AsistenciaIncidencia::where('colaborador_id', $colaborador->id)
+            ->whereBetween('fecha', [$fechaInicio, $fechaFin])
+            ->whereIn('tipo', [AsistenciaIncidencia::TIPO_HORARIO_DESPLAZADO, AsistenciaIncidencia::TIPO_HORAS_INCOMPLETAS])
+            ->where('estado', AsistenciaIncidencia::ESTADO_RESUELTA)
+            ->when($fechasConfianza->isNotEmpty(), fn ($q) => $q->whereNotIn('fecha', $fechasConfianza->all()))
+            ->get(['resultado_diario_id', 'tipo']);
+        $resultadosHdAprobado = $incidenciasHdHi->where('tipo', AsistenciaIncidencia::TIPO_HORARIO_DESPLAZADO)
+            ->pluck('resultado_diario_id')->flip();
+        $resultadosHiAprobado = $incidenciasHdHi->where('tipo', AsistenciaIncidencia::TIPO_HORAS_INCOMPLETAS)
+            ->pluck('resultado_diario_id')->flip();
+
+        // HD aprobado: la tardanza detectada ese día deja de descontarse
+        // ("presente sin tardanza para nómina" — el dato bruto en
+        // AsistenciaResultadoDiario NO se toca, solo se excluye acá).
+        // Prioridad (V3 Sección 21): HD aprobado siempre gana — si el día
+        // ya no genera descuento por HD, la regla de contabilizar_tardanzas
+        // no tiene nada que anular encima (no hay doble negación, solo se
+        // evalúa la condición extra cuando HD no aplicó).
+        $minutosTardanza = (int) $resultadosControlados->sum(function (AsistenciaResultadoDiario $r) use ($resultadosHdAprobado, $fechasSinContabilizarTardanzas) {
+            if ($resultadosHdAprobado->has($r->id)) {
+                return 0;
+            }
+            if ($fechasSinContabilizarTardanzas->contains($r->fecha->toDateString())) {
+                return 0;
+            }
+
+            return $r->minutos_tardanza;
+        });
+        // HI aprobado: los minutos de salida anticipada de ESE día entran al
+        // descuento proporcional (Sección PlanillaDependienteCalculator).
+        // No se solapan con la tardanza: cada uno cubre un extremo distinto
+        // de la jornada (llegada tarde vs. salida temprana).
+        $minutosHorasIncompletasAprobadas = (int) $resultadosControlados->sum(
+            fn (AsistenciaResultadoDiario $r) => $resultadosHiAprobado->has($r->id) ? $r->minutos_salida_anticipada : 0
+        );
+
         return [
             'asistencia_procesada' => $resultados->isNotEmpty(),
-            'dias_falta' => (float) $resultados->where('estado', 'falta')->count(),
+            'dias_falta' => (float) $resultadosControlados->where('estado', 'falta')->count(),
             'horas_permiso_sin_goce' => (float) $horasPermisoSinGoce,
-            'minutos_tardanza' => (int) $resultados->sum('minutos_tardanza'),
-            'horas_he25' => round($resultados->sum('minutos_extra_25') / 60, 2),
-            'horas_he35' => round($resultados->sum('minutos_extra_35') / 60, 2),
-            'horas_he100' => round($resultados->sum('minutos_extra_100') / 60, 2),
+            'minutos_tardanza' => $minutosTardanza,
+            'minutos_horas_incompletas_aprobadas' => $minutosHorasIncompletasAprobadas,
+            'horas_he25' => round((float) ($minutosHeAprobados['25'] ?? 0) / 60, 2),
+            'horas_he35' => round((float) ($minutosHeAprobados['35'] ?? 0) / 60, 2),
+            'horas_he100' => round((float) ($minutosHeAprobados['100'] ?? 0) / 60, 2),
         ];
     }
 
     /**
-     * Un horario rotativo nunca calcula planilla con huecos — si falta
-     * declarar el rol de algún día del período, se rechaza el cálculo
-     * completo de este colaborador en vez de omitir esos días en silencio
+     * V3 P3/T1/P2 — reconstruye, día por día dentro del rango, en cuáles el
+     * colaborador cumplía una condición laboral según su HISTORIAL real
+     * (ColaboradorCondicionLaboral, append-only por vigencia_desde) — nunca
+     * el valor mutable actual del colaborador. Necesario para que un cambio
+     * de condición a mitad de período (Sección 25 del encargo P3, mismo
+     * criterio aplicado a "contabilizar_tardanzas" en P2) solo afecte los
+     * días posteriores a su vigencia, nunca el período completo.
+     *
+     * Genérico por predicado (en vez de duplicar este recorrido para cada
+     * campo histórico que necesite esta misma reconstrucción por fecha) —
+     * hoy lo usan trabajador de confianza y contabilizar_tardanzas.
+     *
+     * @param  callable(ColaboradorCondicionLaboral): bool  $predicado
+     * @return Collection<int, string> fechas Y-m-d
+     */
+    private function fechasConCondicionLaboral(Colaborador $colaborador, string $fechaInicio, string $fechaFin, callable $predicado): Collection
+    {
+        $condiciones = ColaboradorCondicionLaboral::where('colaborador_id', $colaborador->id)
+            ->whereDate('vigencia_desde', '<=', $fechaFin)
+            ->orderBy('vigencia_desde')
+            ->orderBy('id')
+            ->get(['es_trabajador_confianza', 'contabilizar_tardanzas', 'vigencia_desde']);
+
+        if ($condiciones->isEmpty()) {
+            return collect();
+        }
+
+        $fechas = collect();
+        $inicioPeriodo = Carbon::parse($fechaInicio);
+        $finPeriodo = Carbon::parse($fechaFin);
+
+        foreach ($condiciones as $indice => $condicion) {
+            if (! $predicado($condicion)) {
+                continue;
+            }
+
+            $desde = $condicion->vigencia_desde->max($inicioPeriodo);
+            $siguiente = $condiciones->get($indice + 1);
+            $hasta = $siguiente ? $siguiente->vigencia_desde->copy()->subDay()->min($finPeriodo) : $finPeriodo;
+
+            if ($desde->gt($hasta)) {
+                continue;
+            }
+
+            for ($fecha = $desde->copy(); $fecha->lte($hasta); $fecha->addDay()) {
+                $fechas->push($fecha->toDateString());
+            }
+        }
+
+        return $fechas;
+    }
+
+    /**
+     * Un horario rotativo nunca calcula planilla con días sin clasificar —
+     * si falta declarar el rol de algún día del período, se rechaza el
+     * cálculo completo de este colaborador en vez de omitirlo en silencio
      * (Sección: rotativos, cero inferencia — un día sin rol no es lo mismo
      * que un día sin marcaciones).
+     *
+     * V3 Rotativo Fase 1 — antes esto se detectaba por AUSENCIA de fila en
+     * AsistenciaResultadoDiario (ProcesarAsistenciaDiaria abortaba antes de
+     * persistir un día "sin_rol_definido"). Ahora ProcesarAsistenciaDiaria
+     * SIEMPRE persiste un resultado (con
+     * estado=AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR cuando no hay
+     * planificación), así que la señal correcta es ese estado, no la
+     * ausencia de la fila. Se mantiene esta verificación como defensa en
+     * profundidad (el gate de enviar_nomina en AsistenciaPeriodoService ya
+     * bloquea el envío con incidencias pendientes, pero un cálculo/
+     * recálculo de boleta puede dispararse sobre un ciclo aún no cerrado).
      */
     private function verificarRolRotativoCompleto(Colaborador $colaborador, string $fechaInicio, string $fechaFin, $resultados): void
     {
@@ -425,12 +668,14 @@ class CalcularBoletaColaborador
             return;
         }
 
-        $fechasConResultado = $resultados->pluck('fecha')->map(fn (Carbon $fecha) => $fecha->toDateString())->flip();
+        $resultadosPorFecha = $resultados->keyBy(fn ($r) => $r->fecha->toDateString());
 
         for ($fecha = $desde->copy(); $fecha->lte($hasta); $fecha->addDay()) {
-            if (! $fechasConResultado->has($fecha->toDateString())) {
+            $fechaTexto = $fecha->toDateString();
+            $resultado = $resultadosPorFecha->get($fechaTexto);
+            if ($resultado === null || $resultado->estado === AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR) {
                 throw new RuntimeException(
-                    "El colaborador #{$colaborador->id} tiene horario rotativo y le falta declarar el rol de turnos del {$fecha->toDateString()} — no se puede calcular su planilla hasta que se complete.",
+                    "El colaborador #{$colaborador->id} tiene horario rotativo y le falta declarar el rol de turnos del {$fechaTexto} — no se puede calcular su planilla hasta que se complete.",
                 );
             }
         }

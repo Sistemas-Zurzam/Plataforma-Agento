@@ -82,6 +82,15 @@ export function useColaboradores() {
     return data.data;
   }, []);
 
+  // V3 P4/P5 — mismo endpoint que ya usa ConfiguracionNominaModal desde
+  // Remuneraciones (ColaboradorController::actualizarConfiguracionNomina) —
+  // se replica acá para que Personas no dependa de un hook de otro módulo,
+  // pero sin duplicar ninguna lógica de negocio (vive toda en el backend).
+  const actualizarConfiguracionNomina = useCallback(async (colaboradorId, values) => {
+    const { data } = await api.put(`/colaboradores/${colaboradorId}/configuracion-nomina`, values);
+    return data.data;
+  }, []);
+
   const actualizarRemuneracion = useCallback(async (colaboradorId, values) => {
     const { data } = await api.put(`/colaboradores/${colaboradorId}/remuneracion`, values);
     return data.data;
@@ -175,6 +184,7 @@ export function useColaboradores() {
     actualizarCalendario,
     actualizarHorario,
     actualizarColaborador,
+    actualizarConfiguracionNomina,
     actualizarRemuneracion,
     cesarColaborador,
     eliminarColaborador,

@@ -1,10 +1,11 @@
-import { BankOutlined, IdcardOutlined, TeamOutlined, WalletOutlined } from '@ant-design/icons';
-import { DatePicker, Form, Input, InputNumber, Modal, Select, Tabs } from 'antd';
+import { BankOutlined, IdcardOutlined, SafetyCertificateOutlined, TeamOutlined, WalletOutlined } from '@ant-design/icons';
+import { Checkbox, DatePicker, Form, Input, InputNumber, Modal, Select, Tabs } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import AreaSelect from '../../configuracion/components/AreaSelect';
 import SedeSelect from '../../configuracion/components/SedeSelect';
 import { REGIMEN_OPTIONS } from '../../configuracion/constants/regimenLaboral';
+import { useAfps } from '../../configuracion/hooks/useAfps';
 import {
   BANCO_OPTIONS, CATEGORIA_TRABAJADOR_OPTIONS, MONEDA_OPTIONS, PERIODICIDAD_OPTIONS, TIPO_CONTRATO_OPTIONS, TIPO_CUENTA_OPTIONS, TIPO_DOCUMENTO_OPTIONS, TIPO_DOCUMENTO_OPTIONS_LOCADOR,
 } from '../constants/opciones';
@@ -17,20 +18,42 @@ import {
  */
 const CAMPOS_POR_TAB = {
   personal: ['nombres', 'apellido_paterno', 'apellido_materno', 'tipo_documento', 'numero_documento', 'fecha_nacimiento', 'email', 'celular_colaborador', 'celular_referencia', 'direccion'],
-  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_fin_contrato'],
+  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_fin_contrato', 'es_trabajador_confianza', 'contabilizar_tardanzas'],
+  previsional: ['sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_suspension_renta_4ta'],
   remuneracion: ['salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'vigencia_desde'],
   bancarios: ['banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
 };
 
-export default function EditarColaboradorModal({ open, colaborador, submitting, onGuardar, onCancel }) {
+/**
+ * V3 P4/P5 — CUSPP/AFP/tipo de comisión/suspensión de 4ta viven acá Y en
+ * ConfiguracionNominaModal (Remuneraciones): AMBOS escriben al mismo
+ * endpoint (`PUT /colaboradores/{id}/configuracion-nomina` →
+ * ColaboradorController::actualizarConfiguracionNomina(), que ya historiza
+ * en ColaboradorCondicionLaboral) — no hay dos fuentes de verdad ni dos
+ * reglas distintas, solo dos puntos de entrada a la MISMA lógica. No se
+ * eliminó ConfiguracionNominaModal porque sigue siendo el único lugar para
+ * regimen_laboral (ya vive también en la pestaña "Datos laborales" de este
+ * formulario, sin duplicar) y tiene_hijos_asignacion_familiar (fuera del
+ * alcance explícito de esta fase). Ese endpoint requiere el permiso
+ * `nominas.gestionar_ciclos` — la pestaña completa se oculta sin él, en vez
+ * de mostrar campos que el backend rechazaría con 403.
+ */
+export default function EditarColaboradorModal({ open, colaborador, user, submitting, onGuardar, onCancel }) {
   const [form] = Form.useForm();
   const [tabActiva, setTabActiva] = useState('personal');
+  const { afps, fetchAfps } = useAfps();
   const tipoContrato = Form.useWatch('tipo_contrato', form);
+  const regimenLaboral = Form.useWatch('regimen_laboral', form);
+  const sistemaPrevisional = Form.useWatch('sistema_previsional', form);
   const vigente = colaborador?.remuneracion;
+  const puedeGestionarNomina = user?.role === 'administrador' || user?.permisos?.includes('nominas.gestionar_ciclos');
+  const esHonorarios = regimenLaboral === 'Locacion de Servicios';
+  const esAfp = !esHonorarios && sistemaPrevisional && sistemaPrevisional !== 'onp';
 
   useEffect(() => {
     if (!open || !colaborador) return;
     setTabActiva('personal');
+    if (puedeGestionarNomina) fetchAfps();
     form.setFieldsValue({
       ...colaborador,
       sede_id: colaborador.sede?.id,
@@ -43,11 +66,13 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
       asignacion_familiar: vigente?.asignacion_familiar ?? 0,
       vigencia_desde: dayjs(),
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, colaborador, vigente, form]);
 
   const guardar = (values) => {
     const {
       salario, moneda_salario, periodicidad_pago, asignacion_familiar, vigencia_desde,
+      sistema_previsional, afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta,
       ...datosBasicos
     } = values;
 
@@ -69,6 +94,11 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
       },
       remuneracionCambio
         ? { salario, moneda_salario, periodicidad_pago, asignacion_familiar, vigencia_desde: vigencia_desde?.format('YYYY-MM-DD') ?? dayjs().format('YYYY-MM-DD') }
+        : null,
+      // V3 P4/P5 — null cuando el usuario no puede gestionar nómina (la
+      // pestaña ni siquiera se renderizó, no hay nada que guardar acá).
+      puedeGestionarNomina
+        ? { regimen_laboral: regimenLaboral, sistema_previsional, afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta }
         : null,
     );
   };
@@ -138,9 +168,77 @@ export default function EditarColaboradorModal({ open, colaborador, submitting, 
             </Form.Item>
           )}
           <Form.Item label="Fin de contrato" name="fecha_fin_contrato" rules={[{ required: tipoContrato === 'plazo_fijo', message: 'Requerido para plazo fijo' }]} className="sm:col-span-2"><DatePicker className="w-full" format="DD/MM/YYYY" /></Form.Item>
+          <Form.Item
+            name="es_trabajador_confianza"
+            valuePropName="checked"
+            extra="No se le descuenta por faltas, tardanzas, horario desplazado ni horas incompletas, no se le paga horas extra — se le paga su sueldo básico completo cada período. AFP/ONP, EsSalud y renta 5ta se siguen calculando normal."
+            className="sm:col-span-2"
+          >
+            <Checkbox>Trabajador de confianza</Checkbox>
+          </Form.Item>
+          {/* V3 P2 — antes era un flag huérfano (se guardaba pero
+              CalcularBoletaColaborador nunca lo leía); ahora sí determina si
+              la tardanza detectada tiene efecto remunerativo. */}
+          <Form.Item
+            name="contabilizar_tardanzas"
+            valuePropName="checked"
+            extra="Si está desactivado, las tardanzas seguirán registrándose en Asistencia, pero no generarán descuento en la nómina."
+            className="sm:col-span-2"
+          >
+            <Checkbox>Contabilizar tardanzas</Checkbox>
+          </Form.Item>
         </div>
       ),
     },
+    ...(puedeGestionarNomina ? [{
+      key: 'previsional',
+      forceRender: true,
+      label: <span><SafetyCertificateOutlined /> Previsional</span>,
+      children: (
+        <div className="grid gap-x-3 sm:grid-cols-2">
+          {esHonorarios ? (
+            <Form.Item name="tiene_suspension_renta_4ta" valuePropName="checked" className="sm:col-span-2">
+              <Checkbox>¿Presentó suspensión de retenciones de cuarta categoría?</Checkbox>
+            </Form.Item>
+          ) : (
+            <>
+              <Form.Item
+                name="sistema_previsional"
+                label="Sistema previsional"
+                rules={[{ required: true, message: 'Selecciona ONP o una AFP' }]}
+                className="sm:col-span-2"
+              >
+                <Select
+                  options={[{ value: 'onp', label: 'ONP' }, ...afps.map((afp) => ({ value: afp.clave, label: `AFP ${afp.nombre}` }))]}
+                  onChange={(value) => { if (value === 'onp') form.setFieldsValue({ afp_id: undefined, tipo_comision: undefined, cuspp: '' }); }}
+                />
+              </Form.Item>
+              {esAfp && (
+                <>
+                  <Form.Item name="afp_id" label="Administradora" rules={[{ required: true, message: 'Requerido' }]}>
+                    <Select options={afps.map((afp) => ({ value: afp.id, label: afp.nombre }))} />
+                  </Form.Item>
+                  <Form.Item name="tipo_comision" label="Tipo de comisión" rules={[{ required: true, message: 'Requerido' }]}>
+                    <Select options={[{ value: 'flujo', label: 'Comisión por flujo' }, { value: 'mixta', label: 'Comisión mixta' }]} />
+                  </Form.Item>
+                  <Form.Item
+                    name="cuspp"
+                    label="CUSPP"
+                    className="sm:col-span-2"
+                    rules={[
+                      { required: true, message: 'El CUSPP es obligatorio para AFP' },
+                      { len: 12, message: 'El CUSPP debe tener exactamente 12 caracteres (requerido por PLAME)' },
+                    ]}
+                  >
+                    <Input placeholder="Código único del SPP (12 caracteres)" maxLength={12} />
+                  </Form.Item>
+                </>
+              )}
+            </>
+          )}
+        </div>
+      ),
+    }] : []),
     {
       key: 'remuneracion',
       forceRender: true,
