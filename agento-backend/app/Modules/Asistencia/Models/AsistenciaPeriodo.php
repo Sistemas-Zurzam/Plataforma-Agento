@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'empresa_id', 'fecha_inicio', 'fecha_fin', 'estado', 'cerrado_at',
     'cerrado_por', 'reabierto_at', 'reabierto_por', 'enviado_nomina_at',
     'enviado_nomina_por', 'snapshot_nomina', 'version',
+    'cobertura_estado', 'cobertura_iniciado_at', 'cobertura_finalizado_at', 'cobertura_resultado',
 ])]
 class AsistenciaPeriodo extends Model
 {
@@ -29,6 +30,9 @@ class AsistenciaPeriodo extends Model
             'reabierto_at' => 'datetime',
             'enviado_nomina_at' => 'datetime',
             'snapshot_nomina' => 'array',
+            'cobertura_iniciado_at' => 'datetime',
+            'cobertura_finalizado_at' => 'datetime',
+            'cobertura_resultado' => 'array',
         ];
     }
 

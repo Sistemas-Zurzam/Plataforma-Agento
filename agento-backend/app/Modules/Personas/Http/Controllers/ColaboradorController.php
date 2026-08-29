@@ -176,7 +176,7 @@ class ColaboradorController extends Controller
         );
     }
 
-    public function actualizarHorario(Request $request, Colaborador $colaborador): ColaboradorResource
+    public function actualizarHorario(Request $request, Colaborador $colaborador): JsonResponse|ColaboradorResource
     {
         $datos = $request->validate([
             'horario_id' => ['required', 'integer', 'exists:horarios,id'],
@@ -189,6 +189,12 @@ class ColaboradorController extends Controller
             // horario actual) apuntando a un horario que todavía no aplica.
             'vigencia_desde' => ['required', 'date', 'before_or_equal:today'],
             'vigencia_hasta' => ['nullable', 'date', 'after_or_equal:vigencia_desde'],
+            // Fase 4C — el backend nunca confía en una confirmación
+            // puramente de frontend: esta es la única señal que acepta, y
+            // solo sirve para decir "soy consciente de que se
+            // conservarán excepciones humanas/legacy", nunca para elegir
+            // qué se invalida ni de qué empresa.
+            'confirmar_planificacion_existente' => ['nullable', 'boolean'],
         ]);
 
         $horarioSeleccionado = Horario::find($datos['horario_id']);
@@ -198,9 +204,16 @@ class ColaboradorController extends Controller
             ]);
         }
 
-        return new ColaboradorResource(
-            $this->colaboradores->actualizarHorario($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos),
+        $resultado = $this->colaboradores->actualizarHorario(
+            $this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos,
+            $request->user('api')->id, $request->boolean('confirmar_planificacion_existente'),
         );
+
+        if (is_array($resultado)) {
+            return response()->json($resultado, 409);
+        }
+
+        return new ColaboradorResource($resultado);
     }
 
     public function actualizarRemuneracion(Request $request, Colaborador $colaborador): ColaboradorResource
@@ -280,12 +293,10 @@ class ColaboradorController extends Controller
             'fecha_fin_contrato' => ['nullable', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'required_if:tipo_contrato,plazo_fijo'],
             // V3 P3 — antes solo editable en Crear.
             'es_trabajador_confianza' => ['nullable', 'boolean'],
-            // V3 P2 — "contabilizar_tardanzas" ahora tiene efecto real en
-            // nómina (ver CalcularBoletaColaborador), por eso pasa a ser
-            // editable acá igual que en Crear. contabilizar_horas_extra se
-            // homologa por consistencia de formulario (P1), pero sigue sin
-            // efecto en el cálculo — huérfano, fuera de alcance de esta fase.
+            // Configuración individual de efectos remunerativos de Asistencia.
+            // Los tres valores quedan historizados por vigencia laboral.
             'contabilizar_tardanzas' => ['nullable', 'boolean'],
+            'contabilizar_faltas' => ['nullable', 'boolean'],
             'contabilizar_horas_extra' => ['nullable', 'boolean'],
             'banco' => ['nullable', 'string', 'max:255'],
             'numero_cuenta' => ['nullable', 'string', 'max:255'],

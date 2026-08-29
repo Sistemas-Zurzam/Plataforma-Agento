@@ -22,7 +22,7 @@ class ColaboradorXlsxReader
         'fecha_ingreso', 'fecha_fin_contrato', 'salario', 'moneda_salario', 'periodicidad_pago',
         'asignacion_familiar', 'sistema_previsional',
         'pais_residencia', 'ciudad_residencia', 'distrito_residencia',
-        'contabilizar_tardanzas', 'contabilizar_horas_extra',
+        'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra',
         'cts_cuenta', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
         // Estos dos completan la paridad exacta con StoreColaboradorRequest /
         // NuevoColaboradorModal (Sección: "el Excel debe ser igual que el
@@ -37,7 +37,10 @@ class ColaboradorXlsxReader
     ];
 
     /** Columnas Sí/No que se convierten a booleano (null si vienen vacías). */
-    private const CAMPOS_BOOLEANOS = ['contabilizar_tardanzas', 'contabilizar_horas_extra', 'es_trabajador_confianza'];
+    private const CAMPOS_BOOLEANOS = ['contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'es_trabajador_confianza'];
+
+    /** Columnas agregadas después de la primera versión de la plantilla. */
+    private const ENCABEZADOS_OPCIONALES = ['contabilizar_faltas'];
 
     private int $filasInvalidas = 0;
 
@@ -64,7 +67,7 @@ class ColaboradorXlsxReader
         ));
 
         foreach (self::ENCABEZADOS as $columna) {
-            if (! isset($encabezados[$columna])) {
+            if (! isset($encabezados[$columna]) && ! in_array($columna, self::ENCABEZADOS_OPCIONALES, true)) {
                 throw new RuntimeException("No se encontró la columna esperada \"{$columna}\" en la plantilla.");
             }
         }
@@ -78,8 +81,14 @@ class ColaboradorXlsxReader
 
             $fila = [];
             foreach (self::ENCABEZADOS as $columna) {
-                $fila[$columna] = $this->normalizarVacio($valores[$encabezados[$columna]] ?? null);
+                $indice = $encabezados[$columna] ?? null;
+                $fila[$columna] = $this->normalizarVacio($indice !== null ? ($valores[$indice] ?? null) : null);
             }
+
+            // Compatibilidad con archivos descargados antes de incorporar
+            // el flag independiente de faltas: conserva el comportamiento
+            // histórico (las faltas sí afectaban por defecto).
+            $fila['contabilizar_faltas'] ??= 'Sí';
 
             if ($fila['nombres'] === null || $fila['numero_documento'] === null) {
                 $this->filasInvalidas++;

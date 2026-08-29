@@ -73,6 +73,24 @@ class ConceptoRemuneracionSeeder extends Seeder
             // Adelanto de sueldo — SIEMPRE egreso, nunca un ingreso (Sección 47).
             ['codigo' => 'ADELANTO_SUELDO', 'nombre' => 'Adelanto de sueldo', 'tipo' => 'egreso', 'codigo_plame' => '0701'],
             ['codigo' => 'DESCUENTO_TARDANZA', 'nombre' => 'Descuento por tardanza', 'tipo' => 'egreso', 'codigo_plame' => '0704'],
+            [
+                'codigo' => 'DESCUENTO_FALTA', 'nombre' => 'Descuento por falta', 'tipo' => 'egreso',
+                'sunat_motivo_estado' => 'Concepto operativo de descuento; requiere clasificación SUNAT explícita antes de declararse en PLAME.',
+            ],
+            // Descuentos operativos puntuales — registrables tanto para
+            // planilla dependiente como para Recibos por Honorarios
+            // (CicloRemunerativoService::registrarConcepto exige tipo=egreso
+            // para locadores). Nunca afectan ninguna base de cálculo: al ser
+            // 'egreso' quedan fuera de $ingresos en ambos motores, así que se
+            // descuentan del neto sin tocar AFP/ONP/renta/CTS/gratificación.
+            [
+                'codigo' => 'DESCUENTO_ERROR_OPERATIVO', 'nombre' => 'Descuento por error operativo', 'tipo' => 'egreso',
+                'sunat_motivo_estado' => 'Concepto operativo de descuento; requiere clasificación SUNAT explícita antes de declararse en PLAME.',
+            ],
+            [
+                'codigo' => 'DESCUENTO_COMPRA_MERCADERIA', 'nombre' => 'Descuento por compra de mercadería', 'tipo' => 'egreso',
+                'sunat_motivo_estado' => 'Concepto operativo de descuento; requiere clasificación SUNAT explícita antes de declararse en PLAME.',
+            ],
             // V3 A9/A10 — sin codigo_plame a propósito, ver migración
             // 2026_08_28_000093 (clasificación SUNAT pendiente, fuera de esta fase).
             ['codigo' => 'DESCUENTO_HORAS_INCOMPLETAS', 'nombre' => 'Descuento por horas incompletas (HI)', 'tipo' => 'egreso'],

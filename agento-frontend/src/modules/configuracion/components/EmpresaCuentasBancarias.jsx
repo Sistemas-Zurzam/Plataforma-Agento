@@ -1,5 +1,5 @@
 import { EditOutlined, PlusOutlined, StarFilled, StarOutlined } from '@ant-design/icons';
-import { App, Button, Form, Input, Modal, Select, Switch, Tag } from 'antd';
+import { Alert, App, Button, Form, Input, Modal, Select, Switch, Tag } from 'antd';
 import { useEffect, useState } from 'react';
 import { useBancos } from '../hooks/useBancos';
 import { useCuentasBancariasEmpresa } from '../hooks/useCuentasBancariasEmpresa';
@@ -20,10 +20,12 @@ const USO_OPTIONS = [
 
 /**
  * Cuentas bancarias de la empresa — usadas como cuenta de cargo para
- * Telecrédito BCP (y futuras integraciones bancarias). El número de
- * cuenta NUNCA se muestra completo (siempre enmascarado por el backend) y
- * NUNCA es editable una vez creada — si está mal, se desactiva y se
- * agrega una nueva (mismo criterio que la mayoría de sistemas bancarios).
+ * Telecrédito BCP (y futuras integraciones bancarias). El banco no se
+ * puede cambiar una vez creada la cuenta (sigue siendo identidad). El
+ * número de cuenta SÍ se puede corregir — el backend nunca devuelve el
+ * número completo (siempre enmascarado), así que en edición el campo
+ * queda vacío y opcional: dejarlo así conserva el número actual, escribir
+ * uno nuevo lo reemplaza.
  */
 export default function EmpresaCuentasBancarias({ empresaId, empresaNombre, user }) {
   const { cuentas, fetchCuentas, crearCuenta, actualizarCuenta, actualizarEstadoCuenta } = useCuentasBancariasEmpresa(empresaId);
@@ -61,7 +63,12 @@ export default function EmpresaCuentasBancarias({ empresaId, empresaNombre, user
     setSubmitting(true);
     try {
       if (cuentaEnEdicion) {
-        await actualizarCuenta(cuentaEnEdicion.id, values);
+        // Vacío = "no cambiar el número" — nunca se manda un string vacío
+        // (el backend lo rechazaría por el patrón numérico; "sometimes"
+        // solo funciona si la clave ni siquiera llega en el payload).
+        const { numero_cuenta: nuevoNumero, ...resto } = values;
+        const payload = nuevoNumero ? values : resto;
+        await actualizarCuenta(cuentaEnEdicion.id, payload);
         message.success('Cuenta bancaria actualizada');
       } else {
         await crearCuenta(values);
@@ -137,26 +144,37 @@ export default function EmpresaCuentasBancarias({ empresaId, empresaNombre, user
       >
         <Form form={form} layout="vertical" onFinish={handleGuardar} className="mt-4">
           {!cuentaEnEdicion && (
-            <>
-              <Form.Item label="Banco" name="banco_id" rules={[{ required: true, message: 'Selecciona un banco' }]}>
-                <Select
-                  placeholder="Selecciona banco"
-                  options={bancos.map((b) => ({ value: b.id, label: b.nombre }))}
-                />
-              </Form.Item>
-              <Form.Item
-                label="Número de cuenta"
-                name="numero_cuenta"
-                rules={[
-                  { required: true, message: 'Ingresa el número de cuenta' },
-                  { pattern: /^\d+$/, message: 'Solo números, sin guiones' },
-                ]}
-                extra="Solo números, sin guiones — no editable después de creada."
-              >
-                <Input maxLength={20} placeholder="Ej: 1910695055056" />
-              </Form.Item>
-            </>
+            <Form.Item label="Banco" name="banco_id" rules={[{ required: true, message: 'Selecciona un banco' }]}>
+              <Select
+                placeholder="Selecciona banco"
+                options={bancos.map((b) => ({ value: b.id, label: b.nombre }))}
+              />
+            </Form.Item>
           )}
+          {cuentaEnEdicion && (
+            <Alert
+              type="warning"
+              showIcon
+              className="mb-3"
+              message="Cambiar el número de cuenta"
+              description="Si este ciclo ya se pagó y luego vuelves a descargar el archivo Telecrédito de un período pasado, el archivo mostrará el número nuevo, no el que realmente se usó en ese pago."
+            />
+          )}
+          <Form.Item
+            label="Número de cuenta"
+            name="numero_cuenta"
+            rules={cuentaEnEdicion ? [
+              { pattern: /^\d+$/, message: 'Solo números, sin guiones' },
+            ] : [
+              { required: true, message: 'Ingresa el número de cuenta' },
+              { pattern: /^\d+$/, message: 'Solo números, sin guiones' },
+            ]}
+            extra={cuentaEnEdicion
+              ? `Solo números, sin guiones. Actual: ${cuentaEnEdicion.numero_cuenta_enmascarado} — déjalo en blanco para no cambiarlo.`
+              : 'Solo números, sin guiones.'}
+          >
+            <Input maxLength={20} placeholder={cuentaEnEdicion ? 'Dejar en blanco para no cambiar' : 'Ej: 1910695055056'} />
+          </Form.Item>
           <Form.Item label="Tipo de cuenta" name="tipo_cuenta" rules={[{ required: true, message: 'Selecciona un tipo' }]}>
             <Select options={TIPO_CUENTA_OPTIONS} placeholder="Selecciona un tipo" />
           </Form.Item>

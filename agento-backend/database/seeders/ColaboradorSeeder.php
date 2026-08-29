@@ -140,6 +140,7 @@ class ColaboradorSeeder extends Seeder
             'cci' => str_pad((string) (200000000000000 + $indice), 20, '0', STR_PAD_LEFT),
             'cts_cuenta' => null,
             'contabilizar_tardanzas' => true,
+            'contabilizar_faltas' => true,
             'contabilizar_horas_extra' => true,
         ];
 

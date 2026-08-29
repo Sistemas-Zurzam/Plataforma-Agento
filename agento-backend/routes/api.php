@@ -136,6 +136,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('/asistencia/periodos', [AsistenciaController::class, 'periodos'])->middleware('permiso:asistencia.ver');
     Route::post('/asistencia/periodos', [AsistenciaController::class, 'guardarPeriodo'])->middleware('permiso:asistencia.periodos');
     Route::patch('/asistencia/periodos/{periodo}', [AsistenciaController::class, 'transicionarPeriodo'])->middleware('permiso:asistencia.periodos');
+    Route::get('/asistencia/periodos/{periodo}/estado-cobertura', [AsistenciaController::class, 'estadoCoberturaPeriodo'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/auditoria', [AsistenciaController::class, 'auditoria'])->middleware('permiso:asistencia.ver');
 
     Route::get('/colaboradores', [ColaboradorController::class, 'index'])->middleware('permiso:colaboradores.ver');
@@ -183,6 +184,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/beneficios-sociales/calcular', [BeneficioSocialController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::patch('/beneficios-sociales/{beneficio}/pagar', [BeneficioSocialController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
     Route::patch('/boletas/{boleta}/aprobar', [BoletaController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
+    Route::patch('/ciclos-remunerativos/{ciclo}/boletas/aprobar-masivo', [BoletaController::class, 'aprobarMasivo'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/pagar', [BoletaController::class, 'marcarPagada'])->middleware('permiso:nominas.pagar');
     Route::get('/boletas/{boleta}', [BoletaController::class, 'show'])->middleware('permiso:nominas.ver');
     Route::patch('/boletas/{boleta}/comprobante-rh', [BoletaController::class, 'guardarComprobanteRh'])->middleware('permiso:nominas.gestionar_ciclos');

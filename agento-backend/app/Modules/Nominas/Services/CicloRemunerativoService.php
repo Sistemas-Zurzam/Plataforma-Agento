@@ -202,11 +202,18 @@ class CicloRemunerativoService
     }
 
     /**
-     * Registra una comisión/bono/adelanto que RR.HH. quiere que el motor
-     * incluya al calcular la boleta de este colaborador en este ciclo
-     * (Sección 46). No se permite si el período ya está cerrado/pagado —
-     * en ese estado ya no habrá un recálculo que lo recoja, y dejaría un
-     * registro huérfano que sugiere falsamente que fue considerado.
+     * Registra una comisión/bono/adelanto/descuento operativo que RR.HH.
+     * quiere que el motor incluya al calcular la boleta de este colaborador
+     * en este ciclo (Sección 46). También aplica a locadores (Recibos por
+     * Honorarios) desde la incorporación de adelantos/descuentos operativos
+     * para RH — ver CalcularReciboHonorarios::conceptosDelPeriodo() — pero
+     * SOLO para conceptos de descuento (tipo=egreso): un locador no tiene
+     * relación laboral, así que un ingreso remunerativo de planilla
+     * dependiente (comisión, bonificación) no tiene cabida en su recibo por
+     * honorarios (E20 .4ta, no Tabla 22). No se permite si el período ya
+     * está cerrado/pagado — en ese estado ya no habrá un recálculo que lo
+     * recoja, y dejaría un registro huérfano que sugiere falsamente que fue
+     * considerado.
      *
      * @throws ValidationException
      */
@@ -226,8 +233,16 @@ class CicloRemunerativoService
 
         // El tipo (ingreso/egreso) siempre se toma del catálogo — nunca se
         // decide aquí — por eso basta con que el concepto exista y esté
-        // activo; CalcularBoletaColaborador enruta la línea según ese tipo.
+        // activo; CalcularBoletaColaborador/CalcularReciboHonorarios enrutan
+        // la línea según ese tipo.
         $concepto = ConceptoRemuneracion::where('id', $datos['concepto_id'])->where('activo', true)->firstOrFail();
+
+        $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
+        if ($esHonorarios && $concepto->tipo !== 'egreso') {
+            throw ValidationException::withMessages([
+                'concepto_id' => 'Un locador (Recibos por Honorarios) solo admite conceptos de descuento — los ingresos remunerativos son exclusivos de planilla dependiente.',
+            ]);
+        }
 
         return ColaboradorConceptoPeriodo::create([
             'empresa_id' => $empresa->id,

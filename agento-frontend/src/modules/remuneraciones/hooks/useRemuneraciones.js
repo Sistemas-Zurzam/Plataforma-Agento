@@ -110,6 +110,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const aprobarBoletasMasivo = useCallback(async (cicloId, boletaIds) => {
+    const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/boletas/aprobar-masivo`, { ids: boletaIds });
+    return data;
+  }, []);
+
   const pagarBoleta = useCallback(async (boletaId, referenciaPago) => {
     const { data } = await api.patch(`/boletas/${boletaId}/pagar`, { referencia_pago: referenciaPago });
     return data.data;
@@ -336,6 +341,7 @@ export function useRemuneraciones() {
     fetchResumen,
     verBoleta,
     aprobarBoleta,
+    aprobarBoletasMasivo,
     pagarBoleta,
     guardarComprobanteRh,
     afps,

@@ -59,7 +59,7 @@ const CAMPOS_POR_TAB = {
   contrato: [
     'sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador', 'categoria_trabajador',
     'fecha_ingreso', 'fecha_fin_contrato', 'periodicidad_pago', 'moneda_salario', 'salario',
-    'contabilizar_tardanzas', 'contabilizar_horas_extra', 'es_trabajador_confianza',
+    'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'es_trabajador_confianza',
   ],
   remunerativa: ['cts_cuenta', 'asignacion_familiar', 'sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_suspension_renta_4ta', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
   trabajo: ['horario_id', 'modalidad_trabajo', 'tolerancia_particular_minutos', 'dias_descanso_rotativo_por_semana'],
@@ -173,6 +173,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
       form.setFieldsValue({
         pais_residencia: 'Perú',
         contabilizar_tardanzas: true,
+        contabilizar_faltas: true,
         contabilizar_horas_extra: true,
         moneda_salario: 'PEN',
         moneda_cuenta: 'PEN',
@@ -611,6 +612,13 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                         valuePropName="checked"
                       >
                         <Checkbox>Contabilizar horas extra</Checkbox>
+                      </Form.Item>
+                      <Form.Item
+                        label={<span className="invisible">.</span>}
+                        name="contabilizar_faltas"
+                        valuePropName="checked"
+                      >
+                        <Checkbox>Contabilizar faltas</Checkbox>
                       </Form.Item>
                     </div>
                   </div>

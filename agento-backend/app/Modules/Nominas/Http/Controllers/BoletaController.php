@@ -13,6 +13,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class BoletaController extends Controller
@@ -96,6 +97,32 @@ class BoletaController extends Controller
         return new BoletaResource(
             $this->boletas->aprobar($empresa, $boleta, $request->user('api')->id)->load(['colaborador.empresa', 'conceptos.concepto']),
         );
+    }
+
+    /**
+     * Selección masiva desde la planilla mensual (Sección "cerrar ciclo"):
+     * reutiliza BoletaService::aprobar() por cada boleta dentro de una sola
+     * transacción — misma regla de negocio que la aprobación individual
+     * (solo "calculada" → "aprobada"), sin duplicarla. Si una sola boleta no
+     * cumple la regla, toda la transacción se revierte (igual que
+     * AsistenciaController::resolverIncidenciasMasivo()): el frontend debe
+     * evitar seleccionar boletas que no estén en "calculada".
+     */
+    public function aprobarMasivo(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $datos = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:200'],
+            'ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $boletas = Boleta::where('ciclo_id', $ciclo->id)->whereIn('id', $datos['ids'])->get();
+        abort_if($boletas->count() !== count($datos['ids']), 404, 'Una o más boletas no pertenecen a este ciclo.');
+
+        $usuarioId = $request->user('api')->id;
+        DB::transaction(fn () => $boletas->each(fn ($boleta) => $this->boletas->aprobar($empresa, $boleta, $usuarioId)));
+
+        return response()->json(['message' => 'Boletas aprobadas.', 'procesadas' => $boletas->count()]);
     }
 
     public function marcarPagada(Request $request, Boleta $boleta): BoletaResource

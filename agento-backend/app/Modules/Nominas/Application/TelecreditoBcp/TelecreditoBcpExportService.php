@@ -55,7 +55,7 @@ class TelecreditoBcpExportService
             );
         }
 
-        $boletas = TelecreditoBcpCicloDatosLoader::poblacion($ciclo);
+        $boletas = TelecreditoBcpCicloDatosLoader::poblacion($ciclo, $subtipo);
 
         [$referenciaPlanilla, $referenciaBeneficiario, $referenciaEmpresa] = $this->construirReferencias($ciclo);
 

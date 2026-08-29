@@ -18,7 +18,7 @@ import {
  */
 const CAMPOS_POR_TAB = {
   personal: ['nombres', 'apellido_paterno', 'apellido_materno', 'tipo_documento', 'numero_documento', 'fecha_nacimiento', 'email', 'celular_colaborador', 'celular_referencia', 'direccion'],
-  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_fin_contrato', 'es_trabajador_confianza', 'contabilizar_tardanzas'],
+  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_fin_contrato', 'es_trabajador_confianza', 'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra'],
   previsional: ['sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_suspension_renta_4ta'],
   remuneracion: ['salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'vigencia_desde'],
   bancarios: ['banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
@@ -186,6 +186,22 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
             className="sm:col-span-2"
           >
             <Checkbox>Contabilizar tardanzas</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="contabilizar_faltas"
+            valuePropName="checked"
+            extra="Si está desactivado, las ausencias seguirán visibles en Asistencia, pero no descontarán el pago del colaborador."
+            className="sm:col-span-2"
+          >
+            <Checkbox>Contabilizar faltas</Checkbox>
+          </Form.Item>
+          <Form.Item
+            name="contabilizar_horas_extra"
+            valuePropName="checked"
+            extra="Solo se pagan horas extra aprobadas. Si está desactivado, la evidencia permanece en Asistencia sin incrementar el pago."
+            className="sm:col-span-2"
+          >
+            <Checkbox>Contabilizar horas extra</Checkbox>
           </Form.Item>
         </div>
       ),

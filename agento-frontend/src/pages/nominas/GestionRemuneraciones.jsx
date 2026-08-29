@@ -198,7 +198,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas,
     resumen, fetchResumen,
-    verBoleta, aprobarBoleta, pagarBoleta, guardarComprobanteRh,
+    verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
@@ -221,11 +221,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
 
   const [conceptoColaborador, setConceptoColaborador] = useState(null);
+  const [conceptoEsHonorarios, setConceptoEsHonorarios] = useState(false);
   const [conceptosPeriodo, setConceptosPeriodo] = useState([]);
   const [conceptosPeriodoLoading, setConceptosPeriodoLoading] = useState(false);
   const [registrandoConcepto, setRegistrandoConcepto] = useState(false);
 
   const [tipoFiltro, setTipoFiltro] = useState(null);
+  const [boletasSeleccionadas, setBoletasSeleccionadas] = useState([]);
   const [boletaImprimirId, setBoletaImprimirId] = useState(null);
   const [comprobanteRhBoletaId, setComprobanteRhBoletaId] = useState(null);
   const [guardandoComprobanteRh, setGuardandoComprobanteRh] = useState(false);
@@ -265,6 +267,8 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     if (!cicloId) return;
     fetchBoletas(cicloId, 1, pagination.pageSize, tipoFiltro);
     fetchResumen(cicloId, tipoFiltro);
+    // Evita arrastrar ids seleccionados de otro ciclo/filtro al aprobar masivo.
+    setBoletasSeleccionadas([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cicloId, tipoFiltro]);
 
@@ -467,6 +471,27 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     }
   };
 
+  const handleAprobarMasivo = () => {
+    const cantidad = boletasSeleccionadas.length;
+    modal.confirm({
+      title: 'Aprobar boletas seleccionadas',
+      content: `Se aprobarán ${cantidad} boleta(s) en estado "calculada". Esto ayuda a completar la aprobación antes de cerrar el ciclo.`,
+      okText: 'Aprobar',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        try {
+          const resultado = await aprobarBoletasMasivo(cicloId, boletasSeleccionadas);
+          message.success(`${resultado.procesadas} boleta(s) aprobada(s).`);
+          setBoletasSeleccionadas([]);
+          recargar();
+          fetchCiclos();
+        } catch (err) {
+          message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudieron aprobar las boletas seleccionadas');
+        }
+      },
+    });
+  };
+
   const handlePagar = (boleta) => {
     let referencia = '';
     modal.confirm({
@@ -512,6 +537,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
 
   const abrirConceptos = async (boleta) => {
     setConceptoColaborador(boleta.colaborador);
+    setConceptoEsHonorarios(boleta.regimen_laboral === 'Locacion de Servicios');
     setConceptosPeriodoLoading(true);
     try {
       const data = await fetchConceptosPeriodo(cicloId, boleta.colaborador.id);
@@ -685,11 +711,9 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           <Tooltip title="Configuración de planilla">
             <Button size="small" type="text" icon={<SettingOutlined />} onClick={() => abrirConfiguracion(boleta)} disabled={!puedeGestionarCiclos} />
           </Tooltip>
-          {boleta.regimen_laboral !== 'Locacion de Servicios' && (
-            <Tooltip title="Registrar comisión / bono / adelanto">
-              <Button size="small" type="text" icon={<WalletOutlined />} onClick={() => abrirConceptos(boleta)} disabled={!puedeGestionarCiclos} />
-            </Tooltip>
-          )}
+          <Tooltip title={boleta.regimen_laboral === 'Locacion de Servicios' ? 'Registrar descuento (adelanto, error operativo, compra de mercadería)' : 'Registrar comisión / bono / adelanto / descuento'}>
+            <Button size="small" type="text" icon={<WalletOutlined />} onClick={() => abrirConceptos(boleta)} disabled={!puedeGestionarCiclos} />
+          </Tooltip>
           {boleta.regimen_laboral === 'Locacion de Servicios' && (
             <Tooltip title="Comprobante de honorarios (RH)">
               <Button size="small" type="text" icon={<FileTextOutlined />} onClick={() => setComprobanteRhBoletaId(boleta.id)} disabled={!puedeGestionarCiclos} />
@@ -888,34 +912,49 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             key: 'planilla',
             label: 'Planilla mensual',
             children: cicloId ? (
-              <Table
-                rowKey="id"
-                loading={boletasLoading}
-                dataSource={boletas}
-                columns={columnas}
-                scroll={{ x: 1100 }}
-                pagination={{
-                  current: pagination.current,
-                  pageSize: pagination.pageSize,
-                  total: pagination.total,
-                  onChange: (page, pageSize) => fetchBoletas(cicloId, page, pageSize, tipoFiltro),
-                }}
-                expandable={{
-                  expandedRowRender: (boleta) => <DetalleBoleta boletaId={boleta.id} verBoleta={verBoleta} />,
-                }}
-                summary={() => resumen && boletas.length > 0 && (
-                  <Table.Summary fixed>
-                    <Table.Summary.Row>
-                      <Table.Summary.Cell index={0} colSpan={7}><strong>Totales</strong></Table.Summary.Cell>
-                      <Table.Summary.Cell index={1}><strong className="text-green-600">{soles(resumen.total_ingresos)}</strong></Table.Summary.Cell>
-                      <Table.Summary.Cell index={2}><strong className="text-red-500">{soles(resumen.total_egresos)}</strong></Table.Summary.Cell>
-                      <Table.Summary.Cell index={3}><strong>{soles(resumen.neto_a_pagar)}</strong></Table.Summary.Cell>
-                      <Table.Summary.Cell index={4} colSpan={2} />
-                    </Table.Summary.Row>
-                  </Table.Summary>
+              <div className="space-y-3">
+                {puedeAprobar && boletasSeleccionadas.length > 0 && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5">
+                    <span className="text-sm font-medium text-blue-900">{boletasSeleccionadas.length} boleta(s) seleccionada(s)</span>
+                    <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={handleAprobarMasivo}>
+                      Aprobar seleccionadas
+                    </Button>
+                  </div>
                 )}
-                locale={{ emptyText: 'Este ciclo todavía no tiene boletas calculadas' }}
-              />
+                <Table
+                  rowKey="id"
+                  loading={boletasLoading}
+                  dataSource={boletas}
+                  columns={columnas}
+                  scroll={{ x: 1100 }}
+                  rowSelection={puedeAprobar ? {
+                    selectedRowKeys: boletasSeleccionadas,
+                    onChange: setBoletasSeleccionadas,
+                    getCheckboxProps: (boleta) => ({ disabled: boleta.estado !== 'calculada' }),
+                  } : undefined}
+                  pagination={{
+                    current: pagination.current,
+                    pageSize: pagination.pageSize,
+                    total: pagination.total,
+                    onChange: (page, pageSize) => fetchBoletas(cicloId, page, pageSize, tipoFiltro),
+                  }}
+                  expandable={{
+                    expandedRowRender: (boleta) => <DetalleBoleta boletaId={boleta.id} verBoleta={verBoleta} />,
+                  }}
+                  summary={() => resumen && boletas.length > 0 && (
+                    <Table.Summary fixed>
+                      <Table.Summary.Row>
+                        <Table.Summary.Cell index={0} colSpan={7}><strong>Totales</strong></Table.Summary.Cell>
+                        <Table.Summary.Cell index={1}><strong className="text-green-600">{soles(resumen.total_ingresos)}</strong></Table.Summary.Cell>
+                        <Table.Summary.Cell index={2}><strong className="text-red-500">{soles(resumen.total_egresos)}</strong></Table.Summary.Cell>
+                        <Table.Summary.Cell index={3}><strong>{soles(resumen.neto_a_pagar)}</strong></Table.Summary.Cell>
+                        <Table.Summary.Cell index={4} colSpan={2} />
+                      </Table.Summary.Row>
+                    </Table.Summary>
+                  )}
+                  locale={{ emptyText: 'Este ciclo todavía no tiene boletas calculadas' }}
+                />
+              </div>
             ) : (
               <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
             ),
@@ -969,6 +1008,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         conceptos={conceptosPeriodo}
         conceptosLoading={conceptosPeriodoLoading}
         catalogo={catalogoConceptos}
+        esHonorarios={conceptoEsHonorarios}
       />
 
       <BoletaImprimibleModal

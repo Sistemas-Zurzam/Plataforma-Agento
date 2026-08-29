@@ -139,9 +139,13 @@ class AsistenciaDecisionService
         return DB::transaction(function () use ($empresa, $incidencia, $datos, $usuario, $fecha, $tipoCalendario) {
             $antes = $incidencia->toArray();
 
-            \App\Modules\Personas\Models\ColaboradorCalendarioDia::query()->updateOrCreate(
+            // Fase 4B — origen 'incidencia': decisión humana de RR.HH. al
+            // clasificar un día rotativo sin planificación, pisa cualquier
+            // origen previo a propósito (no debería existir uno, ya que
+            // dia_sin_clasificar solo ocurre cuando no hay fila).
+            ColaboradorCalendarioDia::query()->updateOrCreate(
                 ['colaborador_id' => $incidencia->colaborador_id, 'fecha' => $fecha],
-                ['tipo' => $tipoCalendario],
+                ['tipo' => $tipoCalendario, 'origen' => ColaboradorCalendarioDia::ORIGEN_INCIDENCIA],
             );
 
             $incidencia->update([
@@ -274,9 +278,12 @@ class AsistenciaDecisionService
         return DB::transaction(function () use ($empresa, $incidencia, $horaExtra, $datos, $usuario, $colaborador, $fechaSustitutoria, $resultadoSustituto) {
             $antes = $incidencia->toArray();
 
+            // Fase 4B — origen propio ORIGEN_DESCANSO_SUSTITUTORIO, distinto
+            // de 'incidencia' genérico: sirve para distinguir después un
+            // descanso ordinario de uno otorgado como sustitución legal.
             ColaboradorCalendarioDia::query()->updateOrCreate(
                 ['colaborador_id' => $colaborador->id, 'fecha' => $fechaSustitutoria],
-                ['tipo' => 'descanso'],
+                ['tipo' => 'descanso', 'origen' => ColaboradorCalendarioDia::ORIGEN_DESCANSO_SUSTITUTORIO],
             );
             // Solo reprocesa si ya existía resultado (fecha ya transcurrida
             // o ya procesada) — una fecha puramente futura solo se
@@ -337,9 +344,11 @@ class AsistenciaDecisionService
                 ], $usuario);
             }
 
+            // Fase 4B — 'incidencia': RR.HH. corrigió a mano una
+            // planificación que estaba mal (no era realmente un descanso).
             ColaboradorCalendarioDia::query()->updateOrCreate(
                 ['colaborador_id' => $incidencia->colaborador_id, 'fecha' => $incidencia->fecha->toDateString()],
-                ['tipo' => $datos['tipo']],
+                ['tipo' => $datos['tipo'], 'origen' => ColaboradorCalendarioDia::ORIGEN_INCIDENCIA],
             );
             // El motor normal decide el estado final (presente/HD/HI/etc.)
             // — nunca se fuerza un estado a mano.

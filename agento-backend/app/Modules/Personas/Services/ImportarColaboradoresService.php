@@ -247,6 +247,7 @@ class ImportarColaboradoresService
                 'ciudad_residencia' => $fila['ciudad_residencia'],
                 'distrito_residencia' => $fila['distrito_residencia'],
                 'contabilizar_tardanzas' => $fila['contabilizar_tardanzas'],
+                'contabilizar_faltas' => $fila['contabilizar_faltas'],
                 'contabilizar_horas_extra' => $fila['contabilizar_horas_extra'],
                 'cts_cuenta' => $fila['cts_cuenta'],
                 'banco' => $fila['banco'],

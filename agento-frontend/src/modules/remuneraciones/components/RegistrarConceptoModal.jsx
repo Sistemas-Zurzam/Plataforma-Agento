@@ -7,6 +7,8 @@ const CONCEPTOS_REGISTRABLES = [
   { codigo: 'BONIFICACION', nombre: 'Bonificación', tipo: 'ingreso' },
   { codigo: 'BONO_NO_REMUNERATIVO', nombre: 'Bono / liberalidad no remunerativa', tipo: 'ingreso' },
   { codigo: 'ADELANTO_SUELDO', nombre: 'Adelanto de sueldo', tipo: 'egreso' },
+  { codigo: 'DESCUENTO_ERROR_OPERATIVO', nombre: 'Descuento por error operativo', tipo: 'egreso' },
+  { codigo: 'DESCUENTO_COMPRA_MERCADERIA', nombre: 'Descuento por compra de mercadería', tipo: 'egreso' },
 ];
 
 // Demasiado genéricos para PLAME (Tabla 22) por sí solos — exigen elegir
@@ -14,13 +16,18 @@ const CONCEPTOS_REGISTRABLES = [
 const CONCEPTOS_CON_DEFINICION = ['BONIFICACION', 'BONO_NO_REMUNERATIVO'];
 
 /**
- * Registra un concepto manual (comisión/bono/adelanto) para UN colaborador
- * en el ciclo activo — el motor lo recoge automáticamente al calcular. No
- * permite elegir un código libre: solo los del catálogo, y el tipo
- * (ingreso/egreso) que decide dónde aparece en la boleta lo determina
+ * Registra un concepto manual (comisión/bono/adelanto/descuento) para UN
+ * colaborador en el ciclo activo — el motor lo recoge automáticamente al
+ * calcular. No permite elegir un código libre: solo los del catálogo, y el
+ * tipo (ingreso/egreso) que decide dónde aparece en la boleta lo determina
  * siempre el catálogo, nunca este formulario.
+ *
+ * Un locador (Recibos por Honorarios) no tiene relación laboral, así que
+ * solo puede recibir conceptos de descuento (egreso) — el backend
+ * (CicloRemunerativoService::registrarConcepto) ya lo rechaza si se intenta
+ * lo contrario, pero `esHonorarios` evita ofrecer la opción inválida.
  */
-export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loading, colaborador, conceptos, conceptosLoading, catalogo }) {
+export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loading, colaborador, conceptos, conceptosLoading, catalogo, esHonorarios }) {
   const [form] = Form.useForm();
   const [tipoSeleccionado, setTipoSeleccionado] = useState(null);
   const { definiciones, fetchDefiniciones } = useConceptoDefinicionesPlame();
@@ -53,7 +60,9 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loadi
     form.resetFields();
   };
 
-  const opcionesDisponibles = CONCEPTOS_REGISTRABLES.filter((c) => catalogo.some((k) => k.codigo === c.codigo));
+  const opcionesDisponibles = CONCEPTOS_REGISTRABLES
+    .filter((c) => catalogo.some((k) => k.codigo === c.codigo))
+    .filter((c) => !esHonorarios || c.tipo === 'egreso');
 
   return (
     <Modal

@@ -343,6 +343,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const [horasExtra, setHorasExtra] = useState([]);
   const [importaciones, setImportaciones] = useState([]);
   const [periodos, setPeriodos] = useState([]);
+  const [coberturaEnProceso, setCoberturaEnProceso] = useState({});
   const [, setAuditoria] = useState([]);
   const [periodoModalOpen, setPeriodoModalOpen] = useState(false);
   const [periodoForm] = Form.useForm();
@@ -550,6 +551,111 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       },
     });
   };
+
+  /**
+   * Fase 4A — antes de cerrar un período, Agento verifica que todas las
+   * combinaciones colaborador×fecha del rango ya fueron evaluadas por
+   * Asistencia. Si falta cobertura, el backend responde 202 (no 200) y
+   * encola la materialización en segundo plano — acá se hace polling del
+   * resultado, igual que el patrón ya usado para el cálculo de planilla en
+   * Remuneraciones (ciclos_remunerativos.calculo_estado).
+   */
+  const pollEstadoCobertura = async (periodoId, intentos = 0) => {
+    const { data } = await api.get(`/asistencia/periodos/${periodoId}/estado-cobertura`);
+
+    if (data.cobertura_estado === 'en_proceso') {
+      if (intentos > 100) {
+        message.info('La verificación de cobertura sigue en proceso. Vuelve a intentar cerrar el período en unos minutos.');
+        setCoberturaEnProceso((prev) => ({ ...prev, [periodoId]: false }));
+        return;
+      }
+      setTimeout(() => pollEstadoCobertura(periodoId, intentos + 1), 3000);
+      return;
+    }
+
+    setCoberturaEnProceso((prev) => ({ ...prev, [periodoId]: false }));
+    await cargar();
+
+    const resultado = data.cobertura_resultado ?? {};
+    if (data.cobertura_estado === 'error') {
+      if (resultado.errores?.length) {
+        Modal.warning({
+          title: 'La cobertura de asistencia terminó con errores',
+          content: (
+            <ul className="list-disc pl-4 text-xs">
+              {resultado.errores.map((error, indice) => (
+                <li key={indice}>Colaborador #{error.colaborador_id} · {error.fecha}: {error.motivo}</li>
+              ))}
+            </ul>
+          ),
+        });
+      } else {
+        message.error(`No se pudo completar la cobertura de asistencia: ${resultado.error ?? 'error desconocido'}`);
+      }
+      return;
+    }
+
+    const generados = [
+      resultado.faltas ? `${resultado.faltas} faltas pendientes` : null,
+      resultado.dias_sin_clasificar ? `${resultado.dias_sin_clasificar} días sin clasificar` : null,
+      resultado.trabajos_en_descanso ? `${resultado.trabajos_en_descanso} trabajos en descanso` : null,
+    ].filter(Boolean);
+    message.success(
+      `Cobertura de asistencia completada. Se procesaron ${resultado.procesadas ?? 0} fechas.`
+      // Cerrar en sí no revisa incidencias (eso lo sigue haciendo, sin
+      // cambios, el gate de "Enviar a Nómina") — el aviso es para que
+      // RR.HH. las resuelva antes de llegar a ese paso, no una condición
+      // para poder cerrar ahora mismo.
+      + (generados.length ? ` Se generaron: ${generados.join(', ')}. Ya puedes cerrar el período — resuelve las incidencias antes de enviarlo a Nómina.` : ' Ya puedes intentar cerrar el período nuevamente.'),
+      8,
+    );
+  };
+
+  const handleCerrarPeriodo = (periodo) => {
+    let motivo = '';
+    Modal.confirm({
+      title: 'Cerrar período',
+      content: <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} />,
+      okText: 'Confirmar',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        if (!motivo.trim()) { message.warning('Ingresa el motivo de la decisión'); throw new Error('motivo_requerido'); }
+        try {
+          const { data, status } = await api.patch(`/asistencia/periodos/${periodo.id}`, { accion: 'cerrar', motivo: motivo.trim() });
+          if (status === 202) {
+            message.info(data.message);
+            setCoberturaEnProceso((prev) => ({ ...prev, [periodo.id]: true }));
+            pollEstadoCobertura(periodo.id);
+            await cargar();
+            return;
+          }
+          message.success('Decisión registrada con trazabilidad');
+          await cargar();
+        } catch (error) {
+          // Fase 4A.1 — fecha futura, pendientes sin resolver o cobertura en
+          // error llegan como ValidationException (422): a diferencia de
+          // solicitarDecision(), acá sí vale la pena mostrar el detalle
+          // porque son bloqueos de negocio reales, no un error genérico.
+          const detalle = error.response?.data?.errors ? Object.values(error.response.data.errors)[0][0] : null;
+          message.error(detalle ?? error.response?.data?.message ?? 'No se pudo cerrar el período');
+          throw error;
+        }
+      },
+    });
+  };
+
+  // Si el período ya estaba "en_proceso" al cargar (lo disparó otro
+  // usuario, o se recargó la página), retoma el polling en vez de dejarlo
+  // huérfano — mismo patrón que Remuneraciones para calculo_estado.
+  useEffect(() => {
+    periodos.forEach((periodo) => {
+      if (periodo.cobertura_estado === 'en_proceso' && !coberturaEnProceso[periodo.id]) {
+        setCoberturaEnProceso((prev) => ({ ...prev, [periodo.id]: true }));
+        pollEstadoCobertura(periodo.id);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodos]);
 
   const crearPeriodo = async (values) => {
     await api.post('/asistencia/periodos', {
@@ -974,8 +1080,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Desde', dataIndex: 'fecha_inicio', render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Hasta', dataIndex: 'fecha_fin', render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Versión', dataIndex: 'version', width: 80 },
-    { title: 'Estado', dataIndex: 'estado', render: (value) => <Tag color={value === 'abierto' ? 'green' : value === 'cerrado' ? 'gold' : 'blue'}>{value.replaceAll('_', ' ')}</Tag> },
-    { title: 'Acciones', width: 280, render: (_, row) => puedeGestionarPeriodos ? <Space size={3}>{row.estado === 'abierto' && <Button size="small" onClick={() => solicitarDecision('Cerrar período', `/asistencia/periodos/${row.id}`, 'cerrar')}>Cerrar</Button>}{row.estado === 'cerrado' && <><Button size="small" type="primary" onClick={() => solicitarDecision('Enviar período a Nómina', `/asistencia/periodos/${row.id}`, 'enviar_nomina')}>Enviar a Nómina</Button><Button size="small" onClick={() => solicitarDecision('Reabrir período', `/asistencia/periodos/${row.id}`, 'reabrir')}>Reabrir</Button></>}</Space> : '—' },
+    { title: 'Estado', dataIndex: 'estado', render: (value, row) => <Space size={4}><Tag color={value === 'abierto' ? 'green' : value === 'cerrado' ? 'gold' : 'blue'}>{value.replaceAll('_', ' ')}</Tag>{row.cobertura_estado === 'en_proceso' && <Tag icon={<ReloadOutlined spin />} color="processing">verificando cobertura</Tag>}</Space> },
+    { title: 'Acciones', width: 280, render: (_, row) => puedeGestionarPeriodos ? <Space size={3}>{row.estado === 'abierto' && <Button size="small" loading={coberturaEnProceso[row.id]} disabled={coberturaEnProceso[row.id]} onClick={() => handleCerrarPeriodo(row)}>Cerrar</Button>}{row.estado === 'cerrado' && <><Button size="small" type="primary" onClick={() => solicitarDecision('Enviar período a Nómina', `/asistencia/periodos/${row.id}`, 'enviar_nomina')}>Enviar a Nómina</Button><Button size="small" onClick={() => solicitarDecision('Reabrir período', `/asistencia/periodos/${row.id}`, 'reabrir')}>Reabrir</Button></>}</Space> : '—' },
   ]} pagination={{ pageSize: 15, size: 'small' }} /></Card></div>;
   const tabs = [
     { key: 'resumen', label: 'Resumen', icon: <TeamOutlined />, children: resumen }, { key: 'colaboradores', label: 'Colaboradores', icon: <TeamOutlined />, children: vistaColaboradores },

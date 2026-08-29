@@ -41,6 +41,7 @@ use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\AsistenciaSolicitudArea;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\DB;
 
@@ -266,10 +267,38 @@ class AsistenciaController extends Controller
 
     public function transicionarPeriodo(TransicionarAsistenciaRequest $request, AsistenciaPeriodo $periodo): JsonResponse
     {
+        $empresa = $request->user('api')->empresa;
+        $accion = $request->validated('accion');
+
+        // Fase 4A — antes de cerrar, garantizar cobertura completa de
+        // asistencia. Se intercepta acá y no dentro de cambiarEstado()
+        // porque, una vez cerrado, ProcesarAsistenciaDiaria ya no puede
+        // tocar esas fechas (período protegido) — demasiado tarde para
+        // materializar nada. Si prepararCierre() devuelve algo, la
+        // cobertura está en curso (o recién se encoló) y el cierre todavía
+        // no ocurre.
+        if ($accion === 'cerrar') {
+            $resultado = $this->periodos->prepararCierre($empresa, $periodo, $request->user('api')->id);
+            if ($resultado !== null) {
+                return response()->json($resultado, 202);
+            }
+        }
+
         return response()->json(['data' => $this->periodos->cambiarEstado(
-            $request->user('api')->empresa, $periodo, $request->validated('accion'),
-            $request->user('api')->id, $request->validated('motivo')
+            $empresa, $periodo, $accion, $request->user('api')->id, $request->validated('motivo')
         )]);
+    }
+
+    public function estadoCoberturaPeriodo(Request $request, AsistenciaPeriodo $periodo): JsonResponse
+    {
+        abort_unless($periodo->empresa_id === $request->user('api')->empresa->id, 404);
+
+        return response()->json([
+            'cobertura_estado' => $periodo->cobertura_estado,
+            'cobertura_iniciado_at' => $periodo->cobertura_iniciado_at?->toDateTimeString(),
+            'cobertura_finalizado_at' => $periodo->cobertura_finalizado_at?->toDateTimeString(),
+            'cobertura_resultado' => $periodo->cobertura_resultado,
+        ]);
     }
 
     public function auditoria(ResumenAsistenciaRequest $request): JsonResponse

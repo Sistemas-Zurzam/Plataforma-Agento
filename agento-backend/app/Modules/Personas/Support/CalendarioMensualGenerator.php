@@ -41,35 +41,51 @@ class CalendarioMensualGenerator
             return self::completarSinPersistir($colaborador, $existentes, $inicioMes, $finMes);
         }
 
-        if ($existentes->isNotEmpty()) {
-            return $existentes;
-        }
-
         $fechaIngreso = $colaborador->fecha_ingreso->copy()->startOfDay();
         $desde = $fechaIngreso->gt($inicioMes) ? $fechaIngreso : $inicioMes->copy();
 
         if ($desde->gt($finMes)) {
-            return collect();
+            return $existentes;
         }
 
+        // Fase 4C — antes se retornaba temprano si el mes ya tenía
+        // CUALQUIER fila, dejando huecos sin completar (ej. tras invalidar
+        // automáticas por un cambio de horario, o un mes con una sola
+        // fecha declarada a mano). Ahora las filas existentes se preservan
+        // TAL CUAL — nunca se sobrescriben — y solo se generan las fechas
+        // realmente faltantes dentro del mismo mes.
+        $fechasExistentes = $existentes->map(fn (ColaboradorCalendarioDia $dia) => $dia->fecha->toDateString())->flip();
         $patron = self::patronDesdeMesesAnteriores($colaborador, $inicioMes);
 
         $filas = [];
         for ($fecha = $desde->copy(); $fecha->lte($finMes); $fecha->addDay()) {
             $fechaTexto = $fecha->toDateString();
+            if ($fechasExistentes->has($fechaTexto)) {
+                continue;
+            }
+
+            $esFeriado = FeriadosPeru::esFeriado($fechaTexto);
             $filas[] = [
                 'colaborador_id' => $colaborador->id,
                 'fecha' => $fechaTexto,
-                'tipo' => FeriadosPeru::esFeriado($fechaTexto)
-                    ? 'feriado'
-                    : ($patron[self::claveSemana($fecha)] ?? 'laborable_presencial'),
+                // Sin patrón heredado (recién ingresado, o el horario
+                // cambió y ya no hay historial vigente para heredar — ver
+                // patronDesdeMesesAnteriores), se resuelve directo desde el
+                // horario ACTUALMENTE vigente para esa fecha, nunca un
+                // default ciego a 'laborable_presencial'.
+                'tipo' => $esFeriado ? 'feriado' : ($patron[self::claveSemana($fecha)] ?? self::tipoDesdeHorarioVigente($colaborador, $fecha)),
+                // El origen describe CÓMO se creó la fila, no qué tipo
+                // contiene — acá siempre es automático porque esta fecha
+                // no tenía ninguna fila propia, nunca se pisa una decisión
+                // humana existente.
+                'origen' => $esFeriado ? ColaboradorCalendarioDia::ORIGEN_FERIADO_AUTOMATICO : ColaboradorCalendarioDia::ORIGEN_HORARIO_AUTOMATICO,
                 'created_at' => now(),
                 'updated_at' => now(),
             ];
         }
 
         if ($filas === []) {
-            return collect();
+            return $existentes;
         }
 
         ColaboradorCalendarioDia::query()->insert($filas);
@@ -95,13 +111,28 @@ class CalendarioMensualGenerator
      * semana par/impar). Se detiene apenas las completa o se queda sin
      * historial (colaborador recién ingresado, sin mes previo).
      *
+     * Fase 4C — el histórico nunca se busca antes de `vigencia_desde` de
+     * la asignación de horario ACTUALMENTE vigente: si el colaborador
+     * cambió de horario, un patrón heredado de ANTES del cambio
+     * pertenecía al horario viejo y ya no aplica (sería revivir el mismo
+     * hueco que Fase 4C vino a cerrar). Sin asignación vigente (no
+     * debería pasar en la práctica), no acota nada.
+     *
      * @return array<string, string> clave "paridad-diaISO" => tipo
      */
     private static function patronDesdeMesesAnteriores(Colaborador $colaborador, Carbon $inicioMes): array
     {
+        $vigenciaActual = ColaboradorHorarioAsignacion::query()
+            ->where('colaborador_id', $colaborador->id)
+            ->whereDate('vigencia_desde', '<=', $inicioMes->toDateString())
+            ->where(fn ($query) => $query->whereNull('vigencia_hasta')->orWhereDate('vigencia_hasta', '>=', $inicioMes->toDateString()))
+            ->orderByDesc('vigencia_desde')
+            ->value('vigencia_desde');
+
         $anteriores = ColaboradorCalendarioDia::query()
             ->where('colaborador_id', $colaborador->id)
             ->where('fecha', '<', $inicioMes->toDateString())
+            ->when($vigenciaActual, fn ($query) => $query->where('fecha', '>=', $vigenciaActual))
             ->where('tipo', '!=', 'feriado')
             ->orderByDesc('fecha')
             ->get();
@@ -116,6 +147,28 @@ class CalendarioMensualGenerator
         }
 
         return $patron;
+    }
+
+    /**
+     * Fallback cuando no hay patrón histórico que heredar (recién
+     * ingresado, o recién cambió de horario) — resuelve directo desde el
+     * HorarioDia del horario vigente en esa fecha exacta, mismo criterio
+     * de resolución que ya usa ResolverJornadaDiaria (Asistencia) para
+     * decidir si un día es laborable o descanso.
+     */
+    private static function tipoDesdeHorarioVigente(Colaborador $colaborador, Carbon $fecha): string
+    {
+        $asignacion = ColaboradorHorarioAsignacion::query()
+            ->where('colaborador_id', $colaborador->id)
+            ->whereDate('vigencia_desde', '<=', $fecha->toDateString())
+            ->where(fn ($query) => $query->whereNull('vigencia_hasta')->orWhereDate('vigencia_hasta', '>=', $fecha->toDateString()))
+            ->with('horario.dias')
+            ->orderByDesc('vigencia_desde')
+            ->first();
+
+        $horarioDia = $asignacion?->horario?->dias->firstWhere('dia_semana', $fecha->dayOfWeekIso - 1);
+
+        return $horarioDia?->estado === 'descanso' ? 'descanso' : 'laborable_presencial';
     }
 
     /**

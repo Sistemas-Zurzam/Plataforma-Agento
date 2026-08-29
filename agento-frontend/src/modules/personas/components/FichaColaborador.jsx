@@ -320,6 +320,49 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
     }
   };
 
+  /**
+   * Fase 4C — si el cambio de horario afectaría fechas planificadas a mano
+   * o con origen histórico desconocido, el backend NO aplica nada todavía:
+   * responde 409 con el detalle exacto (nunca se confía en una
+   * confirmación puramente de frontend). Acá se traduce ese detalle a
+   * lenguaje llano (nunca "origen"/"NULL"/nombres de columna) y, si RR.HH.
+   * confirma, se reenvía con la intención explícita que el backend exige.
+   */
+  const confirmarPlanificacionExistente = (datosHorario, impacto) => {
+    const partes = [
+      impacto.automaticas > 0 ? `${impacto.automaticas} fecha(s) generadas automáticamente por el horario anterior se recalcularán con el horario nuevo.` : null,
+      impacto.humanas > 0 ? `${impacto.humanas} fecha(s) planificadas manualmente se conservarán tal cual, sin tocarlas.` : null,
+      impacto.legacy > 0 ? `${impacto.legacy} fecha(s) históricas (de antes de este control) se conservarán tal cual, sin tocarlas.` : null,
+    ].filter(Boolean);
+
+    modal.confirm({
+      title: 'El colaborador tiene planificación futura existente',
+      content: (
+        <div>
+          <ul className="list-disc pl-4">
+            {partes.map((parte, indice) => <li key={indice}>{parte}</li>)}
+          </ul>
+          <p className="mt-2">Las decisiones manuales o históricas nunca se eliminan automáticamente. ¿Deseas continuar de todas formas?</p>
+        </div>
+      ),
+      okText: 'Continuar',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        setGuardandoHorario(true);
+        try {
+          const actualizado = await actualizarHorario(colaborador.id, { ...datosHorario, confirmar_planificacion_existente: true });
+          setColaborador(actualizado);
+          setHorarioOpen(false);
+          message.success('Horario actualizado correctamente');
+        } catch (error) {
+          message.error(error.response?.data?.message ?? 'No se pudo actualizar el horario');
+        } finally {
+          setGuardandoHorario(false);
+        }
+      },
+    });
+  };
+
   const guardarHorario = (values) => {
     const { horario_nombre: horarioNombre, ...datosHorario } = values;
 
@@ -336,6 +379,10 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
           setHorarioOpen(false);
           message.success('Horario actualizado correctamente');
         } catch (error) {
+          if (error.response?.status === 409 && error.response?.data?.requiere_confirmacion) {
+            confirmarPlanificacionExistente(datosHorario, error.response.data.impacto);
+            return;
+          }
           message.error(error.response?.data?.message ?? 'No se pudo actualizar el horario');
         } finally {
           setGuardandoHorario(false);

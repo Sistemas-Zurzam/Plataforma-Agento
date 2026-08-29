@@ -236,9 +236,15 @@ class PlanificacionRotativaService
             }
 
             $antes = $existente?->toArray();
+            // Fase 4B — 'planificacion' pisa cualquier origen previo a
+            // propósito, incluso uno automático: es la regla "una decisión
+            // humana nueva reemplaza el carácter automático de la fila".
             $fila = $tipo === null
                 ? tap($existente)->delete()
-                : $colaborador->calendario()->updateOrCreate(['fecha' => $fecha], ['tipo' => $tipo]);
+                : $colaborador->calendario()->updateOrCreate(
+                    ['fecha' => $fecha],
+                    ['tipo' => $tipo, 'origen' => ColaboradorCalendarioDia::ORIGEN_PLANIFICACION],
+                );
 
             $this->auditoria->registrar(
                 $empresa->id, $usuario->id, 'planificacion_dia', $fila,

@@ -15,11 +15,13 @@ export default function ImportarColaboradoresModal({ open, onCancel, onImportado
   const { message } = App.useApp();
   const [archivo, setArchivo] = useState(null);
   const [previsualizacion, setPrevisualizacion] = useState(null);
+  const [erroresImportacion, setErroresImportacion] = useState([]);
   const [cargando, setCargando] = useState(false);
 
   const reiniciar = () => {
     setArchivo(null);
     setPrevisualizacion(null);
+    setErroresImportacion([]);
   };
 
   const handleCancel = () => {
@@ -41,6 +43,7 @@ export default function ImportarColaboradoresModal({ open, onCancel, onImportado
       const data = await previsualizarImportacion(nuevoArchivo);
       setArchivo(nuevoArchivo);
       setPrevisualizacion(data);
+      setErroresImportacion([]);
     } catch (error) {
       message.error(error.response?.data?.message ?? 'No se pudo analizar el archivo de colaboradores');
     } finally {
@@ -56,7 +59,10 @@ export default function ImportarColaboradoresModal({ open, onCancel, onImportado
       const resultado = await confirmarImportacion(archivo);
       message.success(`${resultado.creados} colaboradores creados.`);
       if (resultado.errores?.length) {
-        message.warning(`${resultado.errores.length} filas no se pudieron importar. Revisa el detalle.`);
+        setErroresImportacion(resultado.errores);
+        message.warning(`${resultado.errores.length} filas no se pudieron importar. El motivo se muestra en el modal.`);
+        onImportado?.();
+        return;
       }
       reiniciar();
       onImportado?.();
@@ -104,6 +110,23 @@ export default function ImportarColaboradoresModal({ open, onCancel, onImportado
         <Button icon={<DownloadOutlined />} onClick={handleDescargarPlantilla}>
           Descargar plantilla
         </Button>
+
+        {erroresImportacion.length > 0 && (
+          <Alert
+            type="error"
+            showIcon
+            message="Filas que no se pudieron importar"
+            description={(
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {erroresImportacion.map((error, index) => (
+                  <li key={`${error.nombre}-${index}`}>
+                    <strong>{error.nombre}:</strong> {error.motivo}
+                  </li>
+                ))}
+              </ul>
+            )}
+          />
+        )}
 
         {!previsualizacion && (
           <Upload.Dragger

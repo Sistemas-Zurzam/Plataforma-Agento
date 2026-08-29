@@ -13,6 +13,7 @@ use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCalendarioDia;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorDocumento;
+use App\Modules\Personas\Application\AjustarCalendarioPorCambioHorario;
 use App\Modules\Personas\Support\CalendarioMensualGenerator;
 use App\Modules\Personas\Support\FeriadosPeru;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -27,6 +28,8 @@ use Intervention\Image\ImageManager;
 
 class ColaboradorService
 {
+    public function __construct(private readonly AjustarCalendarioPorCambioHorario $ajusteCalendario) {}
+
     /**
      * @param  array<int, int>  $empresaIds  Ya resueltos y autorizados por el
      *   controller (o [$empresaActiva->id], o todas las de
@@ -128,9 +131,14 @@ class ColaboradorService
 
         DB::transaction(function () use ($colaborador, $dias) {
             foreach ($dias as $dia) {
+                // Fase 4B — 'manual' pisa cualquier origen previo (incluido
+                // uno automático) a propósito: es exactamente la regla "una
+                // decisión humana nueva reemplaza el carácter automático de
+                // la fila", tanto si la fecha ya existía como si es nueva
+                // (updateOrCreate aplica este array en ambos casos).
                 $colaborador->calendario()->updateOrCreate(
                     ['fecha' => $dia['fecha']],
-                    ['tipo' => $dia['tipo']],
+                    ['tipo' => $dia['tipo'], 'origen' => ColaboradorCalendarioDia::ORIGEN_MANUAL],
                 );
             }
         });
@@ -212,9 +220,17 @@ class ColaboradorService
     }
 
     /**
+     * Fase 4C — puede devolver un array en vez de Colaborador cuando el
+     * cambio afectaría planificación humana/legacy futura y todavía no
+     * llegó confirmación explícita (`$confirmarPlanificacionExistente`):
+     * `['requiere_confirmacion' => true, 'impacto' => [...]]`. El
+     * controller detecta esa forma y responde 409 en vez de la Resource
+     * normal — nada se modifica todavía en ese caso.
+     *
      * @param  array{horario_id:int, modalidad_trabajo:string, tolerancia_particular_minutos:?int, vigencia_desde:string, vigencia_hasta:?string}  $datos
+     * @return Colaborador|array{requiere_confirmacion: true, impacto: array<string, mixed>}
      */
-    public function actualizarHorario(Empresa $empresa, Colaborador $colaborador, array $datos): Colaborador
+    public function actualizarHorario(Empresa $empresa, Colaborador $colaborador, array $datos, int $usuarioId, bool $confirmarPlanificacionExistente = false): Colaborador|array
     {
         if ($colaborador->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
@@ -236,17 +252,46 @@ class ColaboradorService
             throw new AuthorizationException('El horario seleccionado no está activo o vigente para la fecha indicada.');
         }
 
-        DB::transaction(function () use ($colaborador, $datos, $empresa, $vigenciaDesde, $vigenciaHasta) {
-            $asignacionActual = $colaborador->asignacionesHorario()->whereNull('vigencia_hasta')->first();
-            $diasDescansoNuevo = $datos['dias_descanso_rotativo_por_semana'] ?? null;
-            // También versiona si SOLO cambia el número de días de descanso
-            // rotativo (sin cambiar de horario) — igual que el horario
-            // mismo, no se sobrescribe en el sitio si afecta el cálculo de
-            // fechas ya pasadas.
-            $requiereNuevaVigencia = $colaborador->horario_id !== $datos['horario_id']
-                || $asignacionActual?->dias_descanso_rotativo_por_semana !== $diasDescansoNuevo;
+        $asignacionActual = $colaborador->asignacionesHorario()->whereNull('vigencia_hasta')->first();
+        $diasDescansoNuevo = $datos['dias_descanso_rotativo_por_semana'] ?? null;
+        // También versiona si SOLO cambia el número de días de descanso
+        // rotativo (sin cambiar de horario) — igual que el horario
+        // mismo, no se sobrescribe en el sitio si afecta el cálculo de
+        // fechas ya pasadas.
+        $requiereNuevaVigencia = $colaborador->horario_id !== $datos['horario_id']
+            || $asignacionActual?->dias_descanso_rotativo_por_semana !== $diasDescansoNuevo;
 
+        $impacto = null;
+        if ($requiereNuevaVigencia) {
+            // Fase 4C — antes de tocar nada: ¿ya existen resultados de
+            // asistencia procesados desde esta vigencia? Un cambio
+            // retroactivo sobre historial ya procesado no se invalida
+            // automáticamente (corrección manual especializada, ver
+            // AjustarCalendarioPorCambioHorario::evaluarImpacto()).
+            $impacto = $this->ajusteCalendario->evaluarImpacto($colaborador, $vigenciaDesde);
+
+            if ($impacto['bloqueado_por_procesado']) {
+                throw ValidationException::withMessages([
+                    'vigencia_desde' => ['Ya existen resultados de asistencia procesados desde esta fecha — un cambio de horario retroactivo sobre historial ya procesado requiere corrección manual especializada, no se aplica automáticamente.'],
+                ]);
+            }
+
+            $this->ajusteCalendario->asegurarSinPeriodoProtegido($empresa->id, $vigenciaDesde);
+
+            if ($impacto['requiere_confirmacion'] && ! $confirmarPlanificacionExistente) {
+                return ['requiere_confirmacion' => true, 'impacto' => $impacto];
+            }
+        }
+
+        DB::transaction(function () use ($colaborador, $datos, $empresa, $vigenciaDesde, $vigenciaHasta, $requiereNuevaVigencia, $asignacionActual, $diasDescansoNuevo, $impacto, $usuarioId) {
             if ($requiereNuevaVigencia) {
+                // Fase 4C — invalida solo lo automático (selección positiva
+                // exacta), conserva feriados/humano/legacy siempre.
+                $this->ajusteCalendario->invalidarAutomaticas(
+                    $empresa, $colaborador, $vigenciaDesde, $impacto, $usuarioId,
+                    $colaborador->horario_id, $datos['horario_id'],
+                );
+
                 // Corrección (Sección 12): la fecha indicada no es posterior
                 // a la vigencia ya abierta -> se corrige el mismo registro
                 // en vez de fragmentar el historial con una vigencia nueva.
@@ -419,6 +464,8 @@ class ColaboradorService
             // por tardanza, un cambio a mitad de mes no debe reinterpretar
             // boletas ya calculadas con otras fechas.
             'contabilizar_tardanzas' => $colaborador->contabilizar_tardanzas,
+            'contabilizar_faltas' => $colaborador->contabilizar_faltas,
+            'contabilizar_horas_extra' => $colaborador->contabilizar_horas_extra,
         ];
 
         $vigente = $colaborador->condicionesLaborales()->orderByDesc('vigencia_desde')->orderByDesc('id')->first();
@@ -707,6 +754,8 @@ class ColaboradorService
                 'es_trabajador_confianza' => $colaborador->es_trabajador_confianza,
                 // V3 P2/T1 — mismo tratamiento histórico que es_trabajador_confianza.
                 'contabilizar_tardanzas' => $colaborador->contabilizar_tardanzas,
+                'contabilizar_faltas' => $colaborador->contabilizar_faltas,
+                'contabilizar_horas_extra' => $colaborador->contabilizar_horas_extra,
                 'vigencia_desde' => $datos['fecha_ingreso'],
             ]);
 
@@ -725,11 +774,15 @@ class ColaboradorService
 
             // Se descarta cualquier día anterior a fecha_ingreso por
             // defensividad, aunque el frontend ya no debería enviarlos.
+            // Fase 4B — origen 'wizard': RR.HH. revisó y confirmó este
+            // calendario en el Paso 2 del alta (pudo editarlo ahí), es una
+            // ruta de escritura propia, distinta de CalendarioMensualGenerator.
             collect($datos['calendario'] ?? [])
                 ->filter(fn (array $dia) => $dia['fecha'] >= $datos['fecha_ingreso'])
                 ->each(fn (array $dia) => $colaborador->calendario()->create([
                     'fecha' => $dia['fecha'],
                     'tipo' => $dia['tipo'],
+                    'origen' => ColaboradorCalendarioDia::ORIGEN_WIZARD,
                 ]));
 
             return $colaborador->load([

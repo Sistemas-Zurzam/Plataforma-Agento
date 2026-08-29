@@ -36,7 +36,7 @@ class ColaboradorPlantillaGenerator
         // correr las columnas ya existentes en plantillas que alguien ya
         // esté usando.
         'pais_residencia', 'ciudad_residencia', 'distrito_residencia',
-        'contabilizar_tardanzas', 'contabilizar_horas_extra',
+        'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra',
         'cts_cuenta', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
         // Paridad exacta con StoreColaboradorRequest / NuevoColaboradorModal.
         'tolerancia_particular_minutos', 'dias_descanso_rotativo_por_semana',
@@ -149,6 +149,7 @@ class ColaboradorPlantillaGenerator
             'ciudad_residencia' => 'Lima',
             'distrito_residencia' => 'San Isidro',
             'contabilizar_tardanzas' => 'Sí',
+            'contabilizar_faltas' => 'Sí',
             'contabilizar_horas_extra' => 'Sí',
             'cts_cuenta' => '',
             'banco' => 'BCP',
@@ -187,6 +188,7 @@ class ColaboradorPlantillaGenerator
             'moneda_salario' => 'PEN,USD',
             'periodicidad_pago' => 'mensual,quincenal,semanal',
             'contabilizar_tardanzas' => 'Sí,No',
+            'contabilizar_faltas' => 'Sí,No',
             'contabilizar_horas_extra' => 'Sí,No',
             'tipo_cuenta' => 'ahorro,corriente',
             'moneda_cuenta' => 'PEN,USD',

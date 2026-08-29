@@ -84,6 +84,7 @@ class StoreColaboradorRequest extends FormRequest
             'categoria_trabajador' => ['nullable', Rule::in(Colaborador::CATEGORIAS_TRABAJADOR)],
             'es_trabajador_confianza' => ['nullable', 'boolean'],
             'contabilizar_tardanzas' => ['nullable', 'boolean'],
+            'contabilizar_faltas' => ['nullable', 'boolean'],
             'contabilizar_horas_extra' => ['nullable', 'boolean'],
             'fecha_ingreso' => ['required', 'date'],
             'fecha_fin_contrato' => ['nullable', 'date', 'after_or_equal:fecha_ingreso'],

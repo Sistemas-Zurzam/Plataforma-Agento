@@ -55,7 +55,7 @@ class TelecreditoBcpValidator
     {
         $hallazgos = $this->validarCabecera($ciclo, $cuentaCargo, $fechaProceso, $subtipo);
 
-        $boletas = TelecreditoBcpCicloDatosLoader::poblacion($ciclo);
+        $boletas = TelecreditoBcpCicloDatosLoader::poblacion($ciclo, $subtipo);
 
         foreach ($boletas as $boleta) {
             $hallazgos = [...$hallazgos, ...$this->validarTrabajador($boleta, $cuentaCargo)];
