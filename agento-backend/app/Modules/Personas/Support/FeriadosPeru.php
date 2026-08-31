@@ -26,6 +26,7 @@ class FeriadosPeru
             "{$anio}-06-29", // San Pedro y San Pablo
             "{$anio}-07-28", // Fiestas Patrias
             "{$anio}-07-29", // Fiestas Patrias
+            "{$anio}-08-06", // Batalla de Junín (feriado nacional)
             "{$anio}-08-30", // Santa Rosa de Lima
             "{$anio}-10-08", // Combate de Angamos
             "{$anio}-11-01", // Todos los Santos
