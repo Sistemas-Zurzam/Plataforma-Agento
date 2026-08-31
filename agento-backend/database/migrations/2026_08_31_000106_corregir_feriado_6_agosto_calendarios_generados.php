@@ -22,15 +22,22 @@ return new class extends Migration
      * reinterpretar automáticamente, mismo criterio que usa
      * AjustarCalendarioPorCambioHorario.
      *
-     * Acotado a partir de 2026 (YEAR(fecha) >= 2026): el feriado es nuevo,
-     * no reescribe calendarios de años anteriores a su creación como ley,
-     * aunque FeriadosPeru::paraAnio() ya lo devuelva para cualquier año
-     * (eso solo afecta generación hacia adelante, nunca corrige historia).
+     * Acotado a partir de 2026: el feriado es nuevo, no reescribe
+     * calendarios de años anteriores a su creación como ley, aunque
+     * FeriadosPeru::paraAnio() ya lo devuelva para cualquier año (eso solo
+     * afecta generación hacia adelante, nunca corrige historia).
+     *
+     * whereMonth/whereDay/whereYear (no whereRaw con MONTH()/DAY()/YEAR())
+     * a propósito: los tests corren esta migración contra SQLite
+     * (phpunit.xml), que no tiene esas funciones SQL — los helpers del
+     * query builder sí compilan a la sintaxis correcta en cada motor.
      */
     public function up(): void
     {
         DB::table('colaborador_calendario_dias')
-            ->whereRaw('MONTH(fecha) = 8 AND DAY(fecha) = 6 AND YEAR(fecha) >= 2026')
+            ->whereMonth('fecha', 8)
+            ->whereDay('fecha', 6)
+            ->whereYear('fecha', '>=', 2026)
             ->where('origen', 'horario_automatico')
             ->where('tipo', '!=', 'feriado')
             ->update([

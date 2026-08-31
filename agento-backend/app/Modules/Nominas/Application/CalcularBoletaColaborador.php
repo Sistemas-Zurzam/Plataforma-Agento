@@ -13,6 +13,7 @@ use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Configuracion\Models\ReglaDescuentoTardanza;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
+use App\Modules\Nominas\Support\ProrateoIngresoTardio;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
@@ -102,6 +103,23 @@ class CalcularBoletaColaborador
         // --- Ingresos ---
         $basico = $calculadora->calcularBasico($sueldoBasico, $asistencia['dias_falta'], $asistencia['horas_permiso_sin_goce']);
         $diasPagados = $basico['dias_pagados'];
+
+        // calcularBasico() no conoce fecha_ingreso (solo recibe dias_falta,
+        // que nunca incluye días previos al ingreso porque Asistencia ni
+        // genera fila para esas fechas) — así que un colaborador que
+        // ingresa a mitad de $fechaInicio cobraba el mes nominal completo.
+        // Se muta $basico['linea'] explícitamente (no solo la variable
+        // $diasPagados): si no, dias_pagados queda correcto en la boleta
+        // pero el monto de la línea de ingreso sigue sin prorratear. No-op
+        // para LiquidacionCeseService — ver ProrateoIngresoTardio.
+        $diasNoPagadosPorIngresoTardio = ProrateoIngresoTardio::diasNoPagados($colaborador->fecha_ingreso, $fechaInicio);
+        $diasPagados = max(0, $diasPagados - $diasNoPagadosPorIngresoTardio);
+        if ($diasNoPagadosPorIngresoTardio > 0) {
+            $basico['linea']['monto'] = round(($sueldoBasico / 30) * $diasPagados, 2);
+            $basico['linea']['cantidad'] = $diasPagados;
+            $basico['linea']['formula_texto'] = "({$sueldoBasico} / 30) × {$diasPagados} días pagados"
+                ." — excluye {$diasNoPagadosPorIngresoTardio} día(s) previos al ingreso ({$colaborador->fecha_ingreso->toDateString()})";
+        }
 
         // SUNAT distingue Remuneración Vacacional (Tabla 22: 0118) de
         // Remuneración/Jornal Básico (0121) — calcularBasico() ya paga el

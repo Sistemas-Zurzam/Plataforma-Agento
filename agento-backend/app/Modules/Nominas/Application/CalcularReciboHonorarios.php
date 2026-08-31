@@ -6,6 +6,7 @@ use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
+use App\Modules\Nominas\Support\ProrateoIngresoTardio;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
@@ -47,31 +48,48 @@ class CalcularReciboHonorarios
 
         $honorarioBruto = (float) $remuneracion->salario;
 
+        // Un locador que ingresa a mitad de $fechaInicio no debe facturar el
+        // honorario pactado completo — el recibo real de ese período es
+        // menor, y la retención de 4ta se calcula sobre el monto
+        // efectivamente emitido, no sobre una tarifa mensual hipotética
+        // (por eso esto se resuelve ANTES del bloque de retención, no
+        // después). $honorarioBruto se deja nominal a propósito para los
+        // divisores de HE (/240) y DESCUENTO_FALTA (/30) más abajo — el
+        // valor-hora/valor-día no se prorratea, mismo criterio que
+        // CalcularBoletaColaborador. No-op si ya estaba activo antes del
+        // período — ver ProrateoIngresoTardio.
+        $diasNoPagadosPorIngresoTardio = ProrateoIngresoTardio::diasNoPagados($colaborador->fecha_ingreso, $fechaInicio);
+        $honorarioDelPeriodo = $diasNoPagadosPorIngresoTardio > 0
+            ? round($honorarioBruto * max(0, 30 - $diasNoPagadosPorIngresoTardio) / 30, 2)
+            : $honorarioBruto;
+
         $retencion = 0.0;
         $alertas = [];
 
         if ($colaborador->tiene_suspension_renta_4ta) {
             $formulaRetencion = 'Sin retención — el colaborador presentó constancia de suspensión de retenciones de renta de 4ta.';
-        } elseif ($honorarioBruto <= $parametros['umbral_retencion_4ta']) {
-            $formulaRetencion = "Sin retención — el honorario ({$honorarioBruto}) no supera el umbral vigente (S/ {$parametros['umbral_retencion_4ta']}).";
+        } elseif ($honorarioDelPeriodo <= $parametros['umbral_retencion_4ta']) {
+            $formulaRetencion = "Sin retención — el honorario ({$honorarioDelPeriodo}) no supera el umbral vigente (S/ {$parametros['umbral_retencion_4ta']}).";
         } else {
-            $retencion = round($honorarioBruto * $parametros['tasa_retencion_4ta'], 2);
-            $formulaRetencion = "{$parametros['tasa_retencion_4ta']} × honorario bruto ({$honorarioBruto}) — supera el umbral de S/ {$parametros['umbral_retencion_4ta']}";
+            $retencion = round($honorarioDelPeriodo * $parametros['tasa_retencion_4ta'], 2);
+            $formulaRetencion = "{$parametros['tasa_retencion_4ta']} × honorario del período ({$honorarioDelPeriodo}) — supera el umbral de S/ {$parametros['umbral_retencion_4ta']}";
         }
 
         $ingresos = [[
             'codigo' => 'HONORARIO_BRUTO',
-            'monto' => round($honorarioBruto, 2),
+            'monto' => round($honorarioDelPeriodo, 2),
             'base_utilizada' => null,
             'tasa_aplicada' => null,
             'cantidad' => null,
-            'formula_texto' => 'Monto pactado vigente para este período (historial remunerativo del colaborador)',
+            'formula_texto' => $diasNoPagadosPorIngresoTardio > 0
+                ? "Monto pactado vigente para este período — excluye {$diasNoPagadosPorIngresoTardio} día(s) previos al ingreso ({$colaborador->fecha_ingreso->toDateString()})"
+                : 'Monto pactado vigente para este período (historial remunerativo del colaborador)',
         ]];
 
         $egresos = [[
             'codigo' => 'RETENCION_RENTA_4TA',
             'monto' => $retencion,
-            'base_utilizada' => $honorarioBruto,
+            'base_utilizada' => $honorarioDelPeriodo,
             'tasa_aplicada' => $colaborador->tiene_suspension_renta_4ta ? null : $parametros['tasa_retencion_4ta'],
             'cantidad' => null,
             'formula_texto' => $formulaRetencion,
