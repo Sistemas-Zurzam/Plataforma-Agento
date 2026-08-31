@@ -135,6 +135,7 @@ class ColaboradorService
 
         DB::transaction(function () use ($colaborador, $dias) {
             foreach ($dias as $dia) {
+                $esFeriadoLegal = FeriadosPeru::esFeriado($dia['fecha']);
                 // Fase 4B — 'manual' pisa cualquier origen previo (incluido
                 // uno automático) a propósito: es exactamente la regla "una
                 // decisión humana nueva reemplaza el carácter automático de
@@ -142,7 +143,12 @@ class ColaboradorService
                 // (updateOrCreate aplica este array en ambos casos).
                 $colaborador->calendario()->updateOrCreate(
                     ['fecha' => $dia['fecha']],
-                    ['tipo' => $dia['tipo'], 'origen' => ColaboradorCalendarioDia::ORIGEN_MANUAL],
+                    [
+                        'tipo' => $esFeriadoLegal ? 'feriado' : $dia['tipo'],
+                        'origen' => $esFeriadoLegal
+                            ? ColaboradorCalendarioDia::ORIGEN_FERIADO_AUTOMATICO
+                            : ColaboradorCalendarioDia::ORIGEN_MANUAL,
+                    ],
                 );
             }
         });
@@ -213,7 +219,7 @@ class ColaboradorService
         return [
             'dias' => $dias->map(fn ($dia) => [
                 'fecha' => $dia->fecha->toDateString(),
-                'tipo' => $dia->tipo,
+                'tipo' => FeriadosPeru::esFeriado($dia->fecha->toDateString()) ? 'feriado' : $dia->tipo,
                 'editable' => true,
                 // false = instancia virtual sin guardar (horario rotativo
                 // sin ese día declarado todavía) — permite a la UI marcar

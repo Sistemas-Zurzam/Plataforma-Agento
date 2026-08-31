@@ -55,9 +55,11 @@ class ResolverJornadaDiaria
         }
 
         $tipoDia = match (true) {
+            // El feriado legal prevalece sobre cualquier fila persistida:
+            // un calendario antiguo no puede convertirlo en falta.
+            FeriadosPeru::esFeriado($fechaTexto) => 'feriado',
             $calendario !== null => $calendario->tipo,
             $esRotativo => 'sin_rol_definido',
-            FeriadosPeru::esFeriado($fechaTexto) => 'feriado',
             $horarioDia === null => 'no_programado',
             $horarioDia->estado === 'descanso' => 'descanso',
             default => 'laborable_presencial',
