@@ -141,9 +141,11 @@ class ParametroLaboralService
 
     /**
      * Guarda en lote los valores editados de un régimen (modal "Editar").
-     * Solo inserta una fila nueva para las definiciones cuyo valor
-     * efectivamente cambió respecto al vigente actual: reenviar el
-     * formulario sin tocar un campo no genera una fila duplicada idéntica.
+     * Solo inserta una fila nueva para las definiciones cuyo valor o fecha
+     * de vigencia efectivamente cambió respecto a la fila vigente actual:
+     * reenviar el formulario sin tocar nada no genera una fila duplicada
+     * idéntica, pero corregir solo la fecha (ej. backdatear un valor ya
+     * correcto) sí debe generar una fila nueva.
      *
      * @param  array<int, float>  $valoresPorDefinicion  definicion_id => valor
      */
@@ -157,12 +159,21 @@ class ParametroLaboralService
                 ->orderByDesc('id')
                 ->get()
                 ->groupBy('definicion_id')
-                ->map(fn ($grupo) => (float) $grupo->first()->valor);
+                ->map(fn ($grupo) => $grupo->first());
 
             foreach ($valoresPorDefinicion as $definicionId => $valor) {
-                $valorActual = $vigentesActuales->get($definicionId);
+                $actual = $vigentesActuales->get($definicionId);
+                // Omitir solo si NI el valor NI la fecha de vigencia
+                // cambiaron — comparar únicamente el valor (como antes)
+                // hacía que corregir la fecha de vigencia de un valor ya
+                // correcto (ej. backdatearlo para que aplique a un período
+                // ya cerrado) se guardara como no-op silencioso: el usuario
+                // veía "guardado exitoso" pero la fila vieja con la fecha
+                // mala seguía siendo la única vigente.
+                $mismoValor = $actual !== null && (float) $actual->valor === (float) $valor;
+                $mismaFecha = $actual !== null && $actual->vigencia_desde->toDateString() === $vigenciaDesde;
 
-                if ($valorActual !== null && (float) $valorActual === (float) $valor) {
+                if ($mismoValor && $mismaFecha) {
                     continue;
                 }
 
