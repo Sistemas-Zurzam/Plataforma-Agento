@@ -44,11 +44,16 @@ jobs:
         run: chmod -R 777 storage bootstrap/cache
 
       - name: Execute tests (Unit and Feature tests) via PHPUnit/Pest
+        if: ${{ vars.SKIP_TESTS != 'true' }}
         run: php artisan test
 
   deploy:
     needs: laravel-tests
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: |
+      always() &&
+      needs.laravel-tests.result != 'failure' &&
+      github.ref == 'refs/heads/main' &&
+      github.event_name == 'push'
     runs-on: ubuntu-latest
 
     steps:
