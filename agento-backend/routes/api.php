@@ -169,6 +169,8 @@ Route::middleware('jwt')->group(function () {
 
     Route::get('/ciclos-remunerativos', [CicloRemunerativoController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos', [CicloRemunerativoController::class, 'store'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::put('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'actualizar'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::delete('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'eliminar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::post('/ciclos-remunerativos/{ciclo}/calcular', [CicloRemunerativoController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/estado-calculo', [CicloRemunerativoController::class, 'estadoCalculo'])->middleware('permiso:nominas.ver');
     Route::patch('/ciclos-remunerativos/{ciclo}/cerrar', [CicloRemunerativoController::class, 'cerrar'])->middleware('permiso:nominas.cerrar_periodo');
@@ -201,6 +203,8 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/boletas/{boleta}/comprobante-rh', [BoletaController::class, 'guardarComprobanteRh'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'listarConceptos'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'registrarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::put('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos/{conceptoPeriodo}', [CicloRemunerativoController::class, 'actualizarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::delete('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos/{conceptoPeriodo}', [CicloRemunerativoController::class, 'eliminarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
 
     Route::middleware('empresa.admin')->group(function () {
         Route::post('/roles', [RoleController::class, 'store']);

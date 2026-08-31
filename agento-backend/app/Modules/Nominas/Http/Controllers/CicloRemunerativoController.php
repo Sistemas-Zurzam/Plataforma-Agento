@@ -18,6 +18,7 @@ use App\Modules\Nominas\Http\Resources\CicloRemunerativoResource;
 use App\Modules\Nominas\Http\Resources\ColaboradorConceptoPeriodoResource;
 use App\Modules\Nominas\Infrastructure\Plame\Export\PlameZipBuilder;
 use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Services\BoletaService;
 use App\Modules\Nominas\Services\CicloRemunerativoService;
@@ -102,6 +103,30 @@ class CicloRemunerativoController extends Controller
         return new CicloRemunerativoResource($ciclo);
     }
 
+    public function actualizar(Request $request, CicloRemunerativo $ciclo): CicloRemunerativoResource
+    {
+        $datos = $request->validate([
+            'nombre' => ['required', 'string', 'max:255'],
+            'fecha_inicio' => ['required', 'date'],
+            'fecha_fin' => ['required', 'date', 'after_or_equal:fecha_inicio'],
+            'fecha_corte_asistencia' => ['required', 'date'],
+            'fecha_pago' => ['required', 'date', 'after_or_equal:fecha_fin'],
+        ]);
+
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $ciclo = $this->ciclos->actualizar($empresa, $ciclo, $datos);
+
+        return new CicloRemunerativoResource($ciclo);
+    }
+
+    public function eliminar(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $this->ciclos->eliminar($empresa, $ciclo);
+
+        return response()->json(['message' => 'Ciclo remunerativo eliminado.']);
+    }
+
     public function calcular(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
@@ -182,6 +207,36 @@ class CicloRemunerativoController extends Controller
         $item = $this->ciclos->registrarConcepto($empresa, $ciclo, $colaborador, $datos, $request->user('api')->id);
 
         return new ColaboradorConceptoPeriodoResource($item->load(['concepto', 'conceptoDefinicion']));
+    }
+
+    public function actualizarConcepto(Request $request, CicloRemunerativo $ciclo, Colaborador $colaborador, ColaboradorConceptoPeriodo $conceptoPeriodo): ColaboradorConceptoPeriodoResource
+    {
+        $conceptoCodigo = ConceptoRemuneracion::find($request->input('concepto_id'))?->codigo;
+        $requiereDefinicion = in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
+
+        $datos = $request->validate([
+            'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],
+            'concepto_definicion_id' => [
+                $requiereDefinicion ? 'required' : 'prohibited',
+                'integer',
+                Rule::exists('concepto_definiciones_plame', 'id')->where('concepto_remuneracion_id', $request->input('concepto_id'))->where('activo', true),
+            ],
+            'monto' => ['required', 'numeric', 'min:0.01'],
+            'motivo' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $item = $this->ciclos->actualizarConcepto($empresa, $ciclo, $colaborador, $conceptoPeriodo, $datos);
+
+        return new ColaboradorConceptoPeriodoResource($item->load(['concepto', 'conceptoDefinicion']));
+    }
+
+    public function eliminarConcepto(Request $request, CicloRemunerativo $ciclo, Colaborador $colaborador, ColaboradorConceptoPeriodo $conceptoPeriodo): JsonResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $this->ciclos->eliminarConcepto($empresa, $ciclo, $colaborador, $conceptoPeriodo);
+
+        return response()->json(['message' => 'Concepto eliminado.']);
     }
 
     /**

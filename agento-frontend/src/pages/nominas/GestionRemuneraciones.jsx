@@ -4,8 +4,10 @@ import {
   CalendarOutlined,
   CheckCircleOutlined,
   CreditCardOutlined,
+  DeleteOutlined,
   DollarCircleOutlined,
   DownloadOutlined,
+  EditOutlined,
   FilePdfOutlined,
   FileProtectOutlined,
   FileTextOutlined,
@@ -194,7 +196,7 @@ function DetalleBoleta({ boletaId, verBoleta }) {
 export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const { message, modal } = App.useApp();
   const {
-    ciclos, ciclosLoading, fetchCiclos, crearCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
+    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas,
     resumen, fetchResumen,
     verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, guardarComprobanteRh,
@@ -202,7 +204,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
     actualizarConfiguracionNomina,
-    fetchConceptosPeriodo, registrarConceptoPeriodo,
+    fetchConceptosPeriodo, registrarConceptoPeriodo, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
     previsualizacion, previsualizacionLoading, fetchPrevisualizacion,
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
@@ -212,7 +214,9 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [cicloId, setCicloId] = useState(null);
   const [tabActiva, setTabActiva] = useState('previsualizacion');
   const [mesPrevisualizacion, setMesPrevisualizacion] = useState(() => dayjs());
+  const [busquedaPrevisualizacion, setBusquedaPrevisualizacion] = useState('');
   const [nuevoCicloOpen, setNuevoCicloOpen] = useState(false);
+  const [cicloEditar, setCicloEditar] = useState(null);
   const [creandoCiclo, setCreandoCiclo] = useState(false);
   const [calculando, setCalculando] = useState(false);
 
@@ -220,12 +224,14 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
 
   const [conceptoColaborador, setConceptoColaborador] = useState(null);
+  const [conceptoCicloId, setConceptoCicloId] = useState(null);
   const [conceptoEsHonorarios, setConceptoEsHonorarios] = useState(false);
   const [conceptosPeriodo, setConceptosPeriodo] = useState([]);
   const [conceptosPeriodoLoading, setConceptosPeriodoLoading] = useState(false);
   const [registrandoConcepto, setRegistrandoConcepto] = useState(false);
 
   const [tipoFiltro, setTipoFiltro] = useState(null);
+  const [busquedaPlanilla, setBusquedaPlanilla] = useState('');
   const [boletasSeleccionadas, setBoletasSeleccionadas] = useState([]);
   const [boletaImprimirId, setBoletaImprimirId] = useState(null);
   const [comprobanteRhBoletaId, setComprobanteRhBoletaId] = useState(null);
@@ -264,12 +270,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
 
   useEffect(() => {
     if (!cicloId) return;
-    fetchBoletas(cicloId, 1, pagination.pageSize, tipoFiltro);
-    fetchResumen(cicloId, tipoFiltro);
+    fetchBoletas(cicloId, 1, pagination.pageSize, tipoFiltro, busquedaPlanilla);
+    fetchResumen(cicloId, tipoFiltro, busquedaPlanilla);
     // Evita arrastrar ids seleccionados de otro ciclo/filtro al aprobar masivo.
     setBoletasSeleccionadas([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cicloId, tipoFiltro]);
+  }, [cicloId, tipoFiltro, busquedaPlanilla]);
 
   useEffect(() => {
     if (!puedeVer) return;
@@ -309,8 +315,8 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
 
   const recargar = () => {
     if (cicloId) {
-      fetchBoletas(cicloId, pagination.current, pagination.pageSize, tipoFiltro);
-      fetchResumen(cicloId, tipoFiltro);
+      fetchBoletas(cicloId, pagination.current, pagination.pageSize, tipoFiltro, busquedaPlanilla);
+      fetchResumen(cicloId, tipoFiltro, busquedaPlanilla);
     }
   };
 
@@ -327,6 +333,40 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     } finally {
       setCreandoCiclo(false);
     }
+  };
+
+  const handleActualizarCiclo = async (values) => {
+    setCreandoCiclo(true);
+    try {
+      await actualizarCiclo(cicloEditar.id, values);
+      message.success('Ciclo remunerativo actualizado');
+      setCicloEditar(null);
+      fetchCiclos();
+    } catch (err) {
+      message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo actualizar el ciclo');
+    } finally {
+      setCreandoCiclo(false);
+    }
+  };
+
+  const handleEliminarCiclo = (ciclo) => {
+    modal.confirm({
+      title: 'Eliminar ciclo remunerativo',
+      content: `¿Eliminar "${ciclo.nombre}"? Esta acción no se puede deshacer. Solo es posible mientras el ciclo no tenga boletas calculadas.`,
+      okText: 'Eliminar',
+      okButtonProps: { danger: true },
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        try {
+          await eliminarCiclo(ciclo.id);
+          message.success('Ciclo remunerativo eliminado');
+          if (cicloId === ciclo.id) setCicloId(null);
+          await fetchCiclos();
+        } catch (err) {
+          message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo eliminar el ciclo');
+        }
+      },
+    });
   };
 
   /**
@@ -534,13 +574,24 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     }
   };
 
+  /**
+   * Usa boleta.ciclo_id (el ciclo real al que pertenece ESTA boleta), nunca
+   * el `cicloId` del selector superior: `columnas` está memoizado con deps
+   * que no incluyen `cicloId`, así que una función que capturara ese estado
+   * por clausura quedaría congelada con su valor inicial (null, antes de
+   * que se cargue el primer ciclo) — eso hacía que la petición siempre
+   * fuera a ".../ciclos-remunerativos/null/..." y devolviera 404.
+   */
   const abrirConceptos = async (boleta) => {
     setConceptoColaborador(boleta.colaborador);
+    setConceptoCicloId(boleta.ciclo_id);
     setConceptoEsHonorarios(boleta.regimen_laboral === 'Locacion de Servicios');
     setConceptosPeriodoLoading(true);
     try {
-      const data = await fetchConceptosPeriodo(cicloId, boleta.colaborador.id);
+      const data = await fetchConceptosPeriodo(boleta.ciclo_id, boleta.colaborador.id);
       setConceptosPeriodo(data);
+    } catch {
+      message.error('No se pudieron cargar los conceptos ya registrados de este colaborador');
     } finally {
       setConceptosPeriodoLoading(false);
     }
@@ -549,15 +600,49 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const handleRegistrarConcepto = async (colaboradorId, values) => {
     setRegistrandoConcepto(true);
     try {
-      await registrarConceptoPeriodo(cicloId, colaboradorId, values);
+      await registrarConceptoPeriodo(conceptoCicloId, colaboradorId, values);
       message.success('Concepto registrado. Se incluirá en el próximo cálculo de la planilla.');
-      const data = await fetchConceptosPeriodo(cicloId, colaboradorId);
+      const data = await fetchConceptosPeriodo(conceptoCicloId, colaboradorId);
       setConceptosPeriodo(data);
     } catch (err) {
       message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo registrar el concepto');
     } finally {
       setRegistrandoConcepto(false);
     }
+  };
+
+  const handleActualizarConcepto = async (colaboradorId, conceptoPeriodoId, values) => {
+    setRegistrandoConcepto(true);
+    try {
+      await actualizarConceptoPeriodo(conceptoCicloId, colaboradorId, conceptoPeriodoId, values);
+      message.success('Concepto actualizado. Se reflejará en el próximo cálculo de la planilla.');
+      const data = await fetchConceptosPeriodo(conceptoCicloId, colaboradorId);
+      setConceptosPeriodo(data);
+    } catch (err) {
+      message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo actualizar el concepto');
+    } finally {
+      setRegistrandoConcepto(false);
+    }
+  };
+
+  const handleEliminarConcepto = (item) => {
+    modal.confirm({
+      title: 'Eliminar concepto',
+      content: `¿Eliminar "${item.nombre}" por S/ ${Number(item.monto).toFixed(2)}? Esta acción no se puede deshacer.`,
+      okText: 'Eliminar',
+      okButtonProps: { danger: true },
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        try {
+          await eliminarConceptoPeriodo(conceptoCicloId, conceptoColaborador.id, item.id);
+          message.success('Concepto eliminado.');
+          const data = await fetchConceptosPeriodo(conceptoCicloId, conceptoColaborador.id);
+          setConceptosPeriodo(data);
+        } catch (err) {
+          message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo eliminar el concepto');
+        }
+      },
+    });
   };
 
   const handleGuardarComprobanteRh = async (boletaId, values) => {
@@ -608,10 +693,20 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     {
       title: 'Acciones',
       key: 'acciones',
-      width: 260,
+      width: 320,
       render: (_, ciclo) => (
         <div className="flex flex-wrap items-center gap-1">
           <Button size="small" onClick={() => { setCicloId(ciclo.id); setTabActiva('planilla'); }}>Ver planilla</Button>
+          {puedeGestionarCiclos && (ciclo.boletas_count ?? 0) === 0 && (
+            <Tooltip title="Editar fechas del ciclo">
+              <Button size="small" icon={<EditOutlined />} onClick={() => setCicloEditar(ciclo)} />
+            </Tooltip>
+          )}
+          {puedeGestionarCiclos && (ciclo.boletas_count ?? 0) === 0 && (
+            <Tooltip title="Eliminar ciclo">
+              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => handleEliminarCiclo(ciclo)} />
+            </Tooltip>
+          )}
           {puedeCalcular && ['abierto', 'calculado', 'reabierto'].includes(ciclo.estado) && (
             <Tooltip title={ciclo.calculo_estado === 'en_proceso' ? 'Ya hay un cálculo en curso' : (ciclo.estado !== 'abierto' ? 'Recalcular planilla' : 'Calcular planilla')}>
               <Button
@@ -641,7 +736,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       ),
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [puedeCalcular, puedeCerrarPeriodo, puedePagar, cicloId]);
+  ], [puedeGestionarCiclos, puedeCalcular, puedeCerrarPeriodo, puedePagar, cicloId]);
 
   const columnas = useMemo(() => [
     {
@@ -768,6 +863,14 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], []);
 
+  const previsualizacionFiltrada = useMemo(() => {
+    const texto = busquedaPrevisualizacion.trim().toLowerCase();
+    if (!texto) return previsualizacion;
+    return (previsualizacion ?? []).filter((fila) => (
+      fila.nombre?.toLowerCase().includes(texto) || fila.cargo?.toLowerCase().includes(texto)
+    ));
+  }, [previsualizacion, busquedaPrevisualizacion]);
+
   if (!puedeVer) {
     return <Empty description="No tienes permiso para ver Gestión de Remuneraciones" className="mt-16" />;
   }
@@ -876,6 +979,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                     value={mesPrevisualizacion}
                     onChange={(valor) => setMesPrevisualizacion(valor ?? dayjs())}
                   />
+                  <Input.Search
+                    allowClear
+                    placeholder="Buscar colaborador por nombre o cargo"
+                    className="w-72"
+                    value={busquedaPrevisualizacion}
+                    onChange={(e) => setBusquedaPrevisualizacion(e.target.value)}
+                  />
                   <span className="text-xs text-gray-400">
                     Vista preliminar del período — no crea ni modifica ningún ciclo. Corrige aquí lo que haga falta antes de calcular/cerrar el ciclo formal.
                   </span>
@@ -883,7 +993,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                 <Table
                   rowKey="colaborador_id"
                   loading={previsualizacionLoading}
-                  dataSource={previsualizacion}
+                  dataSource={previsualizacionFiltrada}
                   columns={columnasPrevisualizacion}
                   scroll={{ x: 1000 }}
                   pagination={false}
@@ -912,6 +1022,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             label: 'Planilla mensual',
             children: cicloId ? (
               <div className="space-y-3">
+                <Input.Search
+                  allowClear
+                  placeholder="Buscar colaborador por nombre o cargo"
+                  className="w-72"
+                  value={busquedaPlanilla}
+                  onChange={(e) => setBusquedaPlanilla(e.target.value)}
+                />
                 {puedeAprobar && boletasSeleccionadas.length > 0 && (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5">
                     <span className="text-sm font-medium text-blue-900">{boletasSeleccionadas.length} boleta(s) seleccionada(s)</span>
@@ -935,7 +1052,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                     current: pagination.current,
                     pageSize: pagination.pageSize,
                     total: pagination.total,
-                    onChange: (page, pageSize) => fetchBoletas(cicloId, page, pageSize, tipoFiltro),
+                    onChange: (page, pageSize) => fetchBoletas(cicloId, page, pageSize, tipoFiltro, busquedaPlanilla),
                   }}
                   expandable={{
                     expandedRowRender: (boleta) => <DetalleBoleta boletaId={boleta.id} verBoleta={verBoleta} />,
@@ -988,9 +1105,10 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       />
 
       <NuevoCicloModal
-        open={nuevoCicloOpen}
-        onCancel={() => setNuevoCicloOpen(false)}
-        onSubmit={handleCrearCiclo}
+        open={nuevoCicloOpen || !!cicloEditar}
+        ciclo={cicloEditar}
+        onCancel={() => { setNuevoCicloOpen(false); setCicloEditar(null); }}
+        onSubmit={cicloEditar ? handleActualizarCiclo : handleCrearCiclo}
         loading={creandoCiclo}
       />
 
@@ -1005,8 +1123,10 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
 
       <RegistrarConceptoModal
         open={!!conceptoColaborador}
-        onCancel={() => setConceptoColaborador(null)}
+        onCancel={() => { setConceptoColaborador(null); setConceptoCicloId(null); }}
         onSubmit={handleRegistrarConcepto}
+        onUpdate={handleActualizarConcepto}
+        onDelete={handleEliminarConcepto}
         loading={registrandoConcepto}
         colaborador={conceptoColaborador}
         conceptos={conceptosPeriodo}

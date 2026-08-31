@@ -72,7 +72,7 @@ class BoletaController extends Controller
         $tipo = $request->input('tipo');
 
         return BoletaResource::collection(
-            $this->boletas->listar($empresa, $ciclo, max(1, min((int) $request->input('per_page', 25), 100)), $tipo),
+            $this->boletas->listar($empresa, $ciclo, max(1, min((int) $request->input('per_page', 25), 100)), $tipo, $request->input('busqueda')),
         );
     }
 
@@ -87,7 +87,7 @@ class BoletaController extends Controller
     {
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
-        return response()->json($this->boletas->resumen($empresa, $ciclo, $request->input('tipo')));
+        return response()->json($this->boletas->resumen($empresa, $ciclo, $request->input('tipo'), $request->input('busqueda')));
     }
 
     public function aprobar(Request $request, Boleta $boleta): BoletaResource

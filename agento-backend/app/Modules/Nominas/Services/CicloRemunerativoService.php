@@ -61,6 +61,62 @@ class CicloRemunerativoService
     }
 
     /**
+     * Edita nombre/fechas de un ciclo que TODAVÍA no tiene ninguna boleta
+     * (ni siquiera una versión ya reemplazada) — una vez existe una boleta,
+     * esas fechas ya se usaron para calcular; cambiarlas después dejaría el
+     * cálculo desalineado con el período declarado. Para corregir un ciclo
+     * ya calculado hay que recalcular o crear uno nuevo, nunca reescribir
+     * sus fechas por debajo.
+     *
+     * @throws ValidationException
+     */
+    public function actualizar(Empresa $empresa, CicloRemunerativo $ciclo, array $datos): CicloRemunerativo
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+        $this->verificarSinBoletas($ciclo, 'editar');
+        $this->verificarNoSolapa($empresa, $datos['fecha_inicio'], $datos['fecha_fin'], $ciclo->id);
+
+        $ciclo->update([
+            'nombre' => $datos['nombre'],
+            'fecha_inicio' => $datos['fecha_inicio'],
+            'fecha_fin' => $datos['fecha_fin'],
+            'fecha_corte_asistencia' => $datos['fecha_corte_asistencia'],
+            'fecha_pago' => $datos['fecha_pago'],
+        ]);
+
+        return $ciclo;
+    }
+
+    /**
+     * Elimina un ciclo que todavía no tiene ninguna boleta — mismo criterio
+     * que actualizar(): boletas.ciclo_id tiene cascadeOnDelete a nivel de
+     * BD, así que borrar un ciclo YA calculado se llevaría en cascada
+     * boletas reales (aprobadas/pagadas incluso) sin ningún aviso. Bloquear
+     * esto aquí es lo único que evita perder ese historial por accidente.
+     *
+     * @throws ValidationException
+     */
+    public function eliminar(Empresa $empresa, CicloRemunerativo $ciclo): void
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+        $this->verificarSinBoletas($ciclo, 'eliminar');
+
+        $ciclo->delete();
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    private function verificarSinBoletas(CicloRemunerativo $ciclo, string $accion): void
+    {
+        if ($ciclo->boletas()->exists()) {
+            throw ValidationException::withMessages([
+                'estado' => "No se puede {$accion} un ciclo que ya tiene boletas calculadas. Si necesitas corregirlo, recalcula la planilla o crea un ciclo nuevo.",
+            ]);
+        }
+    }
+
+    /**
      * Reglas de cierre (Sección 58): no se permite cerrar sin boletas
      * calculadas, ni con boletas vigentes que todavía no estén aprobadas.
      *
@@ -219,30 +275,7 @@ class CicloRemunerativoService
      */
     public function registrarConcepto(Empresa $empresa, CicloRemunerativo $ciclo, Colaborador $colaborador, array $datos, int $usuarioId): ColaboradorConceptoPeriodo
     {
-        $this->verificarPertenencia($empresa, $ciclo);
-
-        if ($colaborador->empresa_id !== $empresa->id) {
-            throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
-        }
-
-        if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
-            throw ValidationException::withMessages([
-                'estado' => 'Este período está cerrado — no se pueden registrar nuevos conceptos. Reábrelo primero si es necesario.',
-            ]);
-        }
-
-        // El tipo (ingreso/egreso) siempre se toma del catálogo — nunca se
-        // decide aquí — por eso basta con que el concepto exista y esté
-        // activo; CalcularBoletaColaborador/CalcularReciboHonorarios enrutan
-        // la línea según ese tipo.
-        $concepto = ConceptoRemuneracion::where('id', $datos['concepto_id'])->where('activo', true)->firstOrFail();
-
-        $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
-        if ($esHonorarios && $concepto->tipo !== 'egreso') {
-            throw ValidationException::withMessages([
-                'concepto_id' => 'Un locador (Recibos por Honorarios) solo admite conceptos de descuento — los ingresos remunerativos son exclusivos de planilla dependiente.',
-            ]);
-        }
+        $concepto = $this->verificarPuedeGestionarConcepto($empresa, $ciclo, $colaborador, $datos);
 
         return ColaboradorConceptoPeriodo::create([
             'empresa_id' => $empresa->id,
@@ -254,6 +287,44 @@ class CicloRemunerativoService
             'motivo' => $datos['motivo'] ?? null,
             'creado_por' => $usuarioId,
         ]);
+    }
+
+    /**
+     * Edita un concepto manual ya registrado — mismas reglas que
+     * registrarConcepto (Sección 46/47): no se permite si el período ya
+     * está cerrado/pagado, y valida que el registro realmente pertenezca al
+     * ciclo/colaborador de la URL (evita que alguien edite un concepto de
+     * otro colaborador/ciclo cambiando solo el id en la ruta).
+     *
+     * @throws ValidationException
+     */
+    public function actualizarConcepto(Empresa $empresa, CicloRemunerativo $ciclo, Colaborador $colaborador, ColaboradorConceptoPeriodo $item, array $datos): ColaboradorConceptoPeriodo
+    {
+        $this->verificarPertenenciaConcepto($ciclo, $colaborador, $item);
+        $concepto = $this->verificarPuedeGestionarConcepto($empresa, $ciclo, $colaborador, $datos);
+
+        $item->update([
+            'concepto_id' => $concepto->id,
+            'concepto_definicion_id' => $datos['concepto_definicion_id'] ?? null,
+            'monto' => $datos['monto'],
+            'motivo' => $datos['motivo'] ?? null,
+        ]);
+
+        return $item;
+    }
+
+    /**
+     * Elimina un concepto manual ya registrado — mismas reglas que
+     * registrar/actualizar: bloqueado si el período está cerrado/pagado.
+     *
+     * @throws ValidationException
+     */
+    public function eliminarConcepto(Empresa $empresa, CicloRemunerativo $ciclo, Colaborador $colaborador, ColaboradorConceptoPeriodo $item): void
+    {
+        $this->verificarPertenenciaConcepto($ciclo, $colaborador, $item);
+        $this->verificarPeriodoEditable($empresa, $ciclo, $colaborador, 'eliminar');
+
+        $item->delete();
     }
 
     /**
@@ -270,11 +341,66 @@ class CicloRemunerativoService
             ->get();
     }
 
-    private function verificarNoSolapa(Empresa $empresa, string $fechaInicio, string $fechaFin): void
+    /**
+     * Reglas comunes a registrar/actualizar un concepto manual (Sección
+     * 46/47): el período no puede estar cerrado/pagado, el colaborador debe
+     * pertenecer a la empresa del ciclo, el concepto elegido debe existir y
+     * estar activo, y un locador (Recibos por Honorarios) solo admite
+     * conceptos de descuento.
+     *
+     * @throws ValidationException
+     */
+    private function verificarPuedeGestionarConcepto(Empresa $empresa, CicloRemunerativo $ciclo, Colaborador $colaborador, array $datos): ConceptoRemuneracion
+    {
+        $this->verificarPeriodoEditable($empresa, $ciclo, $colaborador, 'registrar ni editar');
+
+        // El tipo (ingreso/egreso) siempre se toma del catálogo — nunca se
+        // decide aquí — por eso basta con que el concepto exista y esté
+        // activo; CalcularBoletaColaborador/CalcularReciboHonorarios enrutan
+        // la línea según ese tipo.
+        $concepto = ConceptoRemuneracion::where('id', $datos['concepto_id'])->where('activo', true)->firstOrFail();
+
+        $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
+        if ($esHonorarios && $concepto->tipo !== 'egreso') {
+            throw ValidationException::withMessages([
+                'concepto_id' => 'Un locador (Recibos por Honorarios) solo admite conceptos de descuento — los ingresos remunerativos son exclusivos de planilla dependiente.',
+            ]);
+        }
+
+        return $concepto;
+    }
+
+    private function verificarPertenenciaConcepto(CicloRemunerativo $ciclo, Colaborador $colaborador, ColaboradorConceptoPeriodo $item): void
+    {
+        if ($item->ciclo_id !== $ciclo->id || $item->colaborador_id !== $colaborador->id) {
+            throw new AuthorizationException('Este concepto no pertenece a este colaborador/ciclo.');
+        }
+    }
+
+    /**
+     * @throws ValidationException
+     */
+    private function verificarPeriodoEditable(Empresa $empresa, CicloRemunerativo $ciclo, Colaborador $colaborador, string $accion): void
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+
+        if ($colaborador->empresa_id !== $empresa->id) {
+            throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
+        }
+
+        if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
+            throw ValidationException::withMessages([
+                'estado' => "Este período está cerrado — no se pueden {$accion} conceptos. Reábrelo primero si es necesario.",
+            ]);
+        }
+    }
+
+    private function verificarNoSolapa(Empresa $empresa, string $fechaInicio, string $fechaFin, ?int $excluirCicloId = null): void
     {
         $solapa = CicloRemunerativo::where('empresa_id', $empresa->id)
             ->where('fecha_inicio', '<=', $fechaFin)
             ->where('fecha_fin', '>=', $fechaInicio)
+            ->when($excluirCicloId, fn ($q) => $q->where('id', '!=', $excluirCicloId))
             ->exists();
 
         if ($solapa) {

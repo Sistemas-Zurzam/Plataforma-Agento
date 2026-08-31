@@ -30,9 +30,11 @@ class BoletaService
      *   filtro de presentación; ambos tipos se calculan con motores
      *   distintos pero se listan y pagan desde la misma tabla (Sección
      *   acordada con el usuario: una sola vista, dos motores).
+     * @param  string|null  $busqueda  Filtra por nombre/apellido/cargo del
+     *   colaborador — mismo criterio que ColaboradorService::listar().
      * @return LengthAwarePaginator<int, Boleta>
      */
-    public function listar(Empresa $empresa, CicloRemunerativo $ciclo, int $perPage = 25, ?string $tipo = null): LengthAwarePaginator
+    public function listar(Empresa $empresa, CicloRemunerativo $ciclo, int $perPage = 25, ?string $tipo = null, ?string $busqueda = null): LengthAwarePaginator
     {
         $this->verificarPertenencia($empresa, $ciclo);
 
@@ -40,6 +42,11 @@ class BoletaService
             ->where('es_version_vigente', true)
             ->when($tipo === 'honorarios', fn ($q) => $q->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
             ->when($tipo === 'planilla', fn ($q) => $q->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
+            ->when($busqueda, fn ($q) => $q->whereHas('colaborador', fn ($qq) => $qq->where(function ($qq) use ($busqueda) {
+                $qq->where('nombres', 'like', "%{$busqueda}%")
+                    ->orWhere('apellidos', 'like', "%{$busqueda}%")
+                    ->orWhere('cargo', 'like', "%{$busqueda}%");
+            })))
             ->with(['colaborador.empresa'])
             ->orderBy('colaborador_id')
             ->paginate($perPage);
@@ -52,14 +59,19 @@ class BoletaService
      *
      * @return array{total_colaboradores: int, total_ingresos: float, total_egresos: float, total_aportaciones: float, neto_a_pagar: float, por_estado: array<string, int>}
      */
-    public function resumen(Empresa $empresa, CicloRemunerativo $ciclo, ?string $tipo = null): array
+    public function resumen(Empresa $empresa, CicloRemunerativo $ciclo, ?string $tipo = null, ?string $busqueda = null): array
     {
         $this->verificarPertenencia($empresa, $ciclo);
 
         $vigentes = Boleta::where('ciclo_id', $ciclo->id)
             ->where('es_version_vigente', true)
             ->when($tipo === 'honorarios', fn ($q) => $q->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
-            ->when($tipo === 'planilla', fn ($q) => $q->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'));
+            ->when($tipo === 'planilla', fn ($q) => $q->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
+            ->when($busqueda, fn ($q) => $q->whereHas('colaborador', fn ($qq) => $qq->where(function ($qq) use ($busqueda) {
+                $qq->where('nombres', 'like', "%{$busqueda}%")
+                    ->orWhere('apellidos', 'like', "%{$busqueda}%")
+                    ->orWhere('cargo', 'like', "%{$busqueda}%");
+            })));
 
         return [
             'total_colaboradores' => (clone $vigentes)->count(),

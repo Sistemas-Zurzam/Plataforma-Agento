@@ -926,7 +926,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       const coincidePreparacion = filtroPreparacion === 'todos'
         || (filtroPreparacion === 'listos' && item.tiene_horario && item.tiene_calendario)
         || (filtroPreparacion === 'sin_horario' && !item.tiene_horario)
-        || (filtroPreparacion === 'sin_calendario' && !item.tiene_calendario);
+        || (filtroPreparacion === 'sin_calendario' && !item.tiene_calendario)
+        || (filtroPreparacion === 'sin_biometrico' && !item.person_id);
       return coincideTexto && (!filtroSede || item.sede === filtroSede)
         && (!filtroArea || item.area === filtroArea) && coincidePreparacion;
     });
@@ -969,7 +970,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       <EmpresaActivaFiltro user={user} onUserRefresh={onUserRefresh} />
       <Select size="middle" allowClear placeholder="Sede" value={filtroSede} onChange={setFiltroSede} options={opcionesSede} className="w-32 shrink-0" />
       <Select size="middle" allowClear placeholder="Área" value={filtroArea} onChange={setFiltroArea} options={opcionesArea} className="w-32 shrink-0" />
-      <Select size="middle" value={filtroPreparacion} onChange={setFiltroPreparacion} className="w-40 shrink-0" options={[{ value: 'todos', label: 'Todos' }, { value: 'listos', label: 'Listos' }, { value: 'sin_horario', label: 'Sin horario' }, { value: 'sin_calendario', label: 'Sin calendario' }]} />
+      <Select size="middle" value={filtroPreparacion} onChange={setFiltroPreparacion} className="w-40 shrink-0" options={[{ value: 'todos', label: 'Todos' }, { value: 'listos', label: 'Listos' }, { value: 'sin_horario', label: 'Sin horario' }, { value: 'sin_calendario', label: 'Sin calendario' }, { value: 'sin_biometrico', label: 'Sin ID biométrico' }]} />
       {(busqueda || filtroSede || filtroArea || filtroPreparacion !== 'todos') && <Button type="text" size="small" onClick={() => { setBusqueda(''); setFiltroSede(); setFiltroArea(); setFiltroPreparacion('todos'); }}>Limpiar</Button>}
     </div>
     <div className="flex flex-wrap items-center gap-1.5 text-xs"><Text type="secondary" className="mr-1">Leyenda</Text>{Object.entries(ESTADOS).map(([key, estado]) => <Tag className="!m-0" color={estado[2]} key={key}>{estado[0]} {estado[1]}</Tag>)}<Text type="secondary" className="ml-auto">{colaboradoresFiltrados.length} colaboradores</Text></div>

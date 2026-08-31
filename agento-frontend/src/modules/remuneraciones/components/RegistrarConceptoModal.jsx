@@ -1,4 +1,5 @@
-import { Form, Input, InputNumber, Modal, Select, Table, Tag } from 'antd';
+import { DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { Button, Form, Input, InputNumber, Modal, Select, Table, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
 import { useConceptoDefinicionesPlame } from '../../configuracion/hooks/useConceptoDefinicionesPlame';
 
@@ -27,15 +28,17 @@ const CONCEPTOS_CON_DEFINICION = ['BONIFICACION', 'BONO_NO_REMUNERATIVO'];
  * (CicloRemunerativoService::registrarConcepto) ya lo rechaza si se intenta
  * lo contrario, pero `esHonorarios` evita ofrecer la opción inválida.
  */
-export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loading, colaborador, conceptos, conceptosLoading, catalogo, esHonorarios }) {
+export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpdate, onDelete, loading, colaborador, conceptos, conceptosLoading, catalogo, esHonorarios }) {
   const [form] = Form.useForm();
   const [tipoSeleccionado, setTipoSeleccionado] = useState(null);
+  const [editandoId, setEditandoId] = useState(null);
   const { definiciones, fetchDefiniciones } = useConceptoDefinicionesPlame();
 
   useEffect(() => {
     if (!open) {
       form.resetFields();
       setTipoSeleccionado(null);
+      setEditandoId(null);
     }
   }, [open, form]);
 
@@ -48,16 +51,44 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loadi
     }
   };
 
+  const handleEditar = (item) => {
+    setEditandoId(item.id);
+    setTipoSeleccionado(item.tipo);
+    form.setFieldsValue({
+      codigo: item.codigo,
+      concepto_definicion_id: item.concepto_definicion_id ?? undefined,
+      monto: Number(item.monto),
+      motivo: item.motivo ?? undefined,
+    });
+    if (CONCEPTOS_CON_DEFINICION.includes(item.codigo)) {
+      const concepto = catalogo.find((c) => c.codigo === item.codigo);
+      if (concepto) fetchDefiniciones(concepto.id);
+    }
+  };
+
+  const handleCancelarEdicion = () => {
+    setEditandoId(null);
+    form.resetFields();
+    setTipoSeleccionado(null);
+  };
+
   const handleOk = async () => {
     const values = await form.validateFields();
     const concepto = catalogo.find((c) => c.codigo === values.codigo);
-    await onSubmit(colaborador.id, {
+    const payload = {
       concepto_id: concepto.id,
       concepto_definicion_id: values.concepto_definicion_id,
       monto: values.monto,
       motivo: values.motivo,
-    });
+    };
+    if (editandoId) {
+      await onUpdate(colaborador.id, editandoId, payload);
+      setEditandoId(null);
+    } else {
+      await onSubmit(colaborador.id, payload);
+    }
     form.resetFields();
+    setTipoSeleccionado(null);
   };
 
   const opcionesDisponibles = CONCEPTOS_REGISTRABLES
@@ -71,7 +102,7 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loadi
       onCancel={onCancel}
       onOk={handleOk}
       confirmLoading={loading}
-      okText="Registrar"
+      okText={editandoId ? 'Actualizar' : 'Registrar'}
       cancelText="Cancelar"
       width={{ xs: '95%', sm: '85%', md: 640 }}
       destroyOnHidden
@@ -113,6 +144,11 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loadi
         {tipoSeleccionado === 'egreso' && (
           <p className="text-xs text-gray-400">Este concepto se descontará del neto a pagar (no se suma a los ingresos).</p>
         )}
+        {editandoId && (
+          <p className="text-xs text-blue-500">
+            Editando un concepto ya registrado. <a onClick={handleCancelarEdicion}>Cancelar edición</a>
+          </p>
+        )}
       </Form>
 
       <p className="mb-2 text-sm font-semibold text-gray-700">Conceptos ya registrados en este período</p>
@@ -134,6 +170,21 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, loadi
           },
           { title: 'Monto', dataIndex: 'monto', width: 110, render: (m) => `S/ ${Number(m).toFixed(2)}` },
           { title: 'Motivo', dataIndex: 'motivo', ellipsis: true },
+          {
+            title: 'Acciones',
+            key: 'acciones',
+            width: 90,
+            render: (_, item) => (
+              <div className="flex items-center gap-1">
+                <Tooltip title="Editar">
+                  <Button size="small" type="text" icon={<EditOutlined />} onClick={() => handleEditar(item)} />
+                </Tooltip>
+                <Tooltip title="Eliminar">
+                  <Button size="small" type="text" danger icon={<DeleteOutlined />} onClick={() => onDelete(item)} />
+                </Tooltip>
+              </div>
+            ),
+          },
         ]}
       />
     </Modal>
