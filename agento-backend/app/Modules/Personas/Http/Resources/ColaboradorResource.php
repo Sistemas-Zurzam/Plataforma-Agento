@@ -2,6 +2,7 @@
 
 namespace App\Modules\Personas\Http\Resources;
 
+use App\Modules\Personas\Application\EvaluarCompletitudColaborador;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 use Illuminate\Support\Facades\Storage;
@@ -125,6 +126,7 @@ class ColaboradorResource extends JsonResource
                 'tamano_bytes' => $documento->tamano_bytes,
                 'created_at' => $documento->created_at?->toISOString(),
             ])->values()),
+            'documentos_faltantes' => (new EvaluarCompletitudColaborador())->evaluar($this->resource),
         ];
     }
 }

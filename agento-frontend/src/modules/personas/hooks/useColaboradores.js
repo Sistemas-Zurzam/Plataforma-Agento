@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import api from '../../../services/api';
 
 export function useColaboradores() {
@@ -6,8 +6,10 @@ export function useColaboradores() {
   const [stats, setStats] = useState({ total: 0, activos: 0 });
   const [loading, setLoading] = useState(false);
   const [pagination, setPagination] = useState({ current: 1, pageSize: 10, total: 0 });
+  const solicitudActualRef = useRef(0);
 
   const fetchColaboradores = useCallback(async (page = 1, perPage = 10, busqueda = '', todasEmpresas = false) => {
+    const idSolicitud = ++solicitudActualRef.current;
     setLoading(true);
     try {
       const { data } = await api.get('/colaboradores', {
@@ -18,6 +20,14 @@ export function useColaboradores() {
           todas_empresas: todasEmpresas || undefined,
         },
       });
+      // Si mientras esta solicitud viajaba se disparó otra más nueva (ej. el
+      // usuario cambió de empresa o escribió otra letra en el buscador), esa
+      // respuesta puede llegar antes que esta — sin este guard, la más
+      // vieja pisaba igual el estado al llegar después y la tabla mostraba
+      // los datos de la empresa/búsqueda anterior.
+      if (idSolicitud !== solicitudActualRef.current) {
+        return data.data;
+      }
       setColaboradores(data.data);
       setStats(data.stats);
       setPagination({
@@ -27,7 +37,9 @@ export function useColaboradores() {
       });
       return data.data;
     } finally {
-      setLoading(false);
+      if (idSolicitud === solicitudActualRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 

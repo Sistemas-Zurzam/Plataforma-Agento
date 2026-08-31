@@ -1,5 +1,5 @@
 import { ArrowLeftOutlined, CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, DownOutlined, EditOutlined, ExclamationCircleOutlined, EyeOutlined, FileExcelOutlined, FolderOpenOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, ScheduleOutlined, SearchOutlined, SendOutlined, TeamOutlined, UploadOutlined, UsergroupAddOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Calendar, Card, DatePicker, Dropdown, Empty, Form, Input, Modal, Select, Space, Statistic, Table, Tabs, Tag, Typography, Upload } from 'antd';
+import { Alert, App, Button, Calendar, Card, DatePicker, Dropdown, Empty, Form, Input, Modal, Select, Space, Statistic, Table, Tabs, Tag, TimePicker, Typography, Upload } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/es';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -124,11 +124,27 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
         <div className="mt-3 grid grid-cols-2 gap-3">
           <div>
             <label className="text-xs text-gray-500">Entrada real</label>
-            <Input type="time" className="mt-1" value={entrada} onChange={(event) => setEntrada(event.target.value)} disabled={!puedeCorregir} />
+            <TimePicker
+              className="mt-1 w-full"
+              format="HH:mm"
+              placeholder="--:--"
+              allowClear
+              value={entrada ? dayjs(entrada, 'HH:mm') : null}
+              onChange={(_, horaTexto) => setEntrada(horaTexto)}
+              disabled={!puedeCorregir}
+            />
           </div>
           <div>
             <label className="text-xs text-gray-500">Salida real</label>
-            <Input type="time" className="mt-1" value={salida} onChange={(event) => setSalida(event.target.value)} disabled={!puedeCorregir} />
+            <TimePicker
+              className="mt-1 w-full"
+              format="HH:mm"
+              placeholder="--:--"
+              allowClear
+              value={salida ? dayjs(salida, 'HH:mm') : null}
+              onChange={(_, horaTexto) => setSalida(horaTexto)}
+              disabled={!puedeCorregir}
+            />
           </div>
         </div>
         <div className="mt-3">
@@ -683,7 +699,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     Modal.confirm({
       title: `Editar jornada · ${dayjs(resultado.fecha).format('DD/MM/YYYY')}`,
       width: 520,
-      content: <div className="mt-4 space-y-3"><div className="grid grid-cols-2 gap-3"><Input type="time" defaultValue={valores.entrada} onChange={(event) => { valores.entrada = event.target.value; }} /><Input type="time" defaultValue={valores.salida} onChange={(event) => { valores.salida = event.target.value; }} /></div><Select className="w-full" defaultValue={valores.estado} onChange={(value) => { valores.estado = value; }} options={['presente', 'falta_justificada', 'permiso', 'home_office', 'descanso', 'feriado'].map((value) => ({ value, label: value.replaceAll('_', ' ') }))} /><Input.TextArea rows={3} placeholder="Motivo obligatorio de la corrección" onChange={(event) => { valores.motivo = event.target.value; }} /></div>,
+      content: <div className="mt-4 space-y-3"><div className="grid grid-cols-2 gap-3"><TimePicker className="w-full" format="HH:mm" placeholder="--:--" allowClear defaultValue={valores.entrada ? dayjs(valores.entrada, 'HH:mm') : undefined} onChange={(_, horaTexto) => { valores.entrada = horaTexto; }} /><TimePicker className="w-full" format="HH:mm" placeholder="--:--" allowClear defaultValue={valores.salida ? dayjs(valores.salida, 'HH:mm') : undefined} onChange={(_, horaTexto) => { valores.salida = horaTexto; }} /></div><Select className="w-full" defaultValue={valores.estado} onChange={(value) => { valores.estado = value; }} options={['presente', 'falta_justificada', 'permiso', 'home_office', 'descanso', 'feriado'].map((value) => ({ value, label: value.replaceAll('_', ' ') }))} /><Input.TextArea rows={3} placeholder="Motivo obligatorio de la corrección" onChange={(event) => { valores.motivo = event.target.value; }} /></div>,
       okText: 'Guardar corrección', cancelText: 'Cancelar',
       onOk: async () => {
         if (!valores.motivo.trim()) { message.warning('Ingresa el motivo'); throw new Error('motivo_requerido'); }

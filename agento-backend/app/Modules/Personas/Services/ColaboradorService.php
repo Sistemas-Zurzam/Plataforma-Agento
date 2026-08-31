@@ -41,7 +41,7 @@ class ColaboradorService
     {
         return Colaborador::withTrashed()
             ->whereIn('empresa_id', $empresaIds)
-            ->with(['empresa', 'sede', 'area', 'horario', 'remuneracionVigente'])
+            ->with(['empresa', 'sede', 'area', 'horario', 'remuneracionVigente', 'documentos'])
             ->when($busqueda, fn ($query) => $query->where(function ($query) use ($busqueda) {
                 $query->where('nombres', 'like', "%{$busqueda}%")
                     ->orWhere('apellidos', 'like', "%{$busqueda}%")

@@ -1,5 +1,5 @@
 import { App, Select } from 'antd';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useEmpresas } from '../hooks/useEmpresas';
 
 /**
@@ -10,19 +10,27 @@ import { useEmpresas } from '../hooks/useEmpresas';
 export default function EmpresaActivaFiltro({ user, onUserRefresh }) {
   const { message } = App.useApp();
   const { empresas, fetchEmpresas, activarEmpresa } = useEmpresas();
+  const [switching, setSwitching] = useState(false);
 
   useEffect(() => {
     fetchEmpresas();
   }, [fetchEmpresas]);
 
   const handleChange = async (empresaId) => {
-    if (empresaId === user?.empresa?.id) return;
+    // Bloquea selecciones mientras la anterior sigue en vuelo — dos cambios
+    // de empresa disparados casi juntos podían resolverse en cualquier
+    // orden (activar B, activar C, pero la respuesta de B llega última) y
+    // dejaban al usuario viendo la empresa equivocada o el selector vacío.
+    if (switching || empresaId === user?.empresa?.id) return;
 
+    setSwitching(true);
     try {
       await activarEmpresa(empresaId);
       await Promise.all([fetchEmpresas(), onUserRefresh?.()]);
     } catch {
       message.error('No se pudo cambiar de empresa');
+    } finally {
+      setSwitching(false);
     }
   };
 
@@ -30,6 +38,8 @@ export default function EmpresaActivaFiltro({ user, onUserRefresh }) {
     <Select
       value={user?.empresa?.id}
       onChange={handleChange}
+      loading={switching}
+      disabled={switching}
       className="w-56"
       showSearch
       optionFilterProp="label"
