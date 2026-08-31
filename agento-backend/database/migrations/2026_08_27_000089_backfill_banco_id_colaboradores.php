@@ -15,12 +15,9 @@ return new class extends Migration
 {
     public function up(): void
     {
-        DB::statement(<<<'SQL'
-            UPDATE colaboradores
-            INNER JOIN bancos ON bancos.nombre = colaboradores.banco
-            SET colaboradores.banco_id = bancos.id
-            WHERE colaboradores.banco IS NOT NULL
-        SQL);
+        DB::table('bancos')->get(['id', 'nombre'])->each(fn ($banco) =>
+            DB::table('colaboradores')->where('banco', $banco->nombre)->update(['banco_id' => $banco->id])
+        );
 
         $sinMapear = DB::table('colaboradores')
             ->whereNotNull('banco')

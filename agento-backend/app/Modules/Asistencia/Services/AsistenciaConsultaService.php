@@ -76,6 +76,11 @@ class AsistenciaConsultaService
                 if ($preparacion === 'listos') $query
                     ->where(fn ($q) => $q->whereNotNull('horario_id')->orWhere('es_trabajador_confianza', true))
                     ->whereHas('calendario', fn ($q) => $q->whereBetween('fecha', [$desde, $hasta]));
+                // "Sin ID biométrico" = nunca tuvo una marcación asociada —
+                // mismo criterio que AsistenciaColaboradorResource::person_id
+                // (toma el person_id de la última marcación del colaborador,
+                // sin acotar por fecha_desde/fecha_hasta).
+                if ($preparacion === 'sin_biometrico') $query->whereDoesntHave('marcacionesAsistencia');
             })
             ->when($filtros['estado'] ?? null, function ($query, $estado) {
                 if ($estado === 'activo') {

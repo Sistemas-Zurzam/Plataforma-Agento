@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use App\Modules\Nominas\Models\LiquidacionCese;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 #[Fillable([
@@ -103,6 +104,16 @@ class Colaborador extends Model
     public function remuneraciones(): HasMany
     {
         return $this->hasMany(ColaboradorRemuneracion::class)->orderByDesc('vigencia_desde');
+    }
+
+    public function liquidacionesCese(): HasMany
+    {
+        return $this->hasMany(LiquidacionCese::class);
+    }
+
+    public function vacacionMovimientos(): HasMany
+    {
+        return $this->hasMany(\App\Modules\Nominas\Models\VacacionMovimiento::class)->orderByDesc('fecha')->orderByDesc('id');
     }
 
     /**

@@ -22,7 +22,11 @@ return new class extends Migration
             $table->dropForeign(['empresa_id']);
         });
 
-        DB::statement('ALTER TABLE horarios MODIFY empresa_id BIGINT UNSIGNED NULL');
+        if (DB::getDriverName() === 'sqlite') {
+            Schema::table('horarios', fn (Blueprint $table) => $table->unsignedBigInteger('empresa_id')->nullable()->change());
+        } else {
+            DB::statement('ALTER TABLE horarios MODIFY empresa_id BIGINT UNSIGNED NULL');
+        }
 
         Schema::table('horarios', function (Blueprint $table) {
             $table->foreign('empresa_id')->references('id')->on('empresas')->nullOnDelete();
@@ -35,7 +39,11 @@ return new class extends Migration
             $table->dropForeign(['empresa_id']);
         });
 
-        DB::statement('ALTER TABLE horarios MODIFY empresa_id BIGINT UNSIGNED NOT NULL');
+        if (DB::getDriverName() === 'sqlite') {
+            Schema::table('horarios', fn (Blueprint $table) => $table->unsignedBigInteger('empresa_id')->nullable(false)->change());
+        } else {
+            DB::statement('ALTER TABLE horarios MODIFY empresa_id BIGINT UNSIGNED NOT NULL');
+        }
 
         Schema::table('horarios', function (Blueprint $table) {
             $table->foreign('empresa_id')->references('id')->on('empresas')->cascadeOnDelete();

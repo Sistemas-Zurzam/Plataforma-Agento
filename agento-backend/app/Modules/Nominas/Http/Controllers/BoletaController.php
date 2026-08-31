@@ -5,6 +5,7 @@ namespace App\Modules\Nominas\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Http\Resources\BoletaResource;
+use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaComprobanteRh;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -72,7 +73,7 @@ class BoletaController extends Controller
         $tipo = $request->input('tipo');
 
         return BoletaResource::collection(
-            $this->boletas->listar($empresa, $ciclo, max(1, min((int) $request->input('per_page', 25), 100)), $tipo),
+            $this->boletas->listar($empresa, $ciclo, max(1, min((int) $request->input('per_page', 25), 100)), $tipo, $request->input('busqueda')),
         );
     }
 
@@ -87,7 +88,7 @@ class BoletaController extends Controller
     {
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
-        return response()->json($this->boletas->resumen($empresa, $ciclo, $request->input('tipo')));
+        return response()->json($this->boletas->resumen($empresa, $ciclo, $request->input('tipo'), $request->input('busqueda')));
     }
 
     public function aprobar(Request $request, Boleta $boleta): BoletaResource
@@ -97,6 +98,40 @@ class BoletaController extends Controller
         return new BoletaResource(
             $this->boletas->aprobar($empresa, $boleta, $request->user('api')->id)->load(['colaborador.empresa', 'conceptos.concepto']),
         );
+    }
+
+    /**
+     * Pre-check para que el frontend muestre el detalle ANTES de intentar
+     * aprobar (mismo patrón que CicloRemunerativoController::
+     * incidenciasPendientesCierre) — BoletaService::aprobar() ya bloquea
+     * igual del lado del servidor si se intenta aprobar sin consultar esto.
+     */
+    public function incidenciasPendientesAprobar(Request $request, Boleta $boleta): AnonymousResourceCollection
+    {
+        $empresa = $this->empresaAutorizadaDeLaBoleta($request, $boleta);
+
+        return IncidenciaPendienteResource::collection(
+            $this->boletas->incidenciasPendientesAprobar($empresa, collect([$boleta])),
+        );
+    }
+
+    /**
+     * Mismo pre-check que incidenciasPendientesAprobar() pero para el lote
+     * completo de "aprobar seleccionadas" — el frontend lo consulta antes
+     * de mostrar el diálogo de confirmación masivo.
+     */
+    public function incidenciasPendientesAprobarMasivo(Request $request, CicloRemunerativo $ciclo): AnonymousResourceCollection
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $datos = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:200'],
+            'ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $boletas = Boleta::where('ciclo_id', $ciclo->id)->whereIn('id', $datos['ids'])->get();
+        abort_if($boletas->count() !== count($datos['ids']), 404, 'Una o más boletas no pertenecen a este ciclo.');
+
+        return IncidenciaPendienteResource::collection($this->boletas->incidenciasPendientesAprobar($empresa, $boletas));
     }
 
     /**

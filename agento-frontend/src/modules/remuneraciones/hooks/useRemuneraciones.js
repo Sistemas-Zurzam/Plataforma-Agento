@@ -37,6 +37,15 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const actualizarCiclo = useCallback(async (cicloId, values) => {
+    const { data } = await api.put(`/ciclos-remunerativos/${cicloId}`, values);
+    return data.data;
+  }, []);
+
+  const eliminarCiclo = useCallback(async (cicloId) => {
+    await api.delete(`/ciclos-remunerativos/${cicloId}`);
+  }, []);
+
   const calcularPlanilla = useCallback(async (cicloId, motivoRecalculo) => {
     const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/calcular`, {
       motivo_recalculo: motivoRecalculo || undefined,
@@ -54,6 +63,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchIncidenciasPendientesCierre = useCallback(async (cicloId) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/incidencias-pendientes-cierre`);
+    return data.data;
+  }, []);
+
   const reabrirCiclo = useCallback(async (cicloId) => {
     const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/reabrir`);
     return data.data;
@@ -64,11 +78,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
-  const fetchBoletas = useCallback(async (cicloId, page = 1, perPage = 25, tipo = null) => {
+  const fetchBoletas = useCallback(async (cicloId, page = 1, perPage = 25, tipo = null, busqueda = null) => {
     setBoletasLoading(true);
     try {
       const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/boletas`, {
-        params: { page, per_page: perPage, tipo: tipo || undefined },
+        params: { page, per_page: perPage, tipo: tipo || undefined, busqueda: busqueda || undefined },
       });
       setBoletas(data.data);
       setPagination({
@@ -82,11 +96,11 @@ export function useRemuneraciones() {
     }
   }, []);
 
-  const fetchResumen = useCallback(async (cicloId, tipo = null) => {
+  const fetchResumen = useCallback(async (cicloId, tipo = null, busqueda = null) => {
     setResumenLoading(true);
     try {
       const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/resumen`, {
-        params: { tipo: tipo || undefined },
+        params: { tipo: tipo || undefined, busqueda: busqueda || undefined },
       });
       setResumen(data);
       return data;
@@ -110,9 +124,19 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchIncidenciasPendientesAprobar = useCallback(async (boletaId) => {
+    const { data } = await api.get(`/boletas/${boletaId}/incidencias-pendientes-aprobar`);
+    return data.data;
+  }, []);
+
   const aprobarBoletasMasivo = useCallback(async (cicloId, boletaIds) => {
     const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/boletas/aprobar-masivo`, { ids: boletaIds });
     return data;
+  }, []);
+
+  const fetchIncidenciasPendientesAprobarMasivo = useCallback(async (cicloId, boletaIds) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/boletas/incidencias-pendientes-aprobar-masivo`, { ids: boletaIds });
+    return data.data;
   }, []);
 
   const pagarBoleta = useCallback(async (boletaId, referenciaPago) => {
@@ -168,6 +192,15 @@ export function useRemuneraciones() {
   const registrarConceptoPeriodo = useCallback(async (cicloId, colaboradorId, values) => {
     const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/conceptos`, values);
     return data.data;
+  }, []);
+
+  const actualizarConceptoPeriodo = useCallback(async (cicloId, colaboradorId, conceptoPeriodoId, values) => {
+    const { data } = await api.put(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/conceptos/${conceptoPeriodoId}`, values);
+    return data.data;
+  }, []);
+
+  const eliminarConceptoPeriodo = useCallback(async (cicloId, colaboradorId, conceptoPeriodoId) => {
+    await api.delete(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/conceptos/${conceptoPeriodoId}`);
   }, []);
 
   const fetchPlameValidacion = useCallback(async (cicloId) => {
@@ -327,9 +360,12 @@ export function useRemuneraciones() {
     ciclosLoading,
     fetchCiclos,
     crearCiclo,
+    actualizarCiclo,
+    eliminarCiclo,
     calcularPlanilla,
     fetchEstadoCalculo,
     cerrarCiclo,
+    fetchIncidenciasPendientesCierre,
     reabrirCiclo,
     marcarCicloPagado,
     boletas,
@@ -341,7 +377,9 @@ export function useRemuneraciones() {
     fetchResumen,
     verBoleta,
     aprobarBoleta,
+    fetchIncidenciasPendientesAprobar,
     aprobarBoletasMasivo,
+    fetchIncidenciasPendientesAprobarMasivo,
     pagarBoleta,
     guardarComprobanteRh,
     afps,
@@ -356,6 +394,8 @@ export function useRemuneraciones() {
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo,
     registrarConceptoPeriodo,
+    actualizarConceptoPeriodo,
+    eliminarConceptoPeriodo,
     previsualizacion,
     previsualizacionLoading,
     fetchPrevisualizacion,

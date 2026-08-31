@@ -26,11 +26,10 @@ return new class extends Migration
             $table->boolean('contabilizar_tardanzas')->nullable()->after('es_trabajador_confianza');
         });
 
-        DB::statement(<<<'SQL'
-            UPDATE colaborador_condiciones_laborales ccl
-            INNER JOIN colaboradores c ON c.id = ccl.colaborador_id
-            SET ccl.contabilizar_tardanzas = c.contabilizar_tardanzas
-        SQL);
+        DB::table('colaboradores')->get(['id', 'contabilizar_tardanzas'])->each(fn ($c) =>
+            DB::table('colaborador_condiciones_laborales')->where('colaborador_id', $c->id)
+                ->update(['contabilizar_tardanzas' => $c->contabilizar_tardanzas])
+        );
     }
 
     public function down(): void

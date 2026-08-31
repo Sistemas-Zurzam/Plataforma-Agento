@@ -9,7 +9,7 @@ import {
   UserAddOutlined,
   UserOutlined,
 } from '@ant-design/icons';
-import { Alert, App, Avatar, Button, Input, Switch, Table } from 'antd';
+import { Alert, App, Avatar, Button, Input, Switch, Table, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import GestionHorarios from '../../modules/asistencia/pages/GestionHorarios';
@@ -19,6 +19,7 @@ import ImportarColaboradoresModal from '../../modules/personas/components/Import
 import NuevoColaboradorModal from '../../modules/personas/components/NuevoColaboradorModal';
 import VerColaboradorModal from '../../modules/personas/components/VerColaboradorModal';
 import VerCarnetModal from '../../modules/personas/components/VerCarnetModal';
+import DocumentosFaltantesModal from '../../modules/personas/components/DocumentosFaltantesModal';
 import FichaColaborador from '../../modules/personas/components/FichaColaborador';
 import { useColaboradores } from '../../modules/personas/hooks/useColaboradores';
 import { colorForName, initialsForName } from '../../utils/avatarColor';
@@ -40,6 +41,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
   const [carnetColaborador, setCarnetColaborador] = useState(null);
   const [importarModalOpen, setImportarModalOpen] = useState(false);
   const [rotativosSinRol, setRotativosSinRol] = useState([]);
+  const [faltantesColaborador, setFaltantesColaborador] = useState(null);
 
   const puedeVer = user?.permisos?.includes('colaboradores.ver');
   const puedeCrear = user?.permisos?.includes('colaboradores.crear');
@@ -239,6 +241,25 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
       ),
     },
     {
+      title: 'Documentos',
+      key: 'documentos_faltantes',
+      width: 130,
+      render: (_, colaborador) => {
+        const total = colaborador.documentos_faltantes?.length ?? 0;
+        return total === 0 ? (
+          <Tag color="green">OK</Tag>
+        ) : (
+          <Tag
+            color="red"
+            className="cursor-pointer"
+            onClick={() => setFaltantesColaborador(colaborador)}
+          >
+            {total} faltante{total > 1 ? 's' : ''}
+          </Tag>
+        );
+      },
+    },
+    {
       title: 'Ingreso',
       dataIndex: 'fecha_ingreso',
       width: 110,
@@ -410,7 +431,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           dataSource={colaboradores}
           columns={columns}
           rowClassName={(colaborador) => (colaborador.eliminado ? 'bg-gray-50' : '')}
-          scroll={{ x: 1160 }}
+          scroll={{ x: 1290 }}
           pagination={{
             current: pagination.current,
             pageSize: pagination.pageSize,
@@ -448,6 +469,8 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
       />
 
       <VerCarnetModal colaborador={carnetColaborador} onClose={() => setCarnetColaborador(null)} />
+
+      <DocumentosFaltantesModal colaborador={faltantesColaborador} onClose={() => setFaltantesColaborador(null)} />
     </div>
   );
 }

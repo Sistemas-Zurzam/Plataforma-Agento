@@ -21,6 +21,8 @@ use App\Modules\Personas\Http\Controllers\ColaboradorController;
 use App\Modules\Nominas\Http\Controllers\CicloRemunerativoController;
 use App\Modules\Nominas\Http\Controllers\BoletaController;
 use App\Modules\Nominas\Http\Controllers\BeneficioSocialController;
+use App\Modules\Nominas\Http\Controllers\LiquidacionCeseController;
+use App\Modules\Nominas\Http\Controllers\VacacionMovimientoController;
 use App\Modules\Nominas\Http\Controllers\ConceptoDefinicionPlameController;
 use App\Modules\Nominas\Http\Controllers\ConceptoRemuneracionController;
 use App\Modules\Nominas\Http\Controllers\SunatCatalogoController;
@@ -153,7 +155,11 @@ Route::middleware('jwt')->group(function () {
     Route::put('/colaboradores/{colaborador}/remuneracion', [ColaboradorController::class, 'actualizarRemuneracion'])->middleware('permiso:colaboradores.editar');
     Route::put('/colaboradores/{colaborador}/configuracion-nomina', [ColaboradorController::class, 'actualizarConfiguracionNomina'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/colaboradores/{colaborador}', [ColaboradorController::class, 'update'])->middleware('permiso:colaboradores.editar');
+    Route::get('/colaboradores/{colaborador}/liquidacion-cese/previsualizar', [ColaboradorController::class, 'previsualizarLiquidacionCese'])->middleware('permiso:colaboradores.cesar');
     Route::patch('/colaboradores/{colaborador}/cesar', [ColaboradorController::class, 'cesar'])->middleware('permiso:colaboradores.cesar');
+    Route::get('/colaboradores/{colaborador}/vacacion-movimientos', [VacacionMovimientoController::class, 'index'])->middleware('permiso:colaboradores.ver');
+    Route::post('/colaboradores/{colaborador}/vacacion-movimientos', [VacacionMovimientoController::class, 'store'])->middleware('permiso:colaboradores.editar');
+    Route::delete('/colaboradores/{colaborador}/vacacion-movimientos/{movimiento}', [VacacionMovimientoController::class, 'destroy'])->middleware('permiso:colaboradores.editar');
     Route::delete('/colaboradores/{colaborador}', [ColaboradorController::class, 'destroy'])->middleware('permiso:colaboradores.eliminar');
     Route::patch('/colaboradores/{colaborador}/restaurar', [ColaboradorController::class, 'restaurar'])->middleware('empresa.admin');
     Route::post('/colaboradores/{colaborador}/documentos', [ColaboradorController::class, 'guardarDocumento'])->middleware('permiso:colaboradores.editar');
@@ -163,8 +169,11 @@ Route::middleware('jwt')->group(function () {
 
     Route::get('/ciclos-remunerativos', [CicloRemunerativoController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos', [CicloRemunerativoController::class, 'store'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::put('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'actualizar'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::delete('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'eliminar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::post('/ciclos-remunerativos/{ciclo}/calcular', [CicloRemunerativoController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/estado-calculo', [CicloRemunerativoController::class, 'estadoCalculo'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos/{ciclo}/incidencias-pendientes-cierre', [CicloRemunerativoController::class, 'incidenciasPendientesCierre'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/cerrar', [CicloRemunerativoController::class, 'cerrar'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/reabrir', [CicloRemunerativoController::class, 'reabrir'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/marcar-pagado', [CicloRemunerativoController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
@@ -183,13 +192,22 @@ Route::middleware('jwt')->group(function () {
     Route::get('/beneficios-sociales/resumen', [BeneficioSocialController::class, 'resumen'])->middleware('permiso:nominas.ver');
     Route::post('/beneficios-sociales/calcular', [BeneficioSocialController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::patch('/beneficios-sociales/{beneficio}/pagar', [BeneficioSocialController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
+    Route::get('/liquidaciones-cese', [LiquidacionCeseController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::get('/liquidaciones-cese/{liquidacion}', [LiquidacionCeseController::class, 'show'])->middleware('permiso:nominas.ver');
+    Route::patch('/liquidaciones-cese/{liquidacion}/aprobar', [LiquidacionCeseController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
+    Route::patch('/liquidaciones-cese/{liquidacion}/pagar', [LiquidacionCeseController::class, 'pagar'])->middleware('permiso:nominas.pagar');
+    Route::patch('/liquidaciones-cese/{liquidacion}/anular-revertir', [LiquidacionCeseController::class, 'anularYRevertir'])->middleware('permiso:nominas.aprobar');
+    Route::get('/boletas/{boleta}/incidencias-pendientes-aprobar', [BoletaController::class, 'incidenciasPendientesAprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/aprobar', [BoletaController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
+    Route::post('/ciclos-remunerativos/{ciclo}/boletas/incidencias-pendientes-aprobar-masivo', [BoletaController::class, 'incidenciasPendientesAprobarMasivo'])->middleware('permiso:nominas.aprobar');
     Route::patch('/ciclos-remunerativos/{ciclo}/boletas/aprobar-masivo', [BoletaController::class, 'aprobarMasivo'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/pagar', [BoletaController::class, 'marcarPagada'])->middleware('permiso:nominas.pagar');
     Route::get('/boletas/{boleta}', [BoletaController::class, 'show'])->middleware('permiso:nominas.ver');
     Route::patch('/boletas/{boleta}/comprobante-rh', [BoletaController::class, 'guardarComprobanteRh'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'listarConceptos'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'registrarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::put('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos/{conceptoPeriodo}', [CicloRemunerativoController::class, 'actualizarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::delete('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos/{conceptoPeriodo}', [CicloRemunerativoController::class, 'eliminarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
 
     Route::middleware('empresa.admin')->group(function () {
         Route::post('/roles', [RoleController::class, 'store']);

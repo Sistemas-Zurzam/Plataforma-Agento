@@ -13,6 +13,7 @@ use App\Modules\Personas\Infrastructure\ColaboradorPlantillaGenerator;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorDocumento;
 use App\Modules\Personas\Services\ColaboradorService;
+use App\Modules\Nominas\Services\LiquidacionCeseService;
 use App\Modules\Personas\Services\ImportarColaboradoresService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -310,15 +311,34 @@ class ColaboradorController extends Controller
         );
     }
 
+    public function previsualizarLiquidacionCese(Request $request, Colaborador $colaborador, LiquidacionCeseService $liquidaciones): JsonResponse
+    {
+        $datos = $request->validate([
+            'fecha_cese' => ['required', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'before_or_equal:today'],
+            'incluir_remuneracion' => ['sometimes', 'boolean'], 'incluir_cts' => ['sometimes', 'boolean'],
+            'incluir_gratificacion' => ['sometimes', 'boolean'], 'incluir_vacaciones' => ['sometimes', 'boolean'],
+        ]);
+        $empresa = $this->empresaAutorizadaDelColaborador($request, $colaborador);
+
+        return response()->json(['data' => $liquidaciones->previsualizar($empresa, $colaborador, $datos['fecha_cese'], $datos)]);
+    }
+
     public function cesar(Request $request, Colaborador $colaborador): ColaboradorResource
     {
         $datos = $request->validate([
-            'fecha_cese' => ['required', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString()],
+            'fecha_cese' => ['required', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'before_or_equal:today'],
             'motivo_cese' => ['required', 'string', 'max:255'],
+            'incluir_remuneracion' => ['required', 'boolean'], 'incluir_cts' => ['required', 'boolean'],
+            'incluir_gratificacion' => ['required', 'boolean'], 'incluir_vacaciones' => ['required', 'boolean'],
         ]);
 
         return new ColaboradorResource(
-            $this->colaboradores->cesar($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos['fecha_cese'], $datos['motivo_cese']),
+            $this->colaboradores->cesar(
+                $this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador,
+                $datos['fecha_cese'], $datos['motivo_cese'], collect($datos)->only([
+                    'incluir_remuneracion', 'incluir_cts', 'incluir_gratificacion', 'incluir_vacaciones',
+                ])->all(), $request->user('api')->id,
+            ),
         );
     }
 

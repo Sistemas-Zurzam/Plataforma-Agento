@@ -1,7 +1,26 @@
 import { DatePicker, Form, Input, Modal } from 'antd';
+import dayjs from 'dayjs';
+import { useEffect } from 'react';
 
-export default function NuevoCicloModal({ open, onCancel, onSubmit, loading }) {
+export default function NuevoCicloModal({ open, onCancel, onSubmit, loading, ciclo }) {
   const [form] = Form.useForm();
+  const editando = !!ciclo;
+
+  useEffect(() => {
+    if (!open) {
+      form.resetFields();
+      return;
+    }
+    if (ciclo) {
+      form.setFieldsValue({
+        nombre: ciclo.nombre,
+        fecha_inicio: dayjs(ciclo.fecha_inicio),
+        fecha_fin: dayjs(ciclo.fecha_fin),
+        fecha_corte_asistencia: dayjs(ciclo.fecha_corte_asistencia),
+        fecha_pago: dayjs(ciclo.fecha_pago),
+      });
+    }
+  }, [open, ciclo, form]);
 
   const handleOk = async () => {
     const values = await form.validateFields();
@@ -17,12 +36,12 @@ export default function NuevoCicloModal({ open, onCancel, onSubmit, loading }) {
 
   return (
     <Modal
-      title="Nuevo ciclo remunerativo"
+      title={editando ? 'Editar ciclo remunerativo' : 'Nuevo ciclo remunerativo'}
       open={open}
       onCancel={onCancel}
       onOk={handleOk}
       confirmLoading={loading}
-      okText="Crear ciclo"
+      okText={editando ? 'Guardar cambios' : 'Crear ciclo'}
       cancelText="Cancelar"
       width={{ xs: '95%', sm: '85%', md: 560 }}
       destroyOnHidden

@@ -36,13 +36,14 @@ return new class extends Migration
                 continue;
             }
 
-            DB::statement(<<<SQL
-                UPDATE {$tabla}
-                SET {$columna} = LPAD({$columna}, 4, '0')
-                WHERE {$columna} IS NOT NULL
-                  AND {$columna} REGEXP '^[0-9]+$'
-                  AND CHAR_LENGTH({$columna}) < 4
-            SQL);
+            DB::table($tabla)->whereNotNull($columna)->orderBy('id')->chunkById(500, function ($filas) use ($tabla, $columna) {
+                foreach ($filas as $fila) {
+                    $codigo = (string) $fila->{$columna};
+                    if (ctype_digit($codigo) && strlen($codigo) < 4) {
+                        DB::table($tabla)->where('id', $fila->id)->update([$columna => str_pad($codigo, 4, '0', STR_PAD_LEFT)]);
+                    }
+                }
+            });
         }
     }
 
