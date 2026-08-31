@@ -30,7 +30,9 @@ return new class extends Migration
     public function up(): void
     {
         DB::table('colaborador_calendario_dias')
-            ->whereRaw('MONTH(fecha) = 8 AND DAY(fecha) = 6 AND YEAR(fecha) >= 2026')
+            ->whereMonth('fecha', 8)
+            ->whereDay('fecha', 6)
+            ->whereYear('fecha', '>=', 2026)
             ->where('origen', 'horario_automatico')
             ->where('tipo', '!=', 'feriado')
             ->update([
