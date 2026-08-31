@@ -30,6 +30,7 @@ import ConfiguracionNominaModal from '../../modules/remuneraciones/components/Co
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
 import LiquidacionesCeseTab from '../../modules/remuneraciones/components/LiquidacionesCeseTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
+import IncidenciasPendientesModal from '../../modules/remuneraciones/components/IncidenciasPendientesModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
@@ -196,10 +197,10 @@ function DetalleBoleta({ boletaId, verBoleta }) {
 export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const { message, modal } = App.useApp();
   const {
-    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
+    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, fetchIncidenciasPendientesCierre, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas,
     resumen, fetchResumen,
-    verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, guardarComprobanteRh,
+    verBoleta, aprobarBoleta, fetchIncidenciasPendientesAprobar, aprobarBoletasMasivo, fetchIncidenciasPendientesAprobarMasivo, pagarBoleta, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
@@ -217,6 +218,9 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [busquedaPrevisualizacion, setBusquedaPrevisualizacion] = useState('');
   const [nuevoCicloOpen, setNuevoCicloOpen] = useState(false);
   const [cicloEditar, setCicloEditar] = useState(null);
+  const [bloqueoIncidencias, setBloqueoIncidencias] = useState(null);
+  const [validandoCierre, setValidandoCierre] = useState(false);
+  const [validandoAprobacion, setValidandoAprobacion] = useState(false);
   const [creandoCiclo, setCreandoCiclo] = useState(false);
   const [calculando, setCalculando] = useState(false);
 
@@ -446,7 +450,23 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cicloActivo?.id, cicloActivo?.calculo_estado]);
 
-  const handleCerrar = (ciclo) => {
+  const handleCerrar = async (ciclo) => {
+    setValidandoCierre(true);
+    let incidencias = [];
+    try {
+      incidencias = await fetchIncidenciasPendientesCierre(ciclo.id);
+    } catch {
+      setValidandoCierre(false);
+      message.error('No se pudo validar el cierre del período');
+      return;
+    }
+    setValidandoCierre(false);
+
+    if (incidencias.length > 0) {
+      setBloqueoIncidencias({ title: `No se puede cerrar "${ciclo.nombre}"`, incidencias });
+      return;
+    }
+
     modal.confirm({
       title: 'Cerrar período',
       content: 'No se podrá recalcular la planilla mientras el período esté cerrado. Requiere que todas las boletas estén aprobadas o pagadas.',
@@ -501,6 +521,19 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   };
 
   const handleAprobar = async (boleta) => {
+    let incidencias = [];
+    try {
+      incidencias = await fetchIncidenciasPendientesAprobar(boleta.id);
+    } catch {
+      message.error('No se pudo validar la aprobación de la boleta');
+      return;
+    }
+
+    if (incidencias.length > 0) {
+      setBloqueoIncidencias({ title: `No se puede aprobar la boleta de ${boleta.colaborador?.nombre_completo ?? 'este colaborador'}`, incidencias });
+      return;
+    }
+
     try {
       await aprobarBoleta(boleta.id);
       message.success('Boleta aprobada');
@@ -510,8 +543,24 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     }
   };
 
-  const handleAprobarMasivo = () => {
+  const handleAprobarMasivo = async () => {
     const cantidad = boletasSeleccionadas.length;
+    setValidandoAprobacion(true);
+    let incidencias = [];
+    try {
+      incidencias = await fetchIncidenciasPendientesAprobarMasivo(cicloId, boletasSeleccionadas);
+    } catch {
+      setValidandoAprobacion(false);
+      message.error('No se pudo validar la aprobación de las boletas seleccionadas');
+      return;
+    }
+    setValidandoAprobacion(false);
+
+    if (incidencias.length > 0) {
+      setBloqueoIncidencias({ title: 'No se pueden aprobar las boletas seleccionadas', incidencias });
+      return;
+    }
+
     modal.confirm({
       title: 'Aprobar boletas seleccionadas',
       content: `Se aprobarán ${cantidad} boleta(s) en estado "calculada". Esto ayuda a completar la aprobación antes de cerrar el ciclo.`,
@@ -719,7 +768,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           )}
           {puedeCerrarPeriodo && ['abierto', 'calculado', 'reabierto'].includes(ciclo.estado) && (
             <Tooltip title="Cerrar período">
-              <Button size="small" icon={<LockOutlined />} onClick={() => handleCerrar(ciclo)} />
+              <Button size="small" icon={<LockOutlined />} loading={validandoCierre} onClick={() => handleCerrar(ciclo)} />
             </Tooltip>
           )}
           {puedeCerrarPeriodo && ciclo.estado === 'cerrado' && (
@@ -917,7 +966,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
               </Button>
             )}
             {puedeCerrarPeriodo && ['abierto', 'calculado', 'reabierto'].includes(cicloActivo.estado) && (
-              <Button icon={<LockOutlined />} onClick={() => handleCerrar(cicloActivo)}>Cerrar período</Button>
+              <Button icon={<LockOutlined />} loading={validandoCierre} onClick={() => handleCerrar(cicloActivo)}>Cerrar período</Button>
             )}
             {puedeCerrarPeriodo && cicloActivo.estado === 'cerrado' && (
               <Button icon={<UnlockOutlined />} onClick={() => handleReabrir(cicloActivo)}>Reabrir período</Button>
@@ -1032,7 +1081,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                 {puedeAprobar && boletasSeleccionadas.length > 0 && (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5">
                     <span className="text-sm font-medium text-blue-900">{boletasSeleccionadas.length} boleta(s) seleccionada(s)</span>
-                    <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={handleAprobarMasivo}>
+                    <Button type="primary" size="small" icon={<CheckCircleOutlined />} loading={validandoAprobacion} onClick={handleAprobarMasivo}>
                       Aprobar seleccionadas
                     </Button>
                   </div>
@@ -1110,6 +1159,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => { setNuevoCicloOpen(false); setCicloEditar(null); }}
         onSubmit={cicloEditar ? handleActualizarCiclo : handleCrearCiclo}
         loading={creandoCiclo}
+      />
+
+      <IncidenciasPendientesModal
+        open={!!bloqueoIncidencias}
+        title={bloqueoIncidencias?.title}
+        incidencias={bloqueoIncidencias?.incidencias}
+        onCancel={() => setBloqueoIncidencias(null)}
       />
 
       <ConfiguracionNominaModal

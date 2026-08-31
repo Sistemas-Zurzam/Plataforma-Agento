@@ -16,6 +16,8 @@ use Illuminate\Validation\ValidationException;
 
 class CicloRemunerativoService
 {
+    public function __construct(private readonly IncidenciasPendientesNominaService $incidenciasPendientes) {}
+
     /**
      * Lista los ciclos de TODAS las empresas autorizadas del usuario (no
      * solo la empresa activa) — el selector de "Planilla mensual" del
@@ -118,7 +120,9 @@ class CicloRemunerativoService
 
     /**
      * Reglas de cierre (Sección 58): no se permite cerrar sin boletas
-     * calculadas, ni con boletas vigentes que todavía no estén aprobadas.
+     * calculadas, con boletas vigentes que todavía no estén aprobadas, ni
+     * con colaboradores del ciclo que tengan incidencias de asistencia
+     * pendientes de resolver dentro del período que se está cerrando.
      *
      * @throws ValidationException
      */
@@ -141,11 +145,56 @@ class CicloRemunerativoService
             ]);
         }
 
+        $this->verificarSinIncidenciasPendientes($empresa, $ciclo);
+
         $this->congelarDatosPago($ciclo);
 
         $ciclo->update(['estado' => 'cerrado']);
 
         return $ciclo;
+    }
+
+    /**
+     * Lista, con nombre del colaborador incluido, las incidencias que hoy
+     * bloquearían el cierre de este ciclo (Sección 58) — pensado para que el
+     * frontend muestre el detalle ANTES de que el usuario intente cerrar,
+     * en vez de solo un mensaje genérico tras el rechazo.
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, \App\Modules\Asistencia\Models\AsistenciaIncidencia>
+     */
+    public function incidenciasPendientesCierre(Empresa $empresa, CicloRemunerativo $ciclo)
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+
+        return $this->incidenciasPendientesCierreQuery($empresa, $ciclo)
+            ->with('colaborador:id,nombres,apellidos,legajo')
+            ->orderBy('fecha')
+            ->get();
+    }
+
+    /**
+     * Bloquea el cierre si algún colaborador con boleta vigente en este
+     * ciclo tiene una incidencia de asistencia SIN resolver dentro del
+     * período del ciclo (fecha_inicio..fecha_fin) — evita cerrar (y por
+     * tanto congelar datos de pago) sobre un período cuya asistencia real
+     * todavía puede cambiar.
+     *
+     * @throws ValidationException
+     */
+    private function verificarSinIncidenciasPendientes(Empresa $empresa, CicloRemunerativo $ciclo): void
+    {
+        if ($this->incidenciasPendientesCierreQuery($empresa, $ciclo)->exists()) {
+            throw ValidationException::withMessages([
+                'estado' => 'No se puede cerrar el período: hay colaboradores con incidencias de asistencia pendientes. Resuélvelas en Gestión de asistencias antes de cerrar.',
+            ]);
+        }
+    }
+
+    private function incidenciasPendientesCierreQuery(Empresa $empresa, CicloRemunerativo $ciclo)
+    {
+        $colaboradorIds = $ciclo->boletas()->where('es_version_vigente', true)->pluck('colaborador_id');
+
+        return $this->incidenciasPendientes->query($empresa, $colaboradorIds, $ciclo->fecha_inicio, $ciclo->fecha_fin);
     }
 
     /**

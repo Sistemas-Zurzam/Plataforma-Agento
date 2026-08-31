@@ -16,6 +16,7 @@ use App\Modules\Nominas\Domain\Plame\PlameExportResultado;
 use App\Modules\Nominas\Domain\TelecreditoBcp\TelecreditoBcpExportResultado;
 use App\Modules\Nominas\Http\Resources\CicloRemunerativoResource;
 use App\Modules\Nominas\Http\Resources\ColaboradorConceptoPeriodoResource;
+use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
 use App\Modules\Nominas\Infrastructure\Plame\Export\PlameZipBuilder;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
@@ -150,6 +151,13 @@ class CicloRemunerativoController extends Controller
             'calculo_finalizado_at' => $ciclo->calculo_finalizado_at?->toDateTimeString(),
             'calculo_resultado' => $ciclo->calculo_resultado,
         ]);
+    }
+
+    public function incidenciasPendientesCierre(Request $request, CicloRemunerativo $ciclo): AnonymousResourceCollection
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        return IncidenciaPendienteResource::collection($this->ciclos->incidenciasPendientesCierre($empresa, $ciclo));
     }
 
     public function cerrar(Request $request, CicloRemunerativo $ciclo): CicloRemunerativoResource

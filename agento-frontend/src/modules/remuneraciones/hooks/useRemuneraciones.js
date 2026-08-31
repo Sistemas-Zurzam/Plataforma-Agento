@@ -63,6 +63,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchIncidenciasPendientesCierre = useCallback(async (cicloId) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/incidencias-pendientes-cierre`);
+    return data.data;
+  }, []);
+
   const reabrirCiclo = useCallback(async (cicloId) => {
     const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/reabrir`);
     return data.data;
@@ -119,9 +124,19 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchIncidenciasPendientesAprobar = useCallback(async (boletaId) => {
+    const { data } = await api.get(`/boletas/${boletaId}/incidencias-pendientes-aprobar`);
+    return data.data;
+  }, []);
+
   const aprobarBoletasMasivo = useCallback(async (cicloId, boletaIds) => {
     const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/boletas/aprobar-masivo`, { ids: boletaIds });
     return data;
+  }, []);
+
+  const fetchIncidenciasPendientesAprobarMasivo = useCallback(async (cicloId, boletaIds) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/boletas/incidencias-pendientes-aprobar-masivo`, { ids: boletaIds });
+    return data.data;
   }, []);
 
   const pagarBoleta = useCallback(async (boletaId, referenciaPago) => {
@@ -350,6 +365,7 @@ export function useRemuneraciones() {
     calcularPlanilla,
     fetchEstadoCalculo,
     cerrarCiclo,
+    fetchIncidenciasPendientesCierre,
     reabrirCiclo,
     marcarCicloPagado,
     boletas,
@@ -361,7 +377,9 @@ export function useRemuneraciones() {
     fetchResumen,
     verBoleta,
     aprobarBoleta,
+    fetchIncidenciasPendientesAprobar,
     aprobarBoletasMasivo,
+    fetchIncidenciasPendientesAprobarMasivo,
     pagarBoleta,
     guardarComprobanteRh,
     afps,

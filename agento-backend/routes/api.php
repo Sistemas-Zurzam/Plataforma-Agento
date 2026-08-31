@@ -173,6 +173,7 @@ Route::middleware('jwt')->group(function () {
     Route::delete('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'eliminar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::post('/ciclos-remunerativos/{ciclo}/calcular', [CicloRemunerativoController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/estado-calculo', [CicloRemunerativoController::class, 'estadoCalculo'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos/{ciclo}/incidencias-pendientes-cierre', [CicloRemunerativoController::class, 'incidenciasPendientesCierre'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/cerrar', [CicloRemunerativoController::class, 'cerrar'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/reabrir', [CicloRemunerativoController::class, 'reabrir'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/marcar-pagado', [CicloRemunerativoController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
@@ -196,7 +197,9 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/liquidaciones-cese/{liquidacion}/aprobar', [LiquidacionCeseController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/liquidaciones-cese/{liquidacion}/pagar', [LiquidacionCeseController::class, 'pagar'])->middleware('permiso:nominas.pagar');
     Route::patch('/liquidaciones-cese/{liquidacion}/anular-revertir', [LiquidacionCeseController::class, 'anularYRevertir'])->middleware('permiso:nominas.aprobar');
+    Route::get('/boletas/{boleta}/incidencias-pendientes-aprobar', [BoletaController::class, 'incidenciasPendientesAprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/aprobar', [BoletaController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
+    Route::post('/ciclos-remunerativos/{ciclo}/boletas/incidencias-pendientes-aprobar-masivo', [BoletaController::class, 'incidenciasPendientesAprobarMasivo'])->middleware('permiso:nominas.aprobar');
     Route::patch('/ciclos-remunerativos/{ciclo}/boletas/aprobar-masivo', [BoletaController::class, 'aprobarMasivo'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/pagar', [BoletaController::class, 'marcarPagada'])->middleware('permiso:nominas.pagar');
     Route::get('/boletas/{boleta}', [BoletaController::class, 'show'])->middleware('permiso:nominas.ver');

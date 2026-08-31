@@ -23,6 +23,7 @@ class BoletaService
     public function __construct(
         private readonly CalcularBoletaColaborador $calculador,
         private readonly CalcularReciboHonorarios $calculadorHonorarios,
+        private readonly IncidenciasPendientesNominaService $incidenciasPendientes,
     ) {}
 
     /**
@@ -299,7 +300,12 @@ class BoletaService
     /**
      * Aprobar es solo un cambio de estado auditado — sin lógica bancaria.
      * Una boleta observada no puede aprobarse sin volver a calcularse
-     * primero (evita aprobar un cálculo que ya se sabe incorrecto).
+     * primero (evita aprobar un cálculo que ya se sabe incorrecto). Tampoco
+     * se aprueba si el colaborador tiene incidencias de asistencia
+     * pendientes dentro del período del ciclo — mismo criterio que bloquea
+     * el cierre del ciclo (CicloRemunerativoService::cerrar()), pero
+     * atajado aquí primero para que RR.HH. se entere al aprobar, no recién
+     * al intentar cerrar todo el período.
      */
     public function aprobar(Empresa $empresa, Boleta $boleta, int $usuarioId): Boleta
     {
@@ -311,9 +317,48 @@ class BoletaService
             ]);
         }
 
+        if ($this->incidenciasPendientesAprobar($empresa, collect([$boleta]))->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'estado' => 'No se puede aprobar: el colaborador tiene incidencias de asistencia pendientes dentro del período. Resuélvelas en Gestión de asistencias.',
+            ]);
+        }
+
         $boleta->update(['estado' => 'aprobada', 'aprobado_por' => $usuarioId, 'aprobado_at' => now()]);
 
         return $boleta;
+    }
+
+    /**
+     * Detalle (con nombre del colaborador) de las incidencias que hoy
+     * bloquearían aprobar estas boletas — pensado para que el frontend lo
+     * muestre ANTES de intentar aprobar, individual o masivamente. Agrupa
+     * por ciclo porque cada colaborador se revisa contra las fechas del
+     * ciclo AL QUE PERTENECE su boleta (en la práctica todas las boletas de
+     * un aprobar-masivo comparten el mismo ciclo, porque "Planilla mensual"
+     * siempre opera sobre un ciclo a la vez).
+     *
+     * @param  \Illuminate\Support\Collection<int, Boleta>  $boletas
+     * @return \Illuminate\Database\Eloquent\Collection<int, \App\Modules\Asistencia\Models\AsistenciaIncidencia>
+     */
+    public function incidenciasPendientesAprobar(Empresa $empresa, \Illuminate\Support\Collection $boletas)
+    {
+        // groupBy('ciclo_id') es válido tanto en Support\Collection como en
+        // Eloquent\Collection — a diferencia de loadMissing(), que solo
+        // existe en la segunda. $ciclo se resuelve accediendo a la
+        // relación directamente (lazy-load si hace falta): en la práctica
+        // esto es como mucho una consulta extra por ciclo distinto, nunca
+        // por boleta, porque el groupBy ya las agrupó antes.
+        return $boletas->groupBy('ciclo_id')->flatMap(function ($grupo) use ($empresa) {
+            $ciclo = $grupo->first()->ciclo;
+            if (! $ciclo) {
+                return collect();
+            }
+
+            return $this->incidenciasPendientes
+                ->query($empresa, $grupo->pluck('colaborador_id'), $ciclo->fecha_inicio, $ciclo->fecha_fin)
+                ->with('colaborador:id,nombres,apellidos,legajo')
+                ->get();
+        });
     }
 
     /**
