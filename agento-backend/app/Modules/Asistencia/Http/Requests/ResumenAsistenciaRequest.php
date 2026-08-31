@@ -15,7 +15,7 @@ class ResumenAsistenciaRequest extends FormRequest
             'estado' => ['nullable', 'string', 'max:30'],
             'sede' => ['nullable', 'string', 'max:150'],
             'area' => ['nullable', 'string', 'max:150'],
-            'preparacion' => ['nullable', 'in:todos,listos,sin_horario,sin_calendario'],
+            'preparacion' => ['nullable', 'in:todos,listos,sin_horario,sin_calendario,sin_biometrico'],
             'area_id' => ['nullable', 'integer'],
             'colaborador_id' => ['nullable', 'integer'],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
