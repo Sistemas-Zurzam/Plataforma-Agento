@@ -209,7 +209,7 @@ function Vacaciones({ colaborador, listarVacacionMovimientos, crearVacacionMovim
       cargar();
     } catch (error) {
       const errors = error.response?.data?.errors;
-      message.error(errors ? Object.values(errors)[0]?.[0] : 'No se pudo registrar el movimiento');
+      message.error(errors ? Object.values(errors)[0]?.[0] : error.response?.data?.message ?? 'No se pudo registrar el movimiento');
     } finally {
       setGuardando(false);
     }
@@ -358,7 +358,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
       message.success('Documento cargado correctamente');
     } catch (error) {
       const errors = error.response?.data?.errors;
-      message.error(errors ? Object.values(errors)[0]?.[0] : 'No se pudo cargar el documento');
+      message.error(errors ? Object.values(errors)[0]?.[0] : error.response?.data?.message ?? 'No se pudo cargar el documento');
     } finally {
       setSubiendoDocumento(null);
     }
@@ -530,7 +530,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
       message.success('Colaborador actualizado correctamente');
     } catch (error) {
       const errors = error.response?.data?.errors;
-      message.error(errors ? Object.values(errors)[0]?.[0] : 'No se pudo actualizar el colaborador');
+      message.error(errors ? Object.values(errors)[0]?.[0] : error.response?.data?.message ?? 'No se pudo actualizar el colaborador');
     } finally {
       setGuardandoEdicion(false);
     }
@@ -545,7 +545,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
       message.success('Cese registrado correctamente');
     } catch (error) {
       const errors = error.response?.data?.errors;
-      message.error(errors ? Object.values(errors)[0]?.[0] : 'No se pudo registrar el cese');
+      message.error(errors ? Object.values(errors)[0]?.[0] : error.response?.data?.message ?? 'No se pudo registrar el cese');
     } finally {
       setGuardandoCese(false);
     }
