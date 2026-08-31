@@ -57,9 +57,9 @@ class ColaboradorSeeder extends Seeder
 
     private int $indiceGlobal = 0;
 
-    public function __construct()
+    public function __construct(ColaboradorService $colaboradores)
     {
-        $this->colaboradores = new ColaboradorService;
+        $this->colaboradores = $colaboradores;
     }
 
     public function run(): void
