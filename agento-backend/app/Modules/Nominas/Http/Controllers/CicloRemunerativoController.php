@@ -3,15 +3,19 @@
 namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Configuracion\Http\Resources\EmpresaCuentaBancariaResource;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
 use App\Modules\Nominas\Application\AfpNet\AfpNetExportService;
 use App\Modules\Nominas\Application\AfpNet\AfpNetValidator;
+use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashExportService;
+use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashValidator;
 use App\Modules\Nominas\Application\Plame\PlameExportService;
 use App\Modules\Nominas\Application\Plame\PlameValidator;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpExportService;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpValidator;
 use App\Modules\Nominas\Domain\AfpNet\AfpNetExportResultado;
+use App\Modules\Nominas\Domain\BbvaNetCash\BbvaNetCashExportResultado;
 use App\Modules\Nominas\Domain\Plame\PlameExportResultado;
 use App\Modules\Nominas\Domain\TelecreditoBcp\TelecreditoBcpExportResultado;
 use App\Modules\Nominas\Http\Resources\CicloRemunerativoResource;
@@ -29,6 +33,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
@@ -43,6 +48,8 @@ class CicloRemunerativoController extends Controller
         private readonly AfpNetExportService $afpNetExportService,
         private readonly TelecreditoBcpValidator $telecreditoBcpValidator,
         private readonly TelecreditoBcpExportService $telecreditoBcpExportService,
+        private readonly BbvaNetCashValidator $bbvaNetCashValidator,
+        private readonly BbvaNetCashExportService $bbvaNetCashExportService,
     ) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -447,5 +454,106 @@ class CicloRemunerativoController extends Controller
         file_put_contents($ruta, $resultado->archivo['contenido']);
 
         return response()->download($ruta, $resultado->archivo['nombre'], ['Content-Type' => 'text/plain'])->deleteFileAfterSend(true);
+    }
+
+    /**
+     * Validación BBVA Net Cash — completamente independiente de
+     * Telecrédito BCP/PLAME/AFPnet. A diferencia de Telecrédito, el
+     * frontend NUNCA envía `cuenta_cargo_id`: la cuenta de cargo BBVA se
+     * resuelve siempre desde la empresa del ciclo (punto 20 del encargo).
+     */
+    public function validarBbvaNetCash(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        $datos = $request->validate([
+            'subtipo' => ['required', 'string', Rule::in(['4', '5'])],
+        ]);
+
+        $cuentaCargo = $this->resolverCuentaCargoBbva($empresa);
+
+        return response()->json([
+            ...$this->bbvaNetCashValidator->validar($ciclo, $cuentaCargo, $datos['subtipo']),
+            'cuenta_cargo' => new EmpresaCuentaBancariaResource($cuentaCargo),
+        ]);
+    }
+
+    /**
+     * Exportación BBVA Net Cash — gate MÁS restrictivo que la validación
+     * (mismo criterio que Telecrédito): la ruta exige
+     * `nominas.bbva_netcash_exportar`, no `nominas.ver`, porque este
+     * archivo puede terminar en movimiento real de dinero una vez cargado
+     * al banco. Nunca cambia boleta.estado/ciclo.estado: descargar el TXT
+     * no significa que BBVA ya pagó.
+     */
+    public function exportarBbvaNetCash(Request $request, CicloRemunerativo $ciclo): JsonResponse|StreamedResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        $datos = $request->validate([
+            'subtipo' => ['required', 'string', Rule::in(['4', '5'])],
+        ]);
+
+        $cuentaCargo = $this->resolverCuentaCargoBbva($empresa);
+
+        /** @var BbvaNetCashExportResultado $resultado */
+        $resultado = $this->bbvaNetCashExportService->exportar($ciclo, $cuentaCargo, $datos['subtipo']);
+
+        if (! $resultado->listo || $resultado->archivo === null) {
+            return response()->json([
+                'message' => $resultado->mensaje,
+                'codigo' => $resultado->codigo,
+                'validacion' => $resultado->validacion,
+            ], $resultado->listo ? 200 : 422);
+        }
+
+        // Auditoría — cuenta de cargo por ID, NUNCA su número; nunca
+        // cuentas/CCI/DNI de trabajadores ni el contenido del TXT.
+        Log::info('bbva_netcash.export', [
+            'usuario_id' => $request->user('api')->id,
+            'empresa_id' => $empresa->id,
+            'ciclo_id' => $ciclo->id,
+            'periodo' => ['inicio' => $ciclo->fecha_inicio->toDateString(), 'fin' => $ciclo->fecha_fin->toDateString()],
+            'cuenta_cargo_id' => $cuentaCargo->id,
+            'subtipo' => $datos['subtipo'],
+            'abonos' => $resultado->validacion['abonos'] ?? null,
+            'monto_total' => $resultado->validacion['monto_total'] ?? null,
+        ]);
+
+        // streamDownload() en vez de tempnam()+download() (patrón que sí
+        // usa Telecrédito): el contenido ya está completo en memoria, no
+        // hace falta pasar por disco. Evita además que un `tempnam()` que
+        // termine creando el archivo en una ruta distinta a la pedida
+        // (warning real de PHP en este entorno, que Laravel escala a
+        // excepción) tumbe la descarga.
+        return response()->streamDownload(
+            fn () => print($resultado->archivo['contenido']),
+            $resultado->archivo['nombre'],
+            ['Content-Type' => 'text/plain'],
+        );
+    }
+
+    /**
+     * Resuelve la cuenta de cargo BBVA de la empresa (punto 20/21 del
+     * encargo): reutiliza `empresa_cuentas_bancarias` (misma tabla que ya
+     * usa Telecrédito) filtrando por banco=bbva + uso=haberes + activo.
+     * Si hay más de una activa, gana la marcada `es_predeterminada`; si
+     * sigue siendo ambigua, o no existe ninguna, error claro — nunca
+     * adivina cuál usar.
+     */
+    private function resolverCuentaCargoBbva(Empresa $empresa): EmpresaCuentaBancaria
+    {
+        $cuentas = EmpresaCuentaBancaria::where('empresa_id', $empresa->id)
+            ->where('uso', 'haberes')
+            ->where('activo', true)
+            ->whereHas('banco', fn ($query) => $query->where('codigo', 'bbva'))
+            ->get();
+
+        $cuenta = $cuentas->firstWhere('es_predeterminada', true)
+            ?? ($cuentas->count() === 1 ? $cuentas->first() : null);
+
+        abort_if($cuenta === null, 422, 'La empresa no tiene una cuenta BBVA Net Cash configurada para pago de haberes.');
+
+        return $cuenta;
     }
 }

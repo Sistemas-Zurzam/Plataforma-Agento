@@ -186,6 +186,8 @@ Route::middleware('jwt')->group(function () {
     Route::post('/ciclos-remunerativos/{ciclo}/afpnet/exportar/txt', [CicloRemunerativoController::class, 'exportarAfpNetTxt'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/telecredito-bcp/validacion', [CicloRemunerativoController::class, 'validarTelecreditoBcp'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/telecredito-bcp/exportar', [CicloRemunerativoController::class, 'exportarTelecreditoBcp'])->middleware('permiso:nominas.telecredito_exportar');
+    Route::post('/ciclos-remunerativos/{ciclo}/bbva-netcash/validacion', [CicloRemunerativoController::class, 'validarBbvaNetCash'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/bbva-netcash/exportar', [CicloRemunerativoController::class, 'exportarBbvaNetCash'])->middleware('permiso:nominas.bbva_netcash_exportar');
     Route::get('/planilla/previsualizar', [BoletaController::class, 'previsualizar'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas', [BoletaController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/resumen', [BoletaController::class, 'resumen'])->middleware('permiso:nominas.ver');

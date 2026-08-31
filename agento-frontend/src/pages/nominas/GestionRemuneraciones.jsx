@@ -30,6 +30,7 @@ import ConfiguracionNominaModal from '../../modules/remuneraciones/components/Co
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
 import LiquidacionesCeseTab from '../../modules/remuneraciones/components/LiquidacionesCeseTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
+import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCashModal';
 import IncidenciasPendientesModal from '../../modules/remuneraciones/components/IncidenciasPendientesModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
@@ -210,6 +211,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
+    fetchBbvaNetCashValidacion, exportarBbvaNetCash,
   } = useRemuneraciones();
 
   const [cicloId, setCicloId] = useState(null);
@@ -243,6 +245,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [plameModalOpen, setPlameModalOpen] = useState(false);
   const [afpNetModalOpen, setAfpNetModalOpen] = useState(false);
   const [telecreditoBcpModalOpen, setTelecreditoBcpModalOpen] = useState(false);
+  const [bbvaNetCashModalOpen, setBbvaNetCashModalOpen] = useState(false);
 
   const puedeVer = user?.permisos?.includes('nominas.ver');
   const puedeGestionarCiclos = user?.permisos?.includes('nominas.gestionar_ciclos');
@@ -994,6 +997,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             Telecrédito BCP
           </Button>
         </Tooltip>
+        <Tooltip title={cicloActivo ? '' : 'Selecciona un ciclo remunerativo primero'}>
+          <Button icon={<BankOutlined />} disabled={!cicloActivo} onClick={() => setBbvaNetCashModalOpen(true)}>
+            BBVA Net Cash
+          </Button>
+        </Tooltip>
         {ACCIONES_PROXIMAMENTE.map((accion) => (
           <Tooltip key={accion.key} title="Próximamente">
             <Button disabled icon={accion.icon}>{accion.label}</Button>
@@ -1229,6 +1237,14 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         ciclo={cicloActivo}
         fetchValidacion={fetchTelecreditoBcpValidacion}
         exportarTelecreditoBcp={exportarTelecreditoBcp}
+      />
+
+      <BbvaNetCashModal
+        open={bbvaNetCashModalOpen}
+        onCancel={() => setBbvaNetCashModalOpen(false)}
+        ciclo={cicloActivo}
+        fetchValidacion={fetchBbvaNetCashValidacion}
+        exportarBbvaNetCash={exportarBbvaNetCash}
       />
     </div>
   );

@@ -341,6 +341,50 @@ export function useRemuneraciones() {
   }, []);
 
   /**
+   * BBVA Net Cash — completamente independiente de Telecrédito BCP (ni un
+   * import ni una función compartida). A diferencia de Telecrédito, el
+   * único parámetro operativo es `subtipo`: el backend resuelve solo la
+   * cuenta de cargo y la fecha de proceso desde la empresa/ciclo.
+   */
+  const fetchBbvaNetCashValidacion = useCallback(async (cicloId, parametros) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/bbva-netcash/validacion`, parametros);
+    return data;
+  }, []);
+
+  const exportarBbvaNetCash = useCallback(async (cicloId, parametros) => {
+    let response;
+    try {
+      response = await api.post(`/ciclos-remunerativos/${cicloId}/bbva-netcash/exportar`, parametros, { responseType: 'blob' });
+    } catch (err) {
+      if (err.response) {
+        response = err.response;
+      } else {
+        throw err;
+      }
+    }
+
+    const contentType = response.headers?.['content-type'] ?? '';
+    if (contentType.includes('application/json')) {
+      const texto = await response.data.text();
+      return { descargado: false, ...JSON.parse(texto) };
+    }
+
+    const disposicion = response.headers?.['content-disposition'] ?? '';
+    const nombreArchivo = disposicion.match(/filename="?([^"]+)"?/)?.[1] ?? 'BBVA_NETCASH.txt';
+
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+
+    return { descargado: true };
+  }, []);
+
+  /**
    * Previsualización mensual continua — no requiere ciclo (Sección 5/32 de
    * la documentación funcional). Nunca persiste nada en el backend.
    */
@@ -405,5 +449,7 @@ export function useRemuneraciones() {
     exportarAfpNet,
     fetchTelecreditoBcpValidacion,
     exportarTelecreditoBcp,
+    fetchBbvaNetCashValidacion,
+    exportarBbvaNetCash,
   };
 }
