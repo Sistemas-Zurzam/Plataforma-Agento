@@ -6,7 +6,6 @@ import {
   CreditCardOutlined,
   DollarCircleOutlined,
   DownloadOutlined,
-  FileDoneOutlined,
   FilePdfOutlined,
   FileProtectOutlined,
   FileTextOutlined,
@@ -27,6 +26,7 @@ import BoletaImprimibleModal from '../../modules/remuneraciones/components/Bolet
 import ComprobanteRhModal from '../../modules/remuneraciones/components/ComprobanteRhModal';
 import ConfiguracionNominaModal from '../../modules/remuneraciones/components/ConfiguracionNominaModal';
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
+import LiquidacionesCeseTab from '../../modules/remuneraciones/components/LiquidacionesCeseTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
@@ -75,7 +75,6 @@ const estadoVisualCiclo = (ciclo) => {
 const ACCIONES_PROXIMAMENTE = [
   { key: 'proyeccion', label: 'Proyección Semanal', icon: <CalendarOutlined /> },
   { key: 'pagos', label: 'Pagos Masivos', icon: <SendOutlined /> },
-  { key: 'liquidaciones', label: 'Liquidaciones', icon: <FileDoneOutlined /> },
   { key: 'contratos', label: 'Contratos', icon: <FileTextOutlined /> },
   { key: 'contable', label: 'Resumen Contable', icon: <BarChartOutlined /> },
 ];
@@ -973,6 +972,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                 puedePagar={puedePagar}
               />
             ),
+          },
+          {
+            key: 'liquidaciones',
+            label: 'Liquidaciones',
+            children: <LiquidacionesCeseTab empresaId={user?.empresa?.id} puedeAprobar={puedeAprobar} puedePagar={puedePagar} />,
           },
           {
             key: 'documentacion',

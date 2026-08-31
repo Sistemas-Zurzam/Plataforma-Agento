@@ -20,12 +20,11 @@ return new class extends Migration
             $table->foreignId('tipo_ausencia_id')->nullable()->after('tipo')->constrained('tipos_ausencia')->restrictOnDelete();
         });
 
-        DB::statement(<<<'SQL'
-            UPDATE asistencia_permisos ap
-            INNER JOIN tipos_ausencia ta ON ta.codigo = ap.tipo
-            SET ap.tipo_ausencia_id = ta.id
-            WHERE ap.tipo_ausencia_id IS NULL
-        SQL);
+        DB::table('tipos_ausencia')->get(['id', 'codigo'])->each(function ($tipo) {
+            DB::table('asistencia_permisos')
+                ->whereNull('tipo_ausencia_id')->where('tipo', $tipo->codigo)
+                ->update(['tipo_ausencia_id' => $tipo->id]);
+        });
     }
 
     public function down(): void

@@ -16,6 +16,7 @@ use App\Modules\Personas\Models\ColaboradorDocumento;
 use App\Modules\Personas\Application\AjustarCalendarioPorCambioHorario;
 use App\Modules\Personas\Support\CalendarioMensualGenerator;
 use App\Modules\Personas\Support\FeriadosPeru;
+use App\Modules\Nominas\Services\LiquidacionCeseService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
@@ -28,7 +29,10 @@ use Intervention\Image\ImageManager;
 
 class ColaboradorService
 {
-    public function __construct(private readonly AjustarCalendarioPorCambioHorario $ajusteCalendario) {}
+    public function __construct(
+        private readonly AjustarCalendarioPorCambioHorario $ajusteCalendario,
+        private readonly LiquidacionCeseService $liquidaciones,
+    ) {}
 
     /**
      * @param  array<int, int>  $empresaIds  Ya resueltos y autorizados por el
@@ -480,23 +484,41 @@ class ColaboradorService
         ]);
     }
 
-    public function cesar(Empresa $empresa, Colaborador $colaborador, string $fechaCese, string $motivo): Colaborador
+    public function cesar(Empresa $empresa, Colaborador $colaborador, string $fechaCese, string $motivo, array $seleccion, int $usuarioId): Colaborador
     {
         if ($colaborador->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
         }
+        if (! collect($seleccion)->contains(true)) {
+            throw ValidationException::withMessages(['conceptos' => 'Selecciona al menos un concepto para generar la liquidación.']);
+        }
 
-        DB::transaction(function () use ($colaborador, $fechaCese, $motivo) {
-            $colaborador->update([
+        DB::transaction(function () use ($empresa, $colaborador, $fechaCese, $motivo, $seleccion, $usuarioId) {
+            $bloqueado = Colaborador::whereKey($colaborador->id)->lockForUpdate()->firstOrFail();
+            if (! $bloqueado->activo || $bloqueado->fecha_cese) {
+                throw ValidationException::withMessages(['colaborador' => 'El colaborador ya fue cesado.']);
+            }
+            // El snapshot se calcula antes de inactivar/cerrar vigencias, pero
+            // se confirma en la misma transacción que el cese.
+            $this->liquidaciones->guardar($empresa, $bloqueado, $fechaCese, $motivo, $seleccion, $usuarioId);
+            $bloqueado->update([
                 'activo' => false,
                 'fecha_cese' => $fechaCese,
                 'motivo_cese' => $motivo,
                 'fecha_fin_contrato' => $colaborador->fecha_fin_contrato ?? $fechaCese,
             ]);
-            $colaborador->asignacionesHorario()
+            $bloqueado->asignacionesHorario()
                 ->whereNull('vigencia_hasta')
                 ->update(['vigencia_hasta' => $fechaCese]);
         });
+
+        // El bloqueo/actualización dentro de la transacción ocurre sobre
+        // $bloqueado (una instancia distinta obtenida con lockForUpdate) —
+        // sin este refresh, $colaborador queda con los atributos de ANTES
+        // del cese (activo=true, sin fecha_cese) y el Resource devuelto al
+        // frontend mentiría sobre el resultado de una operación que sí tuvo
+        // éxito en base de datos.
+        $colaborador->refresh();
 
         return $this->obtenerDetalle($empresa, $colaborador);
     }

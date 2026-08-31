@@ -2,6 +2,8 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 
 return new class extends Migration
 {
@@ -15,6 +17,12 @@ return new class extends Migration
      */
     public function up(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            foreach (['tipos_ausencia', 'sunat_mapeos', 'concepto_codigos_plame'] as $tabla) {
+                Schema::table($tabla, fn (Blueprint $table) => $table->text('descripcion_sunat')->nullable()->change());
+            }
+            return;
+        }
         DB::statement('ALTER TABLE tipos_ausencia MODIFY COLUMN descripcion_sunat TEXT NULL');
         DB::statement('ALTER TABLE sunat_mapeos MODIFY COLUMN descripcion_sunat TEXT NULL');
         DB::statement('ALTER TABLE concepto_codigos_plame MODIFY COLUMN descripcion_sunat TEXT NULL');
@@ -25,6 +33,12 @@ return new class extends Migration
      */
     public function down(): void
     {
+        if (DB::getDriverName() === 'sqlite') {
+            foreach (['tipos_ausencia', 'sunat_mapeos', 'concepto_codigos_plame'] as $tabla) {
+                Schema::table($tabla, fn (Blueprint $table) => $table->string('descripcion_sunat')->nullable()->change());
+            }
+            return;
+        }
         DB::statement('ALTER TABLE tipos_ausencia MODIFY COLUMN descripcion_sunat VARCHAR(255) NULL');
         DB::statement('ALTER TABLE sunat_mapeos MODIFY COLUMN descripcion_sunat VARCHAR(255) NULL');
         DB::statement('ALTER TABLE concepto_codigos_plame MODIFY COLUMN descripcion_sunat VARCHAR(255) NULL');

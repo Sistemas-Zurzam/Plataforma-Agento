@@ -31,13 +31,16 @@ return new class extends Migration
         // que hubo en el pasado). Se registra con vigencia_desde =
         // fecha_ingreso como mejor esfuerzo — mismo criterio ya usado para
         // monto_devengado/monto_pagado_descontado en boleta_conceptos.
-        DB::statement(<<<'SQL'
-            INSERT INTO colaborador_condiciones_laborales
-                (colaborador_id, regimen_laboral, tipo_contrato, sistema_previsional, afp_id, tipo_comision, vigencia_desde, created_at, updated_at)
-            SELECT id, regimen_laboral, tipo_contrato, sistema_previsional, afp_id, tipo_comision,
-                   COALESCE(fecha_ingreso, CURDATE()), NOW(), NOW()
-            FROM colaboradores
-        SQL);
+        DB::table('colaboradores')->orderBy('id')->chunkById(500, function ($colaboradores) {
+            $ahora = now();
+            DB::table('colaborador_condiciones_laborales')->insert($colaboradores->map(fn ($c) => [
+                'colaborador_id' => $c->id, 'regimen_laboral' => $c->regimen_laboral,
+                'tipo_contrato' => $c->tipo_contrato, 'sistema_previsional' => $c->sistema_previsional,
+                'afp_id' => $c->afp_id, 'tipo_comision' => $c->tipo_comision,
+                'vigencia_desde' => $c->fecha_ingreso ?: today()->toDateString(),
+                'created_at' => $ahora, 'updated_at' => $ahora,
+            ])->all());
+        });
     }
 
     /**

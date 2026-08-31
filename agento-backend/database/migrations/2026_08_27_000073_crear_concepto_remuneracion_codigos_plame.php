@@ -38,12 +38,13 @@ return new class extends Migration
         // Backfill: no existía historial antes — se registra el estado
         // actual como primera fila, mismo criterio que
         // colaborador_condiciones_laborales.
-        DB::statement(<<<'SQL'
-            INSERT INTO concepto_codigos_plame
-                (concepto_remuneracion_id, codigo_plame, vigencia_desde, created_at, updated_at)
-            SELECT id, codigo_plame, CURDATE(), NOW(), NOW()
-            FROM conceptos_remuneracion
-        SQL);
+        DB::table('conceptos_remuneracion')->orderBy('id')->chunkById(500, function ($conceptos) {
+            $ahora = now();
+            DB::table('concepto_codigos_plame')->insert($conceptos->map(fn ($c) => [
+                'concepto_remuneracion_id' => $c->id, 'codigo_plame' => $c->codigo_plame,
+                'vigencia_desde' => today()->toDateString(), 'created_at' => $ahora, 'updated_at' => $ahora,
+            ])->all());
+        });
     }
 
     /**

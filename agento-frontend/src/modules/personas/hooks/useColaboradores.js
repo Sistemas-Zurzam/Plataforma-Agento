@@ -113,8 +113,31 @@ export function useColaboradores() {
     return data.data;
   }, []);
 
+  const previsualizarLiquidacionCese = useCallback(async (colaboradorId, values) => {
+    const params = Object.fromEntries(Object.entries(values).map(([key, value]) => [
+      key,
+      typeof value === 'boolean' ? (value ? 1 : 0) : value,
+    ]));
+    const { data } = await api.get(`/colaboradores/${colaboradorId}/liquidacion-cese/previsualizar`, { params });
+    return data.data;
+  }, []);
+
   const eliminarColaborador = useCallback(async (colaboradorId) => {
     await api.delete(`/colaboradores/${colaboradorId}`);
+  }, []);
+
+  const listarVacacionMovimientos = useCallback(async (colaboradorId) => {
+    const { data } = await api.get(`/colaboradores/${colaboradorId}/vacacion-movimientos`);
+    return data.data;
+  }, []);
+
+  const crearVacacionMovimiento = useCallback(async (colaboradorId, values) => {
+    const { data } = await api.post(`/colaboradores/${colaboradorId}/vacacion-movimientos`, values);
+    return data.data;
+  }, []);
+
+  const eliminarVacacionMovimiento = useCallback(async (colaboradorId, movimientoId) => {
+    await api.delete(`/colaboradores/${colaboradorId}/vacacion-movimientos/${movimientoId}`);
   }, []);
 
   const subirDocumento = useCallback(async (colaboradorId, tipo, archivo) => {
@@ -199,7 +222,11 @@ export function useColaboradores() {
     actualizarConfiguracionNomina,
     actualizarRemuneracion,
     cesarColaborador,
+    previsualizarLiquidacionCese,
     eliminarColaborador,
+    listarVacacionMovimientos,
+    crearVacacionMovimiento,
+    eliminarVacacionMovimiento,
     subirDocumento,
     verDocumento,
     subirFotoPerfil,

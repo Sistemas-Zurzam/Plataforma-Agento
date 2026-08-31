@@ -18,12 +18,12 @@ return new class extends Migration
             $table->boolean('contabilizar_horas_extra')->default(true)->after('contabilizar_faltas');
         });
 
-        DB::statement(<<<'SQL'
-            UPDATE colaborador_condiciones_laborales condiciones
-            INNER JOIN colaboradores ON colaboradores.id = condiciones.colaborador_id
-            SET condiciones.contabilizar_faltas = colaboradores.contabilizar_faltas,
-                condiciones.contabilizar_horas_extra = colaboradores.contabilizar_horas_extra
-        SQL);
+        DB::table('colaboradores')->get(['id', 'contabilizar_faltas', 'contabilizar_horas_extra'])->each(fn ($c) =>
+            DB::table('colaborador_condiciones_laborales')->where('colaborador_id', $c->id)->update([
+                'contabilizar_faltas' => $c->contabilizar_faltas,
+                'contabilizar_horas_extra' => $c->contabilizar_horas_extra,
+            ])
+        );
     }
 
     public function down(): void

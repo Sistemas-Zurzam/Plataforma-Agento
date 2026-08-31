@@ -18,8 +18,9 @@ import {
   CheckCircleOutlined,
   EyeOutlined,
   IdcardOutlined,
+  PlusOutlined,
 } from '@ant-design/icons';
-import { App, Avatar, Button, Card, Empty, Modal, Progress, Spin, Tabs, Tag, Upload } from 'antd';
+import { App, Avatar, Button, Card, DatePicker, Empty, Form, Input, InputNumber, Modal, Progress, Select, Spin, Table, Tabs, Tag, Upload } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 import { colorForName, initialsForName } from '../../../utils/avatarColor';
@@ -169,8 +170,99 @@ function Nominas() {
   return <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="Aún no existen nóminas calculadas para este colaborador." />;
 }
 
-function Vacaciones() {
-  return <div><div className="grid gap-4 sm:grid-cols-3"><Card className="text-center"><p className="text-2xl font-semibold text-blue-600">0</p><p className="text-sm text-gray-500">Días totales</p></Card><Card className="text-center"><p className="text-2xl font-semibold">0</p><p className="text-sm text-gray-500">Días usados</p></Card><Card className="text-center"><p className="text-2xl font-semibold text-green-600">0</p><p className="text-sm text-gray-500">Días disponibles</p></Card></div><div className="mt-8"><Empty description="Sin solicitudes de vacaciones registradas" /></div></div>;
+const TIPOS_MOVIMIENTO_VACACIONES = [
+  { value: 'devengo_inicial', label: 'Devengo inicial', color: 'blue' },
+  { value: 'goce', label: 'Goce', color: 'orange' },
+  { value: 'pago', label: 'Pago', color: 'red' },
+  { value: 'ajuste', label: 'Ajuste', color: 'purple' },
+];
+
+/**
+ * Kardex de ajustes vacacionales manuales — la única forma de registrar
+ * saldos que no se derivan de asistencia (devengo inicial al migrar de otro
+ * sistema, goces/pagos ya liquidados fuera de Agento). Estos movimientos
+ * alimentan directamente el cálculo de "Vacaciones pendientes y truncas" de
+ * la liquidación por cese (VacacionMovimiento en el backend).
+ */
+function Vacaciones({ colaborador, listarVacacionMovimientos, crearVacacionMovimiento, eliminarVacacionMovimiento }) {
+  const { message, modal } = App.useApp();
+  const [form] = Form.useForm();
+  const [movimientos, setMovimientos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+
+  const cargar = () => {
+    setLoading(true);
+    listarVacacionMovimientos(colaborador.id).then(setMovimientos).finally(() => setLoading(false));
+  };
+
+  useEffect(cargar, [colaborador.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const guardar = async (values) => {
+    setGuardando(true);
+    try {
+      await crearVacacionMovimiento(colaborador.id, { ...values, fecha: values.fecha.format('YYYY-MM-DD') });
+      message.success('Movimiento registrado correctamente');
+      setModalOpen(false);
+      form.resetFields();
+      cargar();
+    } catch (error) {
+      const errors = error.response?.data?.errors;
+      message.error(errors ? Object.values(errors)[0]?.[0] : 'No se pudo registrar el movimiento');
+    } finally {
+      setGuardando(false);
+    }
+  };
+
+  const eliminar = (movimiento) => {
+    modal.confirm({
+      title: 'Eliminar movimiento',
+      content: `¿Eliminar el ajuste de ${movimiento.dias} día(s) del ${dayjs(movimiento.fecha).format('DD/MM/YYYY')}?`,
+      okText: 'Eliminar', okButtonProps: { danger: true },
+      onOk: async () => {
+        await eliminarVacacionMovimiento(colaborador.id, movimiento.id);
+        message.success('Movimiento eliminado');
+        cargar();
+      },
+    });
+  };
+
+  const columns = [
+    { title: 'Fecha', dataIndex: 'fecha', render: (v) => fecha(v) },
+    { title: 'Tipo', dataIndex: 'tipo', render: (v) => {
+      const opcion = TIPOS_MOVIMIENTO_VACACIONES.find((o) => o.value === v);
+      return <Tag color={opcion?.color}>{opcion?.label ?? v}</Tag>;
+    } },
+    { title: 'Días', dataIndex: 'dias', render: (v) => <span className={Number(v) < 0 ? 'text-red-500' : 'text-green-600'}>{Number(v) > 0 ? '+' : ''}{Number(v)}</span> },
+    { title: 'Descripción', dataIndex: 'descripcion' },
+    { title: '', render: (_, m) => colaborador.activo && <Button size="small" danger type="text" icon={<DeleteOutlined />} onClick={() => eliminar(m)} /> },
+  ];
+
+  return <div>
+    <div className="mb-3 flex items-center justify-between">
+      <p className="text-sm text-gray-500">Kardex de ajustes vacacionales — alimenta el cálculo de vacaciones truncas al momento del cese.</p>
+      {colaborador.activo && <Button icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>Registrar ajuste</Button>}
+    </div>
+    <Table rowKey="id" size="small" loading={loading} dataSource={movimientos} columns={columns} pagination={false} locale={{ emptyText: 'Sin movimientos registrados' }} />
+
+    <Modal title="Registrar ajuste vacacional" open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} okText="Registrar" confirmLoading={guardando} destroyOnHidden centered>
+      <Form form={form} layout="vertical" onFinish={guardar} initialValues={{ tipo: 'ajuste' }}>
+        <Form.Item label="Fecha" name="fecha" rules={[{ required: true, message: 'Selecciona la fecha' }]}>
+          <DatePicker className="w-full" format="DD/MM/YYYY" maxDate={dayjs()} />
+        </Form.Item>
+        <Form.Item label="Tipo" name="tipo" rules={[{ required: true }]}>
+          <Select options={TIPOS_MOVIMIENTO_VACACIONES.map(({ value, label }) => ({ value, label }))} />
+        </Form.Item>
+        <Form.Item label="Días (positivo suma saldo, negativo lo reduce)" name="dias" rules={[{ required: true, message: 'Ingresa los días' }, { validator: (_, v) => (v === 0 ? Promise.reject('Los días no pueden ser 0') : Promise.resolve()) }]}>
+          <InputNumber className="w-full" step={0.5} />
+        </Form.Item>
+        <Form.Item label="Descripción" name="descripcion" rules={[{ required: true, message: 'Indica el motivo del ajuste' }]}>
+          <Input.TextArea rows={2} maxLength={255} showCount />
+        </Form.Item>
+      </Form>
+    </Modal>
+  </div>;
 }
 
 export function Legajo({ colaborador, subiendo, viendo, onImportar, onVer, soloLectura = false }) {
@@ -201,8 +293,8 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
   const { message, modal } = App.useApp();
   const {
     fetchColaborador, actualizarCalendario, actualizarHorario,
-    actualizarColaborador, actualizarConfiguracionNomina, actualizarRemuneracion, cesarColaborador, eliminarColaborador, subirDocumento, verDocumento,
-    subirFotoPerfil, fetchFotoPerfil,
+    actualizarColaborador, actualizarConfiguracionNomina, actualizarRemuneracion, cesarColaborador, previsualizarLiquidacionCese, eliminarColaborador, subirDocumento, verDocumento,
+    subirFotoPerfil, fetchFotoPerfil, listarVacacionMovimientos, crearVacacionMovimiento, eliminarVacacionMovimiento,
   } = useColaboradores();
   const [colaborador, setColaborador] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -302,7 +394,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
     { key: 'remuneraciones', label: <span><RiseOutlined /> Historial remunerativo</span>, children: <HistorialRemunerativo colaborador={colaborador} /> },
     { key: 'asistencia', label: <span><MedicineBoxOutlined /> Asistencia</span>, children: <Asistencia /> },
     { key: 'nominas', label: <span><DollarOutlined /> Nóminas</span>, children: <Nominas /> },
-    { key: 'vacaciones', label: <span><CalendarOutlined /> Vacaciones</span>, children: <Vacaciones /> },
+    { key: 'vacaciones', label: <span><CalendarOutlined /> Vacaciones</span>, children: <Vacaciones colaborador={colaborador} listarVacacionMovimientos={listarVacacionMovimientos} crearVacacionMovimiento={crearVacacionMovimiento} eliminarVacacionMovimiento={eliminarVacacionMovimiento} /> },
     { key: 'legajo', label: <span><FileTextOutlined /> Legajo</span>, children: <Legajo colaborador={colaborador} subiendo={subiendoDocumento} viendo={viendoDocumento} onImportar={importarDocumento} onVer={abrirDocumento} /> },
   ] : [], [colaborador, subiendoDocumento, viendoDocumento]);
 
@@ -540,7 +632,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
     <EditarHorarioColaboradorModal open={horarioOpen} colaborador={colaborador} submitting={guardandoHorario} onGuardar={guardarHorario} onCancel={() => setHorarioOpen(false)} />
     <EditarCalendarioModal open={calendarioOpen} colaborador={colaborador} submitting={guardandoCalendario} onGuardar={guardarCalendario} onCancel={() => setCalendarioOpen(false)} />
     <EditarColaboradorModal open={editarOpen} colaborador={colaborador} user={user} submitting={guardandoEdicion} onGuardar={guardarEdicion} onCancel={() => setEditarOpen(false)} />
-    <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
+    <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onPrevisualizar={(values) => previsualizarLiquidacionCese(colaborador.id, values)} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
     <VerCarnetModal colaborador={carnetOpen ? colaborador : null} onClose={() => setCarnetOpen(false)} />
     <Modal title={documentoVista?.nombre ?? 'Ver documento'} open={Boolean(documentoVista)} onCancel={cerrarDocumento} footer={null} width={{ xs: '95%', sm: '90%', lg: 900 }} centered destroyOnHidden>
       {documentoVista?.mimeType?.startsWith('image/') ? (

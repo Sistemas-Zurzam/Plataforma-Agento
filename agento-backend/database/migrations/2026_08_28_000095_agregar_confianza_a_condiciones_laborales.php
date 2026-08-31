@@ -25,11 +25,10 @@ return new class extends Migration
             $table->boolean('es_trabajador_confianza')->nullable()->after('tipo_comision');
         });
 
-        DB::statement(<<<'SQL'
-            UPDATE colaborador_condiciones_laborales ccl
-            INNER JOIN colaboradores c ON c.id = ccl.colaborador_id
-            SET ccl.es_trabajador_confianza = c.es_trabajador_confianza
-        SQL);
+        DB::table('colaboradores')->get(['id', 'es_trabajador_confianza'])->each(fn ($c) =>
+            DB::table('colaborador_condiciones_laborales')->where('colaborador_id', $c->id)
+                ->update(['es_trabajador_confianza' => $c->es_trabajador_confianza])
+        );
     }
 
     public function down(): void
