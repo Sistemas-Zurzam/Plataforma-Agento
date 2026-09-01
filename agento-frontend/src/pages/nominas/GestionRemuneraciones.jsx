@@ -249,6 +249,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const puedeCerrarPeriodo = user?.permisos?.includes('nominas.cerrar_periodo');
   const puedeAprobar = user?.permisos?.includes('nominas.aprobar');
   const puedePagar = user?.permisos?.includes('nominas.pagar');
+  const puedeExportarBbvaNetCash = user?.permisos?.includes('nominas.bbva_netcash_exportar');
+  const puedeSeleccionarBoletas = puedeAprobar || puedeExportarBbvaNetCash;
+  const boletasCalculadasSeleccionadas = boletas
+    .filter((boleta) => boleta.estado === 'calculada' && boletasSeleccionadas.includes(boleta.id))
+    .map((boleta) => boleta.id);
 
   /**
    * El backend lista los ciclos de TODAS las empresas que el usuario
@@ -514,7 +519,8 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   };
 
   const handleAprobarMasivo = async () => {
-    const cantidad = boletasSeleccionadas.length;
+    const idsAprobar = boletasCalculadasSeleccionadas;
+    const cantidad = idsAprobar.length;
     modal.confirm({
       title: 'Aprobar boletas seleccionadas',
       content: `Se aprobarán ${cantidad} boleta(s) en estado "calculada". Esto ayuda a completar la aprobación antes de cerrar el ciclo.`,
@@ -522,7 +528,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       cancelText: 'Cancelar',
       onOk: async () => {
         try {
-          const resultado = await aprobarBoletasMasivo(cicloId, boletasSeleccionadas);
+          const resultado = await aprobarBoletasMasivo(cicloId, idsAprobar);
           message.success(`${resultado.procesadas} boleta(s) aprobada(s).`);
           setBoletasSeleccionadas([]);
           recargar();
@@ -1037,12 +1043,14 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   value={busquedaPlanilla}
                   onChange={(e) => setBusquedaPlanilla(e.target.value)}
                 />
-                {puedeAprobar && boletasSeleccionadas.length > 0 && (
+                {boletasSeleccionadas.length > 0 && (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5">
                     <span className="text-sm font-medium text-blue-900">{boletasSeleccionadas.length} boleta(s) seleccionada(s)</span>
-                    <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={handleAprobarMasivo}>
-                      Aprobar seleccionadas
-                    </Button>
+                    {puedeAprobar && boletasCalculadasSeleccionadas.length > 0 && (
+                      <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={handleAprobarMasivo}>
+                        Aprobar {boletasCalculadasSeleccionadas.length} calculada(s)
+                      </Button>
+                    )}
                   </div>
                 )}
                 <Table
@@ -1051,10 +1059,14 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   dataSource={boletas}
                   columns={columnas}
                   scroll={{ x: 1100 }}
-                  rowSelection={puedeAprobar ? {
+                  rowSelection={puedeSeleccionarBoletas ? {
                     selectedRowKeys: boletasSeleccionadas,
                     onChange: setBoletasSeleccionadas,
-                    getCheckboxProps: (boleta) => ({ disabled: boleta.estado !== 'calculada' }),
+                    getCheckboxProps: (boleta) => ({
+                      disabled: boleta.estado === 'calculada'
+                        ? !puedeAprobar
+                        : !puedeExportarBbvaNetCash || !['aprobada', 'pagada'].includes(boleta.estado),
+                    }),
                   } : undefined}
                   pagination={{
                     current: pagination.current,
