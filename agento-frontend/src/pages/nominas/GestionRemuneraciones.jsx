@@ -1218,6 +1218,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         open={telecreditoBcpModalOpen}
         onCancel={() => setTelecreditoBcpModalOpen(false)}
         ciclo={cicloActivo}
+        boletaIds={boletasSeleccionadas}
         fetchValidacion={fetchTelecreditoBcpValidacion}
         exportarTelecreditoBcp={exportarTelecreditoBcp}
       />
@@ -1226,7 +1227,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         open={bbvaNetCashModalOpen}
         onCancel={() => setBbvaNetCashModalOpen(false)}
         ciclo={cicloActivo}
-        boletaIds={boletasSeleccionadas}
         boletaIds={boletasSeleccionadas}
         fetchValidacion={fetchBbvaNetCashValidacion}
         exportarBbvaNetCash={exportarBbvaNetCash}
