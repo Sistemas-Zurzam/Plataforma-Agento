@@ -16,6 +16,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[Fillable(['concepto_remuneracion_id', 'nombre', 'codigo_plame', 'descripcion_sunat', 'activo', 'creado_por'])]
 class ConceptoDefinicionPlame extends Model
 {
+    protected $table = 'concepto_definiciones_plame';
+
     protected function casts(): array
     {
         return [
