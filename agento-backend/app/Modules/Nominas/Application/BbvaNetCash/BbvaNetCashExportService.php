@@ -31,9 +31,10 @@ class BbvaNetCashExportService
 {
     public function __construct(private readonly BbvaNetCashValidator $validator) {}
 
-    public function exportar(CicloRemunerativo $ciclo, EmpresaCuentaBancaria $cuentaCargo, string $subtipo): BbvaNetCashExportResultado
+    /** @param array<int, int> $boletaIds */
+    public function exportar(CicloRemunerativo $ciclo, EmpresaCuentaBancaria $cuentaCargo, string $subtipo, array $boletaIds = []): BbvaNetCashExportResultado
     {
-        $validacion = $this->validator->validar($ciclo, $cuentaCargo, $subtipo);
+        $validacion = $this->validator->validar($ciclo, $cuentaCargo, $subtipo, $boletaIds);
 
         if (! in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             return BbvaNetCashExportResultado::bloqueado(
@@ -59,7 +60,7 @@ class BbvaNetCashExportService
             );
         }
 
-        $boletas = BbvaNetCashCicloDatosLoader::poblacion($ciclo, $subtipo);
+        $boletas = BbvaNetCashCicloDatosLoader::poblacion($ciclo, $subtipo, $boletaIds);
 
         $referencia = $this->construirReferencia($ciclo, $subtipo);
 

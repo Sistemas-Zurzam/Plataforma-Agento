@@ -1187,6 +1187,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         open={bbvaNetCashModalOpen}
         onCancel={() => setBbvaNetCashModalOpen(false)}
         ciclo={cicloActivo}
+        boletaIds={boletasSeleccionadas}
         fetchValidacion={fetchBbvaNetCashValidacion}
         exportarBbvaNetCash={exportarBbvaNetCash}
       />

@@ -21,11 +21,13 @@ use Illuminate\Support\Collection;
  */
 final class BbvaNetCashCicloDatosLoader
 {
-    public static function poblacion(CicloRemunerativo $ciclo, string $subtipo): Collection
+    /** @param array<int, int> $boletaIds */
+    public static function poblacion(CicloRemunerativo $ciclo, string $subtipo, array $boletaIds = []): Collection
     {
         $esCuartaCategoria = $subtipo === '4';
 
         return Boleta::where('ciclo_id', $ciclo->id)
+            ->when($boletaIds !== [], fn ($query) => $query->whereIn('id', $boletaIds))
             ->where('es_version_vigente', true)
             ->where('regimen_laboral_snapshot', $esCuartaCategoria ? '=' : '!=', 'Locacion de Servicios')
             ->where('neto_a_pagar', '!=', 0)

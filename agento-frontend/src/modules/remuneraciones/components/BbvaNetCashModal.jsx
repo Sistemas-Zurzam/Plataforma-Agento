@@ -24,7 +24,7 @@ function Hallazgo({ h }) {
  * se muestra en pantalla el resultado del subtipo previo mientras se
  * espera el nuevo.
  */
-export default function BbvaNetCashModal({ open, onCancel, ciclo, fetchValidacion, exportarBbvaNetCash }) {
+export default function BbvaNetCashModal({ open, onCancel, ciclo, boletaIds = [], fetchValidacion, exportarBbvaNetCash }) {
   const { message } = App.useApp();
   const [subtipo, setSubtipo] = useState('5');
   const [validacion, setValidacion] = useState(null);
@@ -49,7 +49,7 @@ export default function BbvaNetCashModal({ open, onCancel, ciclo, fetchValidacio
     setValidando(true);
     setValidacion(null);
     try {
-      const data = await fetchValidacion(ciclo.id, { subtipo });
+      const data = await fetchValidacion(ciclo.id, { subtipo, ...(boletaIds.length > 0 ? { boleta_ids: boletaIds } : {}) });
       setValidacion(data);
     } catch (err) {
       message.error(err.response?.data?.message ?? 'No se pudo validar BBVA Net Cash');
@@ -61,7 +61,7 @@ export default function BbvaNetCashModal({ open, onCancel, ciclo, fetchValidacio
   const handleExportar = async () => {
     setExportando(true);
     try {
-      const resultado = await exportarBbvaNetCash(ciclo.id, { subtipo });
+      const resultado = await exportarBbvaNetCash(ciclo.id, { subtipo, ...(boletaIds.length > 0 ? { boleta_ids: boletaIds } : {}) });
       if (resultado.descargado) {
         message.success('Archivo BBVA Net Cash descargado correctamente.');
       } else {
@@ -93,6 +93,14 @@ export default function BbvaNetCashModal({ open, onCancel, ciclo, fetchValidacio
           <Descriptions.Item label="Período">{ciclo?.fecha_inicio} — {ciclo?.fecha_fin}</Descriptions.Item>
           <Descriptions.Item label="Estado del ciclo"><Tag color={cicloExportable ? 'green' : 'orange'}>{ciclo?.estado}</Tag></Descriptions.Item>
         </Descriptions>
+
+        <Alert
+          type={boletaIds.length > 0 ? 'info' : 'warning'}
+          showIcon
+          message={boletaIds.length > 0
+            ? `Alcance: ${boletaIds.length} boleta(s) seleccionada(s)`
+            : 'Alcance: todas las boletas elegibles del ciclo'}
+        />
 
         {!cicloExportable && (
           <Alert

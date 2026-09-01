@@ -496,12 +496,14 @@ class CicloRemunerativoController extends Controller
 
         $datos = $request->validate([
             'subtipo' => ['required', 'string', Rule::in(['4', '5'])],
+            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:200'],
+            'boleta_ids.*' => ['required', 'integer', 'distinct', Rule::exists('boletas', 'id')->where('ciclo_id', $ciclo->id)],
         ]);
 
         $cuentaCargo = $this->resolverCuentaCargoBbva($empresa);
 
         return response()->json([
-            ...$this->bbvaNetCashValidator->validar($ciclo, $cuentaCargo, $datos['subtipo']),
+            ...$this->bbvaNetCashValidator->validar($ciclo, $cuentaCargo, $datos['subtipo'], $datos['boleta_ids'] ?? []),
             'cuenta_cargo' => new EmpresaCuentaBancariaResource($cuentaCargo),
         ]);
     }
@@ -520,12 +522,14 @@ class CicloRemunerativoController extends Controller
 
         $datos = $request->validate([
             'subtipo' => ['required', 'string', Rule::in(['4', '5'])],
+            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:200'],
+            'boleta_ids.*' => ['required', 'integer', 'distinct', Rule::exists('boletas', 'id')->where('ciclo_id', $ciclo->id)],
         ]);
 
         $cuentaCargo = $this->resolverCuentaCargoBbva($empresa);
 
         /** @var BbvaNetCashExportResultado $resultado */
-        $resultado = $this->bbvaNetCashExportService->exportar($ciclo, $cuentaCargo, $datos['subtipo']);
+        $resultado = $this->bbvaNetCashExportService->exportar($ciclo, $cuentaCargo, $datos['subtipo'], $datos['boleta_ids'] ?? []);
 
         if (! $resultado->listo || $resultado->archivo === null) {
             return response()->json([
@@ -544,6 +548,7 @@ class CicloRemunerativoController extends Controller
             'periodo' => ['inicio' => $ciclo->fecha_inicio->toDateString(), 'fin' => $ciclo->fecha_fin->toDateString()],
             'cuenta_cargo_id' => $cuentaCargo->id,
             'subtipo' => $datos['subtipo'],
+            'seleccion_boletas' => $datos['boleta_ids'] ?? null,
             'abonos' => $resultado->validacion['abonos'] ?? null,
             'monto_total' => $resultado->validacion['monto_total'] ?? null,
         ]);

@@ -43,11 +43,12 @@ class BbvaNetCashValidator
      *   hallazgos: array<int, array>,
      * }
      */
-    public function validar(CicloRemunerativo $ciclo, EmpresaCuentaBancaria $cuentaCargo, string $subtipo): array
+    /** @param array<int, int> $boletaIds */
+    public function validar(CicloRemunerativo $ciclo, EmpresaCuentaBancaria $cuentaCargo, string $subtipo, array $boletaIds = []): array
     {
         $hallazgos = $this->validarCabecera($ciclo, $cuentaCargo, $subtipo);
 
-        $boletas = BbvaNetCashCicloDatosLoader::poblacion($ciclo, $subtipo);
+        $boletas = BbvaNetCashCicloDatosLoader::poblacion($ciclo, $subtipo, $boletaIds);
 
         foreach ($boletas as $boleta) {
             $hallazgos = [...$hallazgos, ...$this->validarTrabajador($boleta)];
