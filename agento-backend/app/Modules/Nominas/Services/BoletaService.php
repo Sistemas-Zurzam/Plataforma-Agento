@@ -300,12 +300,9 @@ class BoletaService
     /**
      * Aprobar es solo un cambio de estado auditado — sin lógica bancaria.
      * Una boleta observada no puede aprobarse sin volver a calcularse
-     * primero (evita aprobar un cálculo que ya se sabe incorrecto). Tampoco
-     * se aprueba si el colaborador tiene incidencias de asistencia
-     * pendientes dentro del período del ciclo — mismo criterio que bloquea
-     * el cierre del ciclo (CicloRemunerativoService::cerrar()), pero
-     * atajado aquí primero para que RR.HH. se entere al aprobar, no recién
-     * al intentar cerrar todo el período.
+     * primero (evita aprobar un cálculo que ya se sabe incorrecto). Las
+     * incidencias de asistencia pendientes no bloquean la aprobación; se
+     * conservan para seguimiento aunque la boleta continúe hacia el pago.
      */
     public function aprobar(Empresa $empresa, Boleta $boleta, int $usuarioId): Boleta
     {
@@ -314,12 +311,6 @@ class BoletaService
         if ($boleta->estado !== 'calculada') {
             throw ValidationException::withMessages([
                 'estado' => 'Solo se puede aprobar una boleta en estado "calculada".',
-            ]);
-        }
-
-        if ($this->incidenciasPendientesAprobar($empresa, collect([$boleta]))->isNotEmpty()) {
-            throw ValidationException::withMessages([
-                'estado' => 'No se puede aprobar: el colaborador tiene incidencias de asistencia pendientes dentro del período. Resuélvelas en Gestión de asistencias.',
             ]);
         }
 
