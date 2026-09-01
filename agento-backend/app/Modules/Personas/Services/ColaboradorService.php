@@ -484,7 +484,23 @@ class ColaboradorService
         $vigente = $colaborador->condicionesLaborales()->orderByDesc('vigencia_desde')->orderByDesc('id')->first();
 
         if ($vigente && $actual == $vigente->only(array_keys($actual))) {
-            return;
+            // Sin fecha explícita, guardar los mismos valores no ensucia el
+            // historial. Con fecha explícita sí puede ser una corrección de
+            // vigencia (p. ej. aplicar desde el inicio de agosto una opción
+            // que ya figura desactivada hoy). Solo se omite si esa fecha ya
+            // contiene exactamente la misma condición.
+            if ($vigenciaDesde === null) {
+                return;
+            }
+
+            $existenteEnFecha = $colaborador->condicionesLaborales()
+                ->whereDate('vigencia_desde', $vigenciaDesde)
+                ->orderByDesc('id')
+                ->first();
+
+            if ($existenteEnFecha && $actual == $existenteEnFecha->only(array_keys($actual))) {
+                return;
+            }
         }
 
         $colaborador->condicionesLaborales()->create([
