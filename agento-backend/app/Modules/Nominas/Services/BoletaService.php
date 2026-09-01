@@ -2,7 +2,9 @@
 
 namespace App\Modules\Nominas\Services;
 
+use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
 use App\Modules\Nominas\Models\Boleta;
@@ -114,7 +116,45 @@ class BoletaService
     {
         $this->verificarPertenenciaBoleta($empresa, $boleta);
 
-        return $boleta->load(['colaborador.empresa', 'conceptos.concepto', 'ciclo', 'comprobanteRh']);
+        $boleta->load(['colaborador.empresa', 'colaborador.area', 'colaborador.banco', 'conceptos.concepto', 'ciclo', 'comprobanteRh', 'datosPago.banco']);
+        $boleta->setAttribute('ausencias_periodo', $this->resolverAusenciasPeriodo($boleta));
+
+        return $boleta;
+    }
+
+    /**
+     * Vacaciones / descanso médico / licencias del período de la boleta —
+     * para mostrarlas en la boleta imprimible. Mismo patrón que
+     * IncidenciasPendientesNominaService: Nóminas consulta Eloquent de
+     * Asistencia directamente, con withoutGlobalScope(EmpresaScope::class)
+     * porque la empresa "activa" de la sesión puede no ser la de esta
+     * boleta (un administrador puede ver boletas de otra empresa que
+     * administra sin haberla cambiado).
+     *
+     * @return array{vacaciones: bool, descanso_medico: bool, licencia: ?string}
+     */
+    private function resolverAusenciasPeriodo(Boleta $boleta): array
+    {
+        if (! $boleta->ciclo) {
+            return ['vacaciones' => false, 'descanso_medico' => false, 'licencia' => null];
+        }
+
+        $permisos = AsistenciaPermiso::withoutGlobalScope(EmpresaScope::class)
+            ->where('empresa_id', $boleta->empresa_id)
+            ->where('colaborador_id', $boleta->colaborador_id)
+            ->where('estado', 'aprobado')
+            ->whereDate('fecha_inicio', '<=', $boleta->ciclo->fecha_fin)
+            ->whereDate('fecha_fin', '>=', $boleta->ciclo->fecha_inicio)
+            ->with('tipoAusencia')
+            ->get();
+
+        $licencia = $permisos->first(fn ($p) => ! in_array($p->tipoAusencia?->codigo, ['vacaciones', 'medico'], true));
+
+        return [
+            'vacaciones' => $permisos->contains(fn ($p) => $p->tipoAusencia?->codigo === 'vacaciones'),
+            'descanso_medico' => $permisos->contains(fn ($p) => $p->tipoAusencia?->codigo === 'medico'),
+            'licencia' => $licencia?->tipoAusencia?->nombre,
+        ];
     }
 
     /**
@@ -246,6 +286,11 @@ class BoletaService
                 'ciclo_id' => $ciclo->id,
                 'empresa_id' => $ciclo->empresa_id,
                 'colaborador_id' => $colaborador->id,
+                // Estable entre versiones: una boleta recalculada hereda el
+                // número de su versión anterior (mismo documento corregido,
+                // no una boleta nueva) — solo se genera uno nuevo la primera
+                // vez que este colaborador tiene boleta en este ciclo.
+                'numero_boleta' => $versionAnterior?->numero_boleta ?? $this->generarNumeroBoleta($ciclo),
                 'version' => ($versionAnterior?->version ?? 0) + 1,
                 'es_version_vigente' => true,
                 'regimen_laboral_snapshot' => $resultado['regimen_laboral'],
@@ -321,6 +366,30 @@ class BoletaService
 
             return $boleta->load('conceptos.concepto');
         });
+    }
+
+    /**
+     * Correlativo de boleta para auditoría — por empresa, por período
+     * (ciclo): se reinicia en 1 en cada ciclo remunerativo, contando
+     * colaboradores YA numerados en ese ciclo (no filas — una misma boleta
+     * recalculada no vuelve a consumir número, ver llamador). Formato
+     * "{año de pago}-{correlativo con 6 dígitos}".
+     *
+     * Se apoya en el mismo orden secuencial de calcularPlanilla() (un
+     * colaborador a la vez, dentro de una única transacción por
+     * colaborador) — no hay ejecución concurrente que pueda generar dos
+     * boletas del mismo ciclo con el número repetido.
+     */
+    private function generarNumeroBoleta(CicloRemunerativo $ciclo): string
+    {
+        $correlativo = Boleta::where('ciclo_id', $ciclo->id)
+            ->whereNotNull('numero_boleta')
+            ->distinct()
+            ->count('colaborador_id') + 1;
+
+        $anio = ($ciclo->fecha_pago ?? $ciclo->fecha_fin)->year;
+
+        return sprintf('%d-%06d', $anio, $correlativo);
     }
 
     /**

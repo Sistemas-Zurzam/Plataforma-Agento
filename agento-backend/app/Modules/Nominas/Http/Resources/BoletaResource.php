@@ -2,6 +2,7 @@
 
 namespace App\Modules\Nominas\Http\Resources;
 
+use App\Modules\Configuracion\Http\Resources\EmpresaResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -29,7 +30,32 @@ class BoletaResource extends JsonResource
                 'cuspp' => $this->colaborador?->cuspp,
                 'tiene_hijos_asignacion_familiar' => $this->colaborador?->tiene_hijos_asignacion_familiar,
                 'tiene_suspension_renta_4ta' => $this->colaborador?->tiene_suspension_renta_4ta,
+                // Para la boleta imprimible (diseño oficial) — DNI, área y
+                // fecha de ingreso del trabajador. 'area' se deja en null si
+                // la relación no viene eager-loaded (ej. en listar(), que no
+                // la necesita) para no generar un lazy-load por fila.
+                'numero_documento' => $this->colaborador?->numero_documento,
+                'area' => $this->colaborador?->relationLoaded('area') ? $this->colaborador->area?->nombre : null,
+                'fecha_ingreso' => $this->colaborador?->fecha_ingreso?->toDateString(),
             ],
+            // Detalle completo de la empresa (RUC, dirección, logo) para el
+            // encabezado de la boleta imprimible — no reemplaza
+            // colaborador.empresa (string), que ya consume otro código.
+            'empresa' => $this->colaborador?->empresa ? new EmpresaResource($this->colaborador->empresa) : null,
+            'ciclo' => $this->whenLoaded('ciclo', fn () => $this->ciclo ? [
+                'nombre' => $this->ciclo->nombre,
+                'fecha_inicio' => $this->ciclo->fecha_inicio?->toDateString(),
+                'fecha_fin' => $this->ciclo->fecha_fin?->toDateString(),
+                'fecha_pago' => $this->ciclo->fecha_pago?->toDateString(),
+            ] : null),
+            // Correlativo de auditoría persistido (columna real, no
+            // calculado) — ver BoletaService::generarNumeroBoleta().
+            'numero_boleta' => $this->numero_boleta,
+            // Solo se resuelve cuando 'datosPago' viene eager-loaded
+            // (BoletaService::ver()) — nunca en listar().
+            'datos_pago' => $this->whenLoaded('datosPago', fn () => $this->resolverDatosPago()),
+            // Adjuntado por BoletaService::ver() — no es una relación Eloquent.
+            'ausencias_periodo' => $this->ausencias_periodo,
             'version' => $this->version,
             'regimen_laboral' => $this->regimen_laboral_snapshot,
             'sueldo_basico' => $this->sueldo_basico_snapshot,
@@ -67,6 +93,37 @@ class BoletaResource extends JsonResource
                 'importe_aporte_regimen_pensionario' => $this->comprobanteRh->importe_aporte_regimen_pensionario,
             ] : null),
             'conceptos' => BoletaConceptoResource::collection($this->whenLoaded('conceptos')),
+        ];
+    }
+
+    /**
+     * Snapshot bancario congelado (BoletaDatosPago, ver migración
+     * crear_boleta_datos_pago) si el ciclo ya se cerró; si no existe aún
+     * (ciclo abierto / previsualización), cae a los datos vigentes del
+     * colaborador. Nunca mezcla ambas fuentes en un mismo campo.
+     *
+     * @return array{banco: ?string, tipo_cuenta: ?string, moneda: ?string, numero_cuenta: ?string, cci: ?string}
+     */
+    private function resolverDatosPago(): array
+    {
+        if ($this->datosPago) {
+            return [
+                'banco' => $this->datosPago->banco?->nombre,
+                'tipo_cuenta' => $this->datosPago->tipo_cuenta_snapshot,
+                'moneda' => $this->datosPago->moneda_snapshot,
+                'numero_cuenta' => $this->datosPago->numero_cuenta_snapshot,
+                'cci' => $this->datosPago->cci_snapshot,
+            ];
+        }
+
+        $colaborador = $this->colaborador;
+
+        return [
+            'banco' => $colaborador?->relationLoaded('banco') ? $colaborador->banco?->nombre : null,
+            'tipo_cuenta' => $colaborador?->tipo_cuenta,
+            'moneda' => $colaborador?->moneda_cuenta,
+            'numero_cuenta' => $colaborador?->numero_cuenta,
+            'cci' => $colaborador?->cci,
         ];
     }
 }

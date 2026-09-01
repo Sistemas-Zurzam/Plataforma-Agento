@@ -18,7 +18,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
  * acceso vive en el controller (User::tieneAccesoA) antes de cada operación.
  */
 #[Fillable([
-    'ciclo_id', 'empresa_id', 'colaborador_id', 'version', 'es_version_vigente',
+    'ciclo_id', 'empresa_id', 'colaborador_id', 'numero_boleta', 'version', 'es_version_vigente',
     'regimen_laboral_snapshot', 'sueldo_basico_snapshot', 'dias_pagados',
     'asistencia_procesada', 'dias_falta', 'minutos_tardanza',
     'total_ingresos', 'total_egresos', 'total_aportaciones', 'neto_a_pagar', 'estado',
