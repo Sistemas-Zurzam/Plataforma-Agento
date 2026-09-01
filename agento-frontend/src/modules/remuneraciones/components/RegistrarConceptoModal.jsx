@@ -32,7 +32,7 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpd
   const [form] = Form.useForm();
   const [tipoSeleccionado, setTipoSeleccionado] = useState(null);
   const [editandoId, setEditandoId] = useState(null);
-  const { definiciones, fetchDefiniciones } = useConceptoDefinicionesPlame();
+  const { definiciones, loading: definicionesLoading, fetchDefiniciones } = useConceptoDefinicionesPlame();
 
   useEffect(() => {
     if (!open) {
@@ -131,6 +131,9 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpd
           >
             <Select
               placeholder="Selecciona una clasificación"
+              loading={definicionesLoading}
+              disabled={definicionesLoading}
+              notFoundContent={definicionesLoading ? 'Cargando clasificaciones...' : 'No hay clasificaciones PLAME configuradas'}
               options={definiciones.filter((d) => d.activo).map((d) => ({ value: d.id, label: `${d.nombre} (${d.codigo_plame})` }))}
             />
           </Form.Item>

@@ -6,6 +6,9 @@ export function useConceptoDefinicionesPlame() {
   const [loading, setLoading] = useState(false);
 
   const fetchDefiniciones = useCallback(async (conceptoId) => {
+    // Evita mostrar las clasificaciones del concepto anterior mientras
+    // llega la nueva respuesta.
+    setDefiniciones([]);
     setLoading(true);
     try {
       const { data } = await api.get(`/conceptos-remuneracion/${conceptoId}/definiciones-plame`);
