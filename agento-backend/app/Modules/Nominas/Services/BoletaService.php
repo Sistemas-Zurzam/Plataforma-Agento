@@ -54,6 +54,32 @@ class BoletaService
     }
 
     /**
+     * IDs de todas las boletas que pueden incluirse en archivos bancarios,
+     * respetando los mismos filtros de la tabla sin limitarse a su pagina actual.
+     *
+     * @return array<int, int>
+     */
+    public function idsExportables(Empresa $empresa, CicloRemunerativo $ciclo, ?string $tipo = null, ?string $busqueda = null): array
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+
+        return Boleta::where('ciclo_id', $ciclo->id)
+            ->where('es_version_vigente', true)
+            ->whereIn('estado', ['aprobada', 'pagada'])
+            ->when($tipo === 'honorarios', fn ($q) => $q->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
+            ->when($tipo === 'planilla', fn ($q) => $q->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
+            ->when($busqueda, fn ($q) => $q->whereHas('colaborador', fn ($qq) => $qq->where(function ($qq) use ($busqueda) {
+                $qq->where('nombres', 'like', "%{$busqueda}%")
+                    ->orWhere('apellidos', 'like', "%{$busqueda}%")
+                    ->orWhere('cargo', 'like', "%{$busqueda}%");
+            })))
+            ->orderBy('colaborador_id')
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+    }
+
+    /**
      * Totales del dashboard — SIEMPRE derivados de las boletas ya
      * calculadas (SUM en base de datos), nunca un valor guardado aparte que
      * pueda desincronizarse (Sección 63).

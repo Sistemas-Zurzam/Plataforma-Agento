@@ -77,6 +77,20 @@ class BoletaController extends Controller
         );
     }
 
+    public function idsExportables(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        return response()->json([
+            'data' => $this->boletas->idsExportables(
+                $empresa,
+                $ciclo,
+                $request->input('tipo'),
+                $request->input('busqueda'),
+            ),
+        ]);
+    }
+
     public function show(Request $request, Boleta $boleta): BoletaResource
     {
         $empresa = $this->empresaAutorizadaDeLaBoleta($request, $boleta);

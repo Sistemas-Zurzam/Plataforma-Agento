@@ -198,7 +198,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const { message, modal } = App.useApp();
   const {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
-    boletas, boletasLoading, pagination, fetchBoletas,
+    boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
     resumen, fetchResumen,
     verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, guardarComprobanteRh,
     afps, fetchAfps,
@@ -235,6 +235,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [tipoFiltro, setTipoFiltro] = useState(null);
   const [busquedaPlanilla, setBusquedaPlanilla] = useState('');
   const [boletasSeleccionadas, setBoletasSeleccionadas] = useState([]);
+  const [seleccionandoTodas, setSeleccionandoTodas] = useState(false);
   const [boletaImprimirId, setBoletaImprimirId] = useState(null);
   const [comprobanteRhBoletaId, setComprobanteRhBoletaId] = useState(null);
   const [guardandoComprobanteRh, setGuardandoComprobanteRh] = useState(false);
@@ -327,6 +328,19 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     if (cicloId) {
       fetchBoletas(cicloId, pagination.current, pagination.pageSize, tipoFiltro, busquedaPlanilla);
       fetchResumen(cicloId, tipoFiltro, busquedaPlanilla);
+    }
+  };
+
+  const handleSeleccionarTodasExportables = async () => {
+    setSeleccionandoTodas(true);
+    try {
+      const ids = await fetchBoletasExportablesIds(cicloId, tipoFiltro, busquedaPlanilla);
+      setBoletasSeleccionadas(ids);
+      if (ids.length === 0) message.info('No hay boletas aprobadas o pagadas con el filtro actual');
+    } catch {
+      message.error('No se pudo seleccionar todas las boletas del filtro');
+    } finally {
+      setSeleccionandoTodas(false);
     }
   };
 
@@ -1045,14 +1059,24 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   value={busquedaPlanilla}
                   onChange={(e) => setBusquedaPlanilla(e.target.value)}
                 />
-                {boletasSeleccionadas.length > 0 && (
+                {(boletasSeleccionadas.length > 0 || puedeExportarBanco) && (
                   <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5">
                     <span className="text-sm font-medium text-blue-900">{boletasSeleccionadas.length} boleta(s) seleccionada(s)</span>
-                    {puedeAprobar && boletasCalculadasSeleccionadas.length > 0 && (
-                      <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={handleAprobarMasivo}>
-                        Aprobar {boletasCalculadasSeleccionadas.length} calculada(s)
-                      </Button>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {puedeExportarBanco && (
+                        <Button size="small" loading={seleccionandoTodas} onClick={handleSeleccionarTodasExportables}>
+                          Seleccionar todas las boletas del filtro
+                        </Button>
+                      )}
+                      {boletasSeleccionadas.length > 0 && (
+                        <Button size="small" onClick={() => setBoletasSeleccionadas([])}>Limpiar seleccion</Button>
+                      )}
+                      {puedeAprobar && boletasCalculadasSeleccionadas.length > 0 && (
+                        <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={handleAprobarMasivo}>
+                          Aprobar {boletasCalculadasSeleccionadas.length} calculada(s)
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 )}
                 <Table
@@ -1064,6 +1088,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   rowSelection={puedeSeleccionarBoletas ? {
                     selectedRowKeys: boletasSeleccionadas,
                     onChange: setBoletasSeleccionadas,
+                    preserveSelectedRowKeys: true,
                     getCheckboxProps: (boleta) => ({
                       disabled: boleta.estado === 'calculada'
                         ? !puedeAprobar

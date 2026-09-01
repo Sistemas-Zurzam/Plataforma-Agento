@@ -101,6 +101,13 @@ export function useRemuneraciones() {
     }
   }, []);
 
+  const fetchBoletasExportablesIds = useCallback(async (cicloId, tipo = null, busqueda = null) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/boletas-exportables/ids`, {
+      params: { tipo: tipo || undefined, busqueda: busqueda || undefined },
+    });
+    return data.data;
+  }, []);
+
   const fetchResumen = useCallback(async (cicloId, tipo = null, busqueda = null) => {
     setResumenLoading(true);
     try {
@@ -422,6 +429,7 @@ export function useRemuneraciones() {
     boletasLoading,
     pagination,
     fetchBoletas,
+    fetchBoletasExportablesIds,
     resumen,
     resumenLoading,
     fetchResumen,

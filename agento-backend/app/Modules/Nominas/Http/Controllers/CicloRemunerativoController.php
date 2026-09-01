@@ -424,7 +424,7 @@ class CicloRemunerativoController extends Controller
             'cuenta_cargo_id' => ['required', 'integer'],
             'fecha_proceso' => ['required', 'date'],
             'subtipo' => ['required', 'string', 'size:1'],
-            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:200'],
+            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:5000'],
             'boleta_ids.*' => ['required', 'integer', 'distinct', Rule::exists('boletas', 'id')->where('ciclo_id', $ciclo->id)],
         ]);
 
@@ -451,7 +451,7 @@ class CicloRemunerativoController extends Controller
             'cuenta_cargo_id' => ['required', 'integer'],
             'fecha_proceso' => ['required', 'date'],
             'subtipo' => ['required', 'string', 'size:1'],
-            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:200'],
+            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:5000'],
             'boleta_ids.*' => ['required', 'integer', 'distinct', Rule::exists('boletas', 'id')->where('ciclo_id', $ciclo->id)],
         ]);
 
@@ -501,7 +501,7 @@ class CicloRemunerativoController extends Controller
 
         $datos = $request->validate([
             'subtipo' => ['required', 'string', Rule::in(['4', '5'])],
-            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:200'],
+            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:5000'],
             'boleta_ids.*' => ['required', 'integer', 'distinct', Rule::exists('boletas', 'id')->where('ciclo_id', $ciclo->id)],
         ]);
 
@@ -527,7 +527,7 @@ class CicloRemunerativoController extends Controller
 
         $datos = $request->validate([
             'subtipo' => ['required', 'string', Rule::in(['4', '5'])],
-            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:200'],
+            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:5000'],
             'boleta_ids.*' => ['required', 'integer', 'distinct', Rule::exists('boletas', 'id')->where('ciclo_id', $ciclo->id)],
         ]);
 
