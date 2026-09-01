@@ -360,6 +360,9 @@ class ColaboradorService
             throw new AuthorizationException('Este colaborador no tiene horario asignado — asígnale uno antes de quitarle la condición de trabajador de confianza.');
         }
 
+        $vigenciaCondicionLaboral = $datos['condicion_vigencia_desde'] ?? null;
+        unset($datos['condicion_vigencia_desde']);
+
         $apellidoPaterno = mb_strtoupper(trim($datos['apellido_paterno']), 'UTF-8');
         $apellidoMaterno = mb_strtoupper(trim($datos['apellido_materno'] ?? ''), 'UTF-8');
 
@@ -373,7 +376,7 @@ class ColaboradorService
             'banco_id' => array_key_exists('banco', $datos) ? $this->resolverBancoId($datos['banco']) : $colaborador->banco_id,
         ]);
 
-        $this->registrarCondicionLaboralSiCambio($colaborador);
+        $this->registrarCondicionLaboralSiCambio($colaborador, $vigenciaCondicionLaboral);
 
         return $this->obtenerDetalle($empresa, $colaborador);
     }

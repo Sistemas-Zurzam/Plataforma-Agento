@@ -299,6 +299,7 @@ class ColaboradorController extends Controller
             'contabilizar_tardanzas' => ['nullable', 'boolean'],
             'contabilizar_faltas' => ['nullable', 'boolean'],
             'contabilizar_horas_extra' => ['nullable', 'boolean'],
+            'condicion_vigencia_desde' => ['nullable', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'before_or_equal:today'],
             'banco' => ['nullable', 'string', 'max:255'],
             'numero_cuenta' => ['nullable', 'string', 'max:255'],
             'tipo_cuenta' => ['nullable', Rule::in(['ahorro', 'corriente'])],

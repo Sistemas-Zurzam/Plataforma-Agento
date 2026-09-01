@@ -18,7 +18,7 @@ import {
  */
 const CAMPOS_POR_TAB = {
   personal: ['nombres', 'apellido_paterno', 'apellido_materno', 'tipo_documento', 'numero_documento', 'fecha_nacimiento', 'email', 'celular_colaborador', 'celular_referencia', 'direccion'],
-  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_fin_contrato', 'es_trabajador_confianza', 'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra'],
+  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_fin_contrato', 'es_trabajador_confianza', 'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'condicion_vigencia_desde'],
   previsional: ['sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_suspension_renta_4ta'],
   remuneracion: ['salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'vigencia_desde'],
   bancarios: ['banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
@@ -65,6 +65,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
       periodicidad_pago: vigente?.periodicidad_pago ?? 'mensual',
       asignacion_familiar: vigente?.asignacion_familiar ?? 0,
       vigencia_desde: dayjs(),
+      condicion_vigencia_desde: dayjs().startOf('month'),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, colaborador, vigente, form]);
@@ -73,6 +74,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
     const {
       salario, moneda_salario, periodicidad_pago, asignacion_familiar, vigencia_desde,
       sistema_previsional, afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta,
+      condicion_vigencia_desde,
       ...datosBasicos
     } = values;
 
@@ -91,6 +93,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
         ...datosBasicos,
         fecha_nacimiento: values.fecha_nacimiento?.format('YYYY-MM-DD') ?? null,
         fecha_fin_contrato: values.fecha_fin_contrato?.format('YYYY-MM-DD') ?? null,
+        condicion_vigencia_desde: condicion_vigencia_desde?.format('YYYY-MM-DD') ?? dayjs().format('YYYY-MM-DD'),
       },
       remuneracionCambio
         ? { salario, moneda_salario, periodicidad_pago, asignacion_familiar, vigencia_desde: vigencia_desde?.format('YYYY-MM-DD') ?? dayjs().format('YYYY-MM-DD') }
@@ -202,6 +205,15 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
             className="sm:col-span-2"
           >
             <Checkbox>Contabilizar horas extra</Checkbox>
+          </Form.Item>
+          <Form.Item
+            label="Vigencia de la condición laboral"
+            name="condicion_vigencia_desde"
+            rules={[{ required: true, message: 'Indica desde qué fecha aplica esta configuración' }]}
+            extra="Para corregir la planilla del mes actual, usa el primer día de ese mes. No modifica boletas históricas hasta que se recalculen."
+            className="sm:col-span-2"
+          >
+            <DatePicker className="w-full" format="DD/MM/YYYY" disabledDate={(fecha) => fecha?.isAfter(dayjs(), 'day')} />
           </Form.Item>
         </div>
       ),
