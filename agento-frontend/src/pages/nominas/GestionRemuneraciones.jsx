@@ -198,7 +198,7 @@ function DetalleBoleta({ boletaId, verBoleta }) {
 export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const { message, modal } = App.useApp();
   const {
-    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, fetchIncidenciasPendientesCierre, resolverIncidenciaPendiente, reabrirCiclo, marcarCicloPagado,
+    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, resolverIncidenciaPendiente, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas,
     resumen, fetchResumen,
     verBoleta, aprobarBoleta, fetchIncidenciasPendientesAprobar, aprobarBoletasMasivo, fetchIncidenciasPendientesAprobarMasivo, pagarBoleta, guardarComprobanteRh,
@@ -221,7 +221,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [nuevoCicloOpen, setNuevoCicloOpen] = useState(false);
   const [cicloEditar, setCicloEditar] = useState(null);
   const [bloqueoIncidencias, setBloqueoIncidencias] = useState(null);
-  const [validandoCierre, setValidandoCierre] = useState(false);
   const [validandoAprobacion, setValidandoAprobacion] = useState(false);
   const [creandoCiclo, setCreandoCiclo] = useState(false);
   const [calculando, setCalculando] = useState(false);
@@ -455,22 +454,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   }, [cicloActivo?.id, cicloActivo?.calculo_estado]);
 
   const handleCerrar = async (ciclo) => {
-    setValidandoCierre(true);
-    let incidencias = [];
-    try {
-      incidencias = await fetchIncidenciasPendientesCierre(ciclo.id);
-    } catch {
-      setValidandoCierre(false);
-      message.error('No se pudo validar el cierre del período');
-      return;
-    }
-    setValidandoCierre(false);
-
-    if (incidencias.length > 0) {
-      setBloqueoIncidencias({ title: `No se puede cerrar "${ciclo.nombre}"`, incidencias });
-      return;
-    }
-
     modal.confirm({
       title: 'Cerrar período',
       content: 'No se podrá recalcular la planilla mientras el período esté cerrado. Requiere que todas las boletas estén aprobadas o pagadas.',
@@ -806,7 +789,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           )}
           {puedeCerrarPeriodo && ['abierto', 'calculado', 'reabierto'].includes(ciclo.estado) && (
             <Tooltip title="Cerrar período">
-              <Button size="small" icon={<LockOutlined />} loading={validandoCierre} onClick={() => handleCerrar(ciclo)} />
+              <Button size="small" icon={<LockOutlined />} onClick={() => handleCerrar(ciclo)} />
             </Tooltip>
           )}
           {puedeCerrarPeriodo && ciclo.estado === 'cerrado' && (
@@ -1004,7 +987,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
               </Button>
             )}
             {puedeCerrarPeriodo && ['abierto', 'calculado', 'reabierto'].includes(cicloActivo.estado) && (
-              <Button icon={<LockOutlined />} loading={validandoCierre} onClick={() => handleCerrar(cicloActivo)}>Cerrar período</Button>
+              <Button icon={<LockOutlined />} onClick={() => handleCerrar(cicloActivo)}>Cerrar período</Button>
             )}
             {puedeCerrarPeriodo && cicloActivo.estado === 'cerrado' && (
               <Button icon={<UnlockOutlined />} onClick={() => handleReabrir(cicloActivo)}>Reabrir período</Button>

@@ -120,9 +120,9 @@ class CicloRemunerativoService
 
     /**
      * Reglas de cierre (Sección 58): no se permite cerrar sin boletas
-     * calculadas, con boletas vigentes que todavía no estén aprobadas, ni
-     * con colaboradores del ciclo que tengan incidencias de asistencia
-     * pendientes de resolver dentro del período que se está cerrando.
+     * calculadas ni con boletas vigentes que todavía no estén aprobadas.
+     * Las incidencias pendientes se pueden gestionar después y no impiden
+     * cerrar ni generar archivos de pago sobre boletas ya aprobadas.
      *
      * @throws ValidationException
      */
@@ -145,8 +145,6 @@ class CicloRemunerativoService
             ]);
         }
 
-        $this->verificarSinIncidenciasPendientes($empresa, $ciclo);
-
         $this->congelarDatosPago($ciclo);
 
         $ciclo->update(['estado' => 'cerrado']);
@@ -155,10 +153,9 @@ class CicloRemunerativoService
     }
 
     /**
-     * Lista, con nombre del colaborador incluido, las incidencias que hoy
-     * bloquearían el cierre de este ciclo (Sección 58) — pensado para que el
-     * frontend muestre el detalle ANTES de que el usuario intente cerrar,
-     * en vez de solo un mensaje genérico tras el rechazo.
+     * Lista, con nombre del colaborador incluido, las incidencias pendientes
+     * del ciclo para consulta y resolución desde Nómina. Ya no bloquean el
+     * cierre del período.
      *
      * @return \Illuminate\Database\Eloquent\Collection<int, \App\Modules\Asistencia\Models\AsistenciaIncidencia>
      */
@@ -170,24 +167,6 @@ class CicloRemunerativoService
             ->with('colaborador:id,nombres,apellidos,legajo')
             ->orderBy('fecha')
             ->get();
-    }
-
-    /**
-     * Bloquea el cierre si algún colaborador con boleta vigente en este
-     * ciclo tiene una incidencia de asistencia SIN resolver dentro del
-     * período del ciclo (fecha_inicio..fecha_fin) — evita cerrar (y por
-     * tanto congelar datos de pago) sobre un período cuya asistencia real
-     * todavía puede cambiar.
-     *
-     * @throws ValidationException
-     */
-    private function verificarSinIncidenciasPendientes(Empresa $empresa, CicloRemunerativo $ciclo): void
-    {
-        if ($this->incidenciasPendientesCierreQuery($empresa, $ciclo)->exists()) {
-            throw ValidationException::withMessages([
-                'estado' => 'No se puede cerrar el período: hay colaboradores con incidencias de asistencia pendientes. Resuélvelas en Gestión de asistencias antes de cerrar.',
-            ]);
-        }
     }
 
     private function incidenciasPendientesCierreQuery(Empresa $empresa, CicloRemunerativo $ciclo)
