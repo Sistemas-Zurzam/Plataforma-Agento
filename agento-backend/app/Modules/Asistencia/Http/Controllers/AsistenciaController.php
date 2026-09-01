@@ -363,6 +363,7 @@ class AsistenciaController extends Controller
                 ? "Asistencia reprocesada. {$resultado['omitidos_sin_rol_rotativo']} día(s) omitidos por horario rotativo sin rol declarado."
                 : 'Asistencia reprocesada correctamente.',
             'resultados_procesados' => $resultado['procesados'],
+            'resultados_eliminados_anteriores_ingreso' => $resultado['eliminados_anteriores_ingreso'],
             'omitidos_sin_rol_rotativo' => $resultado['omitidos_sin_rol_rotativo'],
         ]);
     }

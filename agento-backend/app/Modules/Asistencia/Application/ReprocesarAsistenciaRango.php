@@ -2,6 +2,7 @@
 
 namespace App\Modules\Asistencia\Application;
 
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Asistencia\Services\AsistenciaPeriodoService;
 use App\Modules\Configuracion\Models\Empresa;
@@ -19,7 +20,7 @@ class ReprocesarAsistenciaRango
 
     /**
      * @param  array<int, int>|null  $colaboradorIds
-     * @return array{procesados: int, omitidos_sin_rol_rotativo: int}
+     * @return array{procesados: int, eliminados_anteriores_ingreso: int, omitidos_sin_rol_rotativo: int}
      */
     public function ejecutar(
         Empresa $empresa,
@@ -40,11 +41,28 @@ class ReprocesarAsistenciaRango
         $inicio = Carbon::parse($fechaDesde);
         $fin = Carbon::parse($fechaHasta);
         $procesados = 0;
+        $eliminadosAnterioresIngreso = 0;
         $omitidosSinRolRotativo = 0;
 
         foreach ($colaboradores as $colaborador) {
+            // Si RR.HH. corrigió la fecha de ingreso hacia adelante, los
+            // resultados ya persistidos antes de esa fecha no se vuelven a
+            // procesar, pero tampoco pueden quedar visibles ni alimentar
+            // Nómina. Se eliminan solo dentro del rango solicitado. Las
+            // incidencias/HE/pivotes caen por FK cascade; las marcaciones
+            // crudas se conservan como evidencia de origen.
+            $ultimoDiaAnteriorIngreso = $colaborador->fecha_ingreso->copy()->subDay();
+            if ($inicio->lte($ultimoDiaAnteriorIngreso)) {
+                $hastaLimpiar = $fin->copy()->min($ultimoDiaAnteriorIngreso);
+                $eliminadosAnterioresIngreso += AsistenciaResultadoDiario::query()
+                    ->where('empresa_id', $empresa->id)
+                    ->where('colaborador_id', $colaborador->id)
+                    ->whereBetween('fecha', [$inicio->toDateString(), $hastaLimpiar->toDateString()])
+                    ->delete();
+            }
+
             for ($fecha = $inicio->copy(); $fecha->lte($fin); $fecha->addDay()) {
-                if ($fecha->lt($colaborador->fecha_ingreso->startOfDay())) {
+                if ($fecha->lt($colaborador->fecha_ingreso->copy()->startOfDay())) {
                     continue;
                 }
                 try {
@@ -65,6 +83,10 @@ class ReprocesarAsistenciaRango
             ['fecha_desde' => $fechaDesde, 'fecha_hasta' => $fechaHasta, 'colaborador_ids' => $colaboradorIds],
         );
 
-        return ['procesados' => $procesados, 'omitidos_sin_rol_rotativo' => $omitidosSinRolRotativo];
+        return [
+            'procesados' => $procesados,
+            'eliminados_anteriores_ingreso' => $eliminadosAnterioresIngreso,
+            'omitidos_sin_rol_rotativo' => $omitidosSinRolRotativo,
+        ];
     }
 }

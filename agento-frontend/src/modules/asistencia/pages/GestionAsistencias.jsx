@@ -447,7 +447,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     try {
       const payload = colaboradorId ? { ...parametros, colaborador_ids: [colaboradorId] } : parametros;
       const { data } = await api.post('/asistencia/reprocesar', payload);
-      message.success(`${data.resultados_procesados} jornadas procesadas`);
+      const eliminados = data.resultados_eliminados_anteriores_ingreso ?? 0;
+      message.success(`${data.resultados_procesados} jornadas procesadas${eliminados > 0 ? ` · ${eliminados} resultado(s) anterior(es) al ingreso eliminado(s)` : ''}`);
       await cargar();
       if (colaboradorId) {
         const perfilResponse = await api.get(`/asistencia/colaboradores/${colaboradorId}`, { params: parametros });
