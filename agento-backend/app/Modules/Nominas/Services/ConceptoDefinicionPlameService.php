@@ -15,6 +15,23 @@ use Illuminate\Validation\ValidationException;
  */
 class ConceptoDefinicionPlameService
 {
+    private const BONIFICACIONES_OFICIALES = [
+        '0301' => 'Bonificación por 25 y 30 años de servicios',
+        '0302' => 'Bonificación por cierre de pliego',
+        '0303' => 'Bonificación por producción, altura, turno, etc.',
+        '0304' => 'Bonificación por riesgo de caja',
+        '0305' => 'Bonificación por tiempo de servicios',
+        '0306' => 'Bonificaciones regulares',
+        '0307' => 'Bonificaciones CAFAE',
+        '0308' => 'Compensación por trabajos en días de descanso y feriados',
+        '0309' => 'Bonificación por turno nocturno 20% jornal básico',
+        '0310' => 'Bonificación contacto directo con agua 20% jornal básico',
+        '0311' => 'Bonificación unificada de construcción',
+        '0312' => 'Bonificación extraordinaria temporal - Ley 29351',
+        '0313' => 'Bonificación extraordinaria temporal proporcional - Ley 29351',
+        '0314' => 'Bonificación especial por trabajador agrario Ley 31110 - BETA',
+    ];
+
     /**
      * @var array<string, array{0: int, 1: int}>
      */
@@ -29,7 +46,31 @@ class ConceptoDefinicionPlameService
 
     public function listarPorConcepto(ConceptoRemuneracion $concepto): Collection
     {
+        $this->asegurarClasificacionesOficiales($concepto);
+
         return ConceptoDefinicionPlame::where('concepto_remuneracion_id', $concepto->id)->orderBy('nombre')->get();
+    }
+
+    private function asegurarClasificacionesOficiales(ConceptoRemuneracion $concepto): void
+    {
+        if ($concepto->codigo !== 'BONIFICACION') {
+            return;
+        }
+
+        foreach (self::BONIFICACIONES_OFICIALES as $codigo => $nombre) {
+            ConceptoDefinicionPlame::firstOrCreate(
+                [
+                    'concepto_remuneracion_id' => $concepto->id,
+                    'codigo_plame' => $codigo,
+                ],
+                [
+                    'nombre' => $nombre,
+                    'descripcion_sunat' => 'Clasificación oficial precargada (SUNAT, Tabla 22).',
+                    'activo' => true,
+                    'creado_por' => null,
+                ],
+            );
+        }
     }
 
     public function crear(ConceptoRemuneracion $concepto, array $datos, ?User $usuario = null): ConceptoDefinicionPlame
