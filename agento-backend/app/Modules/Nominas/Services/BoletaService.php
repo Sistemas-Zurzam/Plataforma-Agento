@@ -116,7 +116,15 @@ class BoletaService
     {
         $this->verificarPertenenciaBoleta($empresa, $boleta);
 
-        $boleta->load(['colaborador.empresa', 'colaborador.area', 'colaborador.banco', 'conceptos.concepto', 'ciclo', 'comprobanteRh', 'datosPago.banco']);
+        $boleta->load([
+            'colaborador.empresa',
+            'colaborador.area' => fn ($query) => $query->withoutGlobalScope(EmpresaScope::class),
+            'colaborador.banco',
+            'conceptos.concepto',
+            'ciclo',
+            'comprobanteRh',
+            'datosPago.banco',
+        ]);
         $boleta->setAttribute('ausencias_periodo', $this->resolverAusenciasPeriodo($boleta));
 
         return $boleta;
