@@ -94,6 +94,8 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpd
   const opcionesDisponibles = CONCEPTOS_REGISTRABLES
     .filter((c) => catalogo.some((k) => k.codigo === c.codigo))
     .filter((c) => !esHonorarios || c.tipo === 'egreso');
+  const codigoSeleccionado = Form.useWatch('codigo', form);
+  const esOtroConceptoPlame = codigoSeleccionado === 'BONO_NO_REMUNERATIVO';
 
   return (
     <Modal
@@ -122,18 +124,24 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpd
             onChange={handleCambioConcepto}
           />
         </Form.Item>
-        {CONCEPTOS_CON_DEFINICION.includes(Form.useWatch('codigo', form)) && (
+        {CONCEPTOS_CON_DEFINICION.includes(codigoSeleccionado) && (
           <Form.Item
             name="concepto_definicion_id"
             label="Clasificación PLAME"
             rules={[{ required: true, message: 'Selecciona la clasificación específica' }]}
-            extra="Necesaria para declarar este concepto correctamente ante SUNAT — configúrala en Catálogos SUNAT si no aparece la que buscas."
+            extra={esOtroConceptoPlame
+              ? 'Los códigos 1001–1020 son definiciones propias del empleador. Registra primero el nombre y código que usará la empresa en Configuración → Catálogos SUNAT → Conceptos PLAME.'
+              : 'Selecciona la bonificación oficial que corresponda según la Tabla 22 de SUNAT.'}
           >
             <Select
               placeholder="Selecciona una clasificación"
               loading={definicionesLoading}
               disabled={definicionesLoading}
-              notFoundContent={definicionesLoading ? 'Cargando clasificaciones...' : 'No hay clasificaciones PLAME configuradas'}
+              notFoundContent={definicionesLoading
+                ? 'Cargando clasificaciones...'
+                : esOtroConceptoPlame
+                  ? 'Configura una definición 1001–1020 en Catálogos SUNAT'
+                  : 'No hay clasificaciones PLAME cargadas; verifica las migraciones'}
               options={definiciones.filter((d) => d.activo).map((d) => ({ value: d.id, label: `${d.nombre} (${d.codigo_plame})` }))}
             />
           </Form.Item>
