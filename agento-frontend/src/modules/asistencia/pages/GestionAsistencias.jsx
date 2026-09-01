@@ -1122,6 +1122,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
 
   const vistaHorasExtra = <div className="space-y-3">
     <div className="flex flex-wrap items-center gap-2">
+      <EmpresaActivaFiltro user={user} onUserRefresh={onUserRefresh} />
       <Select
         allowClear
         showSearch
