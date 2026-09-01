@@ -105,6 +105,18 @@ class ParametrosVigentesResolver
             );
         };
 
+        $multiplicadorHoraExtra = function (string $clave, float $porDefecto) use ($valor, $regimenLaboral): float {
+            $resuelto = $valor($clave, $porDefecto);
+
+            // Compatibilidad con configuraciones antiguas: LocaciÃ³n se
+            // inicializaba con tasas 0 aun cuando el colaborador tenÃ­a
+            // habilitado contabilizar_horas_extra. Cero no es una tasa: para
+            // desactivar el pago existe la configuraciÃ³n laboral individual.
+            return $regimenLaboral === 'Locacion de Servicios' && $resuelto <= 0
+                ? $porDefecto
+                : $resuelto;
+        };
+
         $parametros = [
             'rmv' => $valor('rmv'),
             'uit' => $valor('uit'),
@@ -121,9 +133,9 @@ class ParametrosVigentesResolver
             'tasa_gratificacion' => $valor('gratificacion_porcentaje') / 100,
             'tasa_cts' => $valor('cts_porcentaje') / 100,
             'tasa_bonificacion_extraordinaria' => $valor('bonificacion_extraordinaria_porcentaje', 0.0) / 100,
-            'horas_extra_tasa_x25' => $valor('horas_extra_tasa_x25', 1.25),
-            'horas_extra_tasa_x35' => $valor('horas_extra_tasa_x35', 1.35),
-            'horas_extra_tasa_nocturna' => $valor('horas_extra_tasa_nocturna', 2.0),
+            'horas_extra_tasa_x25' => $multiplicadorHoraExtra('horas_extra_tasa_x25', 1.25),
+            'horas_extra_tasa_x35' => $multiplicadorHoraExtra('horas_extra_tasa_x35', 1.35),
+            'horas_extra_tasa_nocturna' => $multiplicadorHoraExtra('horas_extra_tasa_nocturna', 2.0),
             'deduccion_5ta_uit' => $valor('deduccion_5ta_uit', 7),
             'tramos_renta_5ta' => self::tramosVigentes('quinta', $fechaCorte),
             // Recibos por Honorarios (renta de 4ta categoría) — resueltos

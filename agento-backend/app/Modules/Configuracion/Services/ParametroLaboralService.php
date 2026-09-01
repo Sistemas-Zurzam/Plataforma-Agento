@@ -64,8 +64,12 @@ class ParametroLaboralService
             'essalud_porcentaje' => 0, 'sis_porcentaje' => 0, 'sis_monto_fijo' => 0, 'onp_porcentaje' => 0,
             'afp_aporte_porcentaje' => 0, 'afp_prima_seguro_porcentaje' => 0, 'asignacion_familiar_porcentaje' => 0,
             'gratificacion_porcentaje' => 0, 'cts_porcentaje' => 0, 'bonificacion_extraordinaria_porcentaje' => 0,
-            'horas_extra_limite_25_h' => 0, 'horas_extra_limite_35_h' => 0,
-            'horas_extra_tasa_x25' => 0, 'horas_extra_tasa_x35' => 0, 'horas_extra_tasa_nocturna' => 0,
+            'horas_extra_limite_25_h' => 2, 'horas_extra_limite_35_h' => 6,
+            // En locaciÃ³n estos multiplicadores son ajustes contractuales
+            // opcionales. La casilla individual `contabilizar_horas_extra`
+            // decide si se pagan; dejarlos en cero anulaba silenciosamente
+            // horas ya aprobadas aunque la casilla estuviera activada.
+            'horas_extra_tasa_x25' => 1.25, 'horas_extra_tasa_x35' => 1.35, 'horas_extra_tasa_nocturna' => 2,
             'renta_4ta_tasa' => 8, 'renta_4ta_umbral' => 3500, 'deduccion_5ta_uit' => 0,
         ],
     ];
