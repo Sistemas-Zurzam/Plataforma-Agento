@@ -8,6 +8,7 @@ use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Banco;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Configuracion\Models\Sede;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCalendarioDia;
@@ -343,7 +344,14 @@ class ColaboradorService
         }
 
         $sedeValida = Sede::whereKey($datos['sede_id'])->where('empresa_id', $empresa->id)->where('activa', true)->exists();
-        $areaValida = Area::whereKey($datos['area_id'])->where('empresa_id', $empresa->id)->exists();
+        // La empresa objetivo ya fue autorizada por el controller. No usar
+        // aquÃ­ EmpresaScope: ese scope mira la empresa activa de la sesiÃ³n,
+        // que puede ser distinta cuando un administrador edita un
+        // colaborador desde una vista multiempresa.
+        $areaValida = Area::withoutGlobalScope(EmpresaScope::class)
+            ->whereKey($datos['area_id'])
+            ->where('empresa_id', $empresa->id)
+            ->exists();
         if (! $sedeValida || ! $areaValida) {
             throw new AuthorizationException('La sede o área no pertenece a la empresa activa.');
         }
@@ -882,7 +890,10 @@ class ColaboradorService
             ->where('empresa_id', $empresa->id)
             ->where('activa', true)
             ->exists();
-        $areaValida = Area::where('id', $areaId)->where('empresa_id', $empresa->id)->exists();
+        $areaValida = Area::withoutGlobalScope(EmpresaScope::class)
+            ->where('id', $areaId)
+            ->where('empresa_id', $empresa->id)
+            ->exists();
 
         if (! $sedeValida || ! $areaValida) {
             throw new AuthorizationException('La sede o área indicadas no pertenecen a la empresa activa.');
