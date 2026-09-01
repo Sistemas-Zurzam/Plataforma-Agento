@@ -357,6 +357,9 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const [resolviendoConPermiso, setResolviendoConPermiso] = useState(false);
   const [permisoIncidenciaForm] = Form.useForm();
   const [horasExtra, setHorasExtra] = useState([]);
+  const [colaboradorFiltroHorasExtra, setColaboradorFiltroHorasExtra] = useState(null);
+  const [estadoFiltroHorasExtra, setEstadoFiltroHorasExtra] = useState('todos');
+  const [horasExtraSeleccionadas, setHorasExtraSeleccionadas] = useState([]);
   const [importaciones, setImportaciones] = useState([]);
   const [periodos, setPeriodos] = useState([]);
   const [coberturaEnProceso, setCoberturaEnProceso] = useState({});
@@ -399,6 +402,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       setSolicitudesArea(solicitudesResponse.data.data ?? []);
       setNoAsociadas(noAsociadasResponse.data.data ?? []);
       setHorasExtra(horasExtraResponse.data.data ?? []);
+      setHorasExtraSeleccionadas([]);
       setImportaciones(importacionesResponse.data.data ?? []);
       setPeriodos(periodosResponse.data.data ?? []);
       setAuditoria(auditoriaResponse.data.data ?? []);
@@ -1075,7 +1079,81 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay incidencias en el período" /> }} /></Card>
   </div>;
 
-  const vistaHorasExtra = <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={horasExtra} columns={[
+  const colaboradoresConHorasExtra = Array.from(new Map(horasExtra.map((row) => [
+    row.colaborador?.id,
+    {
+      value: row.colaborador?.id,
+      label: `${row.colaborador?.nombres ?? ''} ${row.colaborador?.apellidos ?? ''}`.trim(),
+    },
+  ])).values()).filter((opcion) => opcion.value).sort((a, b) => a.label.localeCompare(b.label));
+
+  const horasExtraFiltradas = horasExtra.filter((row) => (
+    (!colaboradorFiltroHorasExtra || row.colaborador?.id === colaboradorFiltroHorasExtra)
+    && (estadoFiltroHorasExtra === 'todos' || row.estado === estadoFiltroHorasExtra)
+  ));
+
+  const resolverHorasExtraMasivo = (accion) => {
+    let motivo = '';
+    Modal.confirm({
+      title: accion === 'aprobar' ? 'Aprobar horas extra seleccionadas' : 'Rechazar horas extra seleccionadas',
+      content: (
+        <div className="mt-3 space-y-2">
+          <Alert
+            type="info"
+            showIcon
+            message={`${horasExtraSeleccionadas.length} registro(s) seleccionado(s)`}
+            description={accion === 'aprobar' ? 'Se aprobarán todos los minutos observados de cada registro.' : undefined}
+          />
+          <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} />
+        </div>
+      ),
+      okText: accion === 'aprobar' ? 'Aprobar' : 'Rechazar',
+      okButtonProps: { danger: accion === 'rechazar' },
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        if (!motivo.trim()) { message.warning('Ingresa el motivo de la decisión'); throw new Error('motivo_requerido'); }
+        await api.patch('/asistencia/horas-extra', { ids: horasExtraSeleccionadas, accion, motivo: motivo.trim() });
+        message.success(`${horasExtraSeleccionadas.length} registro(s) procesado(s)`);
+        setHorasExtraSeleccionadas([]);
+        await cargar();
+      },
+    });
+  };
+
+  const vistaHorasExtra = <div className="space-y-3">
+    <div className="flex flex-wrap items-center gap-2">
+      <Select
+        allowClear
+        showSearch
+        optionFilterProp="label"
+        className="w-80"
+        placeholder="Filtrar por colaborador"
+        value={colaboradorFiltroHorasExtra}
+        onChange={(value) => { setColaboradorFiltroHorasExtra(value); setHorasExtraSeleccionadas([]); }}
+        options={colaboradoresConHorasExtra}
+      />
+      <Select
+        className="w-40"
+        value={estadoFiltroHorasExtra}
+        onChange={(value) => { setEstadoFiltroHorasExtra(value); setHorasExtraSeleccionadas([]); }}
+        options={[
+          { value: 'todos', label: 'Todos los estados' },
+          { value: 'pendiente', label: 'Pendientes' },
+          { value: 'aprobado', label: 'Aprobadas' },
+          { value: 'rechazado', label: 'Rechazadas' },
+        ]}
+      />
+      {puedeGestionarHorasExtra && horasExtraSeleccionadas.length > 0 && <>
+        <Button type="primary" onClick={() => resolverHorasExtraMasivo('aprobar')}>Aprobar seleccionadas</Button>
+        <Button danger onClick={() => resolverHorasExtraMasivo('rechazar')}>Rechazar seleccionadas</Button>
+        <Text type="secondary">{horasExtraSeleccionadas.length} seleccionada(s)</Text>
+      </>}
+    </div>
+    <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={horasExtraFiltradas} rowSelection={puedeGestionarHorasExtra ? {
+      selectedRowKeys: horasExtraSeleccionadas,
+      onChange: setHorasExtraSeleccionadas,
+      getCheckboxProps: (row) => ({ disabled: row.estado !== 'pendiente' }),
+    } : undefined} columns={[
     { title: 'Fecha', dataIndex: 'fecha', width: 110, render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Colaborador', render: (_, row) => `${row.colaborador?.nombres ?? ''} ${row.colaborador?.apellidos ?? ''}`.trim() },
     { title: 'Tasa', dataIndex: 'tasa', width: 75, render: (value) => <Tag>{value}%</Tag> },
@@ -1084,7 +1162,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Estado', dataIndex: 'estado', width: 110, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'aprobado' ? 'green' : 'red'}>{value}</Tag> },
     { title: 'Motivo', dataIndex: 'motivo', ellipsis: true, render: (value) => value || '—' },
     { title: 'Acciones', width: 160, render: (_, row) => row.estado === 'pendiente' && puedeGestionarHorasExtra ? <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Aprobar horas extra', `/asistencia/horas-extra/${row.id}`, 'aprobar', { minutos_aprobados: row.minutos_observados })}>Aprobar</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar horas extra', `/asistencia/horas-extra/${row.id}`, 'rechazar')}>Rechazar</Button></Space> : '—' },
-  ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay horas extra en el período" /> }} /></Card>;
+  ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay horas extra para el filtro seleccionado" /> }} /></Card>
+  </div>;
 
   const vistaImportaciones = <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={importaciones} columns={[
     { title: 'Archivo', dataIndex: 'archivo_nombre', ellipsis: true },
