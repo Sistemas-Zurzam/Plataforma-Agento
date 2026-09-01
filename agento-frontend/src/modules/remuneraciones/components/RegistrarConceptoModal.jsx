@@ -47,7 +47,7 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpd
     form.setFieldValue('concepto_definicion_id', undefined);
     if (CONCEPTOS_CON_DEFINICION.includes(value)) {
       const concepto = catalogo.find((c) => c.codigo === value);
-      if (concepto) fetchDefiniciones(concepto.id);
+      if (concepto) fetchDefiniciones(concepto.id, concepto.codigo);
     }
   };
 
@@ -62,7 +62,7 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpd
     });
     if (CONCEPTOS_CON_DEFINICION.includes(item.codigo)) {
       const concepto = catalogo.find((c) => c.codigo === item.codigo);
-      if (concepto) fetchDefiniciones(concepto.id);
+      if (concepto) fetchDefiniciones(concepto.id, concepto.codigo);
     }
   };
 

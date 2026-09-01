@@ -22,7 +22,7 @@ export default function DefinicionesPlameModal({ open, concepto, onCancel }) {
   const rango = concepto ? RANGOS[concepto.codigo] : null;
 
   useEffect(() => {
-    if (open && concepto) fetchDefiniciones(concepto.id);
+    if (open && concepto) fetchDefiniciones(concepto.id, concepto.codigo);
   }, [open, concepto, fetchDefiniciones]);
 
   const crear = async (values) => {
