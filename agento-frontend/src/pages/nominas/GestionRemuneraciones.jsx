@@ -198,7 +198,7 @@ function DetalleBoleta({ boletaId, verBoleta }) {
 export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const { message, modal } = App.useApp();
   const {
-    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, fetchIncidenciasPendientesCierre, reabrirCiclo, marcarCicloPagado,
+    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, fetchIncidenciasPendientesCierre, resolverIncidenciaPendiente, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas,
     resumen, fetchResumen,
     verBoleta, aprobarBoleta, fetchIncidenciasPendientesAprobar, aprobarBoletasMasivo, fetchIncidenciasPendientesAprobarMasivo, pagarBoleta, guardarComprobanteRh,
@@ -253,6 +253,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const puedeCerrarPeriodo = user?.permisos?.includes('nominas.cerrar_periodo');
   const puedeAprobar = user?.permisos?.includes('nominas.aprobar');
   const puedePagar = user?.permisos?.includes('nominas.pagar');
+  const puedeResolverIncidencias = user?.role === 'administrador' || user?.permisos?.includes('asistencia.incidencias');
 
   /**
    * El backend lista los ciclos de TODAS las empresas que el usuario
@@ -483,6 +484,40 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         } catch (err) {
           message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo cerrar el período');
         }
+      },
+    });
+  };
+
+  /**
+   * Aprobar/Rechazar una incidencia directamente desde el modal de bloqueo
+   * (cerrar ciclo / aprobar boleta), sin navegar hasta Gestión de
+   * Asistencias. Usa el `cicloId` de la página (el modal siempre se abre
+   * dentro del contexto de un ciclo ya seleccionado) para que el backend
+   * autorice contra la empresa del ciclo, no la empresa activa de la
+   * sesión — ver CicloRemunerativoController::resolverIncidenciaPendienteCierre.
+   */
+  const handleResolverIncidenciaPendiente = (incidencia, accion) => {
+    let motivo = '';
+    modal.confirm({
+      title: accion === 'aprobar' ? 'Aprobar incidencia' : 'Rechazar incidencia',
+      content: (
+        <div>
+          <p className="mb-2 text-sm text-gray-600">
+            {incidencia.colaborador} · {incidencia.fecha}
+          </p>
+          <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(e) => { motivo = e.target.value; }} />
+        </div>
+      ),
+      okText: accion === 'aprobar' ? 'Aprobar' : 'Rechazar',
+      okButtonProps: { danger: accion === 'rechazar' },
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        if (!motivo.trim()) { message.warning('Ingresa el motivo de la decisión'); throw new Error('motivo_requerido'); }
+        await resolverIncidenciaPendiente(cicloId, incidencia.id, accion, motivo.trim());
+        message.success('Decisión registrada con trazabilidad');
+        setBloqueoIncidencias((actual) => (actual
+          ? { ...actual, incidencias: actual.incidencias.filter((item) => item.id !== incidencia.id) }
+          : actual));
       },
     });
   };
@@ -1174,6 +1209,8 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         title={bloqueoIncidencias?.title}
         incidencias={bloqueoIncidencias?.incidencias}
         onCancel={() => setBloqueoIncidencias(null)}
+        puedeResolver={puedeResolverIncidencias}
+        onResolver={handleResolverIncidenciaPendiente}
       />
 
       <ConfiguracionNominaModal

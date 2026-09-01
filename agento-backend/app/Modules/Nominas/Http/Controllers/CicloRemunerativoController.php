@@ -3,9 +3,13 @@
 namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Asistencia\Http\Requests\TransicionarAsistenciaRequest;
+use App\Modules\Asistencia\Models\AsistenciaIncidencia;
+use App\Modules\Asistencia\Services\AsistenciaDecisionService;
 use App\Modules\Configuracion\Http\Resources\EmpresaCuentaBancariaResource;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
+use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Nominas\Application\AfpNet\AfpNetExportService;
 use App\Modules\Nominas\Application\AfpNet\AfpNetValidator;
 use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashExportService;
@@ -50,6 +54,7 @@ class CicloRemunerativoController extends Controller
         private readonly TelecreditoBcpExportService $telecreditoBcpExportService,
         private readonly BbvaNetCashValidator $bbvaNetCashValidator,
         private readonly BbvaNetCashExportService $bbvaNetCashExportService,
+        private readonly AsistenciaDecisionService $asistenciaDecisiones,
     ) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -165,6 +170,29 @@ class CicloRemunerativoController extends Controller
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
         return IncidenciaPendienteResource::collection($this->ciclos->incidenciasPendientesCierre($empresa, $ciclo));
+    }
+
+    /**
+     * Permite Aprobar/Rechazar una incidencia directamente desde el modal de
+     * bloqueo de Nóminas (cerrar ciclo / aprobar boleta), sin navegar hasta
+     * Gestión de Asistencias. Reutiliza AsistenciaDecisionService::
+     * resolverIncidencia() tal cual — misma lógica, misma auditoría — pero
+     * autoriza contra la empresa DEL CICLO (empresaAutorizadaDelCiclo), no
+     * contra la empresa activa de la sesión: un admin que gestiona varias
+     * empresas puede estar viendo el ciclo de una que no tiene activa en
+     * este momento. Por el mismo motivo se busca la incidencia sin el scope
+     * automático de empresa (igual que IncidenciasPendientesNominaService) —
+     * la pertenencia real se valida dentro de resolverIncidencia() contra la
+     * empresa ya autorizada del ciclo.
+     */
+    public function resolverIncidenciaPendienteCierre(TransicionarAsistenciaRequest $request, CicloRemunerativo $ciclo, int $incidencia): JsonResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $incidenciaModelo = AsistenciaIncidencia::withoutGlobalScope(EmpresaScope::class)->findOrFail($incidencia);
+
+        $this->asistenciaDecisiones->resolverIncidencia($empresa, $incidenciaModelo, $request->validated(), $request->user('api'));
+
+        return response()->json(['message' => 'Incidencia resuelta.']);
     }
 
     public function cerrar(Request $request, CicloRemunerativo $ciclo): CicloRemunerativoResource

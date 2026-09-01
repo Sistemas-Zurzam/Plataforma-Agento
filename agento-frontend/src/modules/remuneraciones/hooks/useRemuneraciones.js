@@ -68,6 +68,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const resolverIncidenciaPendiente = useCallback(async (cicloId, incidenciaId, accion, motivo) => {
+    const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/incidencias-pendientes-cierre/${incidenciaId}`, { accion, motivo });
+    return data;
+  }, []);
+
   const reabrirCiclo = useCallback(async (cicloId) => {
     const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/reabrir`);
     return data.data;
@@ -410,6 +415,7 @@ export function useRemuneraciones() {
     fetchEstadoCalculo,
     cerrarCiclo,
     fetchIncidenciasPendientesCierre,
+    resolverIncidenciaPendiente,
     reabrirCiclo,
     marcarCicloPagado,
     boletas,

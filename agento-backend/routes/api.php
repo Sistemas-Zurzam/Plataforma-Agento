@@ -174,6 +174,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/ciclos-remunerativos/{ciclo}/calcular', [CicloRemunerativoController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/estado-calculo', [CicloRemunerativoController::class, 'estadoCalculo'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/incidencias-pendientes-cierre', [CicloRemunerativoController::class, 'incidenciasPendientesCierre'])->middleware('permiso:nominas.cerrar_periodo');
+    Route::patch('/ciclos-remunerativos/{ciclo}/incidencias-pendientes-cierre/{incidencia}', [CicloRemunerativoController::class, 'resolverIncidenciaPendienteCierre'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/ciclos-remunerativos/{ciclo}/cerrar', [CicloRemunerativoController::class, 'cerrar'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/reabrir', [CicloRemunerativoController::class, 'reabrir'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/marcar-pagado', [CicloRemunerativoController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');

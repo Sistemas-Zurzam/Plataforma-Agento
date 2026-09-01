@@ -372,6 +372,40 @@ class ProcesarAsistenciaDiaria
      *    botón "Reprocesar" sin cambiar marcaciones) no debe revertirla a
      *    pendiente ni pisar su motivo_resolucion.
      */
+    /**
+     * Se invoca únicamente cuando RR.HH. fuerza el estado de un día ya
+     * procesado (AsistenciaDecisionService::editarDia() con `estado`
+     * forzado). Solo limpia incidencias automáticas que son variantes de un
+     * día "presente" (marcación incompleta, horario desplazado, horas
+     * incompletas) — nunca falta ni día sin clasificar, que representan una
+     * ausencia o una jornada sin determinar y exigen su propio flujo
+     * explícito (permiso real vía resolverIncidenciaConPermiso(), o
+     * resolverDiaSinClasificar()) para no perder la exigencia de
+     * justificación/auditoría de esos casos.
+     */
+    public function limpiarIncidenciasDePresenteForzado(AsistenciaResultadoDiario $resultado): void
+    {
+        $tiposRefinamientoPresente = [
+            AsistenciaIncidencia::TIPO_MARCACION_INCOMPLETA,
+            AsistenciaIncidencia::TIPO_HORARIO_DESPLAZADO,
+            AsistenciaIncidencia::TIPO_HORAS_INCOMPLETAS,
+        ];
+
+        $obsoletas = $resultado->incidencias()
+            ->whereIn('tipo', $tiposRefinamientoPresente)
+            ->where('estado', AsistenciaIncidencia::ESTADO_PENDIENTE)
+            ->get();
+
+        foreach ($obsoletas as $obsoleta) {
+            $this->auditoria->registrar(
+                $resultado->empresa_id, null, 'incidencia_auto_eliminada', $obsoleta,
+                'RR.HH. forzó el estado del día y la incidencia automática ya no aplica.',
+                $obsoleta->toArray(), null,
+            );
+            $obsoleta->delete();
+        }
+    }
+
     private function sincronizarIncidencia(AsistenciaResultadoDiario $resultado, string $estado): void
     {
         $tiposAutomaticos = [

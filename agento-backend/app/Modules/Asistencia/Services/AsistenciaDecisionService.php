@@ -465,7 +465,16 @@ class AsistenciaDecisionService
             }
         }
         $actualizado = $this->procesador->procesar($resultado->colaborador, $resultado->fecha);
-        if (! empty($datos['estado'])) $actualizado->update(['estado' => $datos['estado']]);
+        if (! empty($datos['estado'])) {
+            $actualizado->update(['estado' => $datos['estado']]);
+            // El estado forzado pisa el que calculó el motor, pero una incidencia
+            // de marcación incompleta/horario desplazado/horas incompletas que
+            // procesar() dejó pendiente para el estado calculado no se limpiaba
+            // sola. Falta y día sin clasificar quedan fuera a propósito: exigen
+            // su propio flujo explícito (permiso real o resolverDiaSinClasificar),
+            // no deben desaparecer solo porque se forzó el estado del día.
+            $this->procesador->limpiarIncidenciasDePresenteForzado($actualizado);
+        }
         $this->auditoria->registrar($empresa->id, $usuario->id, 'resultado_editado', $actualizado, $datos['motivo'], $antes, $actualizado->fresh('marcaciones')->toArray());
         return $actualizado->fresh(['colaborador.area', 'incidencias', 'marcaciones']);
     }
