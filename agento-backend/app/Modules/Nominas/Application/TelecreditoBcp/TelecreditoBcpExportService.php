@@ -27,9 +27,10 @@ class TelecreditoBcpExportService
 {
     public function __construct(private readonly TelecreditoBcpValidator $validator) {}
 
-    public function exportar(CicloRemunerativo $ciclo, EmpresaCuentaBancaria $cuentaCargo, string $fechaProceso, string $subtipo): TelecreditoBcpExportResultado
+    /** @param array<int, int> $boletaIds */
+    public function exportar(CicloRemunerativo $ciclo, EmpresaCuentaBancaria $cuentaCargo, string $fechaProceso, string $subtipo, array $boletaIds = []): TelecreditoBcpExportResultado
     {
-        $validacion = $this->validator->validar($ciclo, $cuentaCargo, $fechaProceso, $subtipo);
+        $validacion = $this->validator->validar($ciclo, $cuentaCargo, $fechaProceso, $subtipo, $boletaIds);
 
         if (! in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             return TelecreditoBcpExportResultado::bloqueado(
@@ -55,7 +56,7 @@ class TelecreditoBcpExportService
             );
         }
 
-        $boletas = TelecreditoBcpCicloDatosLoader::poblacion($ciclo, $subtipo);
+        $boletas = TelecreditoBcpCicloDatosLoader::poblacion($ciclo, $subtipo, $boletaIds);
 
         [$referenciaPlanilla, $referenciaBeneficiario, $referenciaEmpresa] = $this->construirReferencias($ciclo);
 

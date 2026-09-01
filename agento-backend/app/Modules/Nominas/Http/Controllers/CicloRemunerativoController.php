@@ -424,12 +424,14 @@ class CicloRemunerativoController extends Controller
             'cuenta_cargo_id' => ['required', 'integer'],
             'fecha_proceso' => ['required', 'date'],
             'subtipo' => ['required', 'string', 'size:1'],
+            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:200'],
+            'boleta_ids.*' => ['required', 'integer', 'distinct', Rule::exists('boletas', 'id')->where('ciclo_id', $ciclo->id)],
         ]);
 
         $cuentaCargo = EmpresaCuentaBancaria::where('empresa_id', $empresa->id)->findOrFail($datos['cuenta_cargo_id']);
 
         return response()->json(
-            $this->telecreditoBcpValidator->validar($ciclo, $cuentaCargo, $datos['fecha_proceso'], $datos['subtipo']),
+            $this->telecreditoBcpValidator->validar($ciclo, $cuentaCargo, $datos['fecha_proceso'], $datos['subtipo'], $datos['boleta_ids'] ?? []),
         );
     }
 
@@ -449,12 +451,14 @@ class CicloRemunerativoController extends Controller
             'cuenta_cargo_id' => ['required', 'integer'],
             'fecha_proceso' => ['required', 'date'],
             'subtipo' => ['required', 'string', 'size:1'],
+            'boleta_ids' => ['sometimes', 'array', 'min:1', 'max:200'],
+            'boleta_ids.*' => ['required', 'integer', 'distinct', Rule::exists('boletas', 'id')->where('ciclo_id', $ciclo->id)],
         ]);
 
         $cuentaCargo = EmpresaCuentaBancaria::where('empresa_id', $empresa->id)->findOrFail($datos['cuenta_cargo_id']);
 
         /** @var TelecreditoBcpExportResultado $resultado */
-        $resultado = $this->telecreditoBcpExportService->exportar($ciclo, $cuentaCargo, $datos['fecha_proceso'], $datos['subtipo']);
+        $resultado = $this->telecreditoBcpExportService->exportar($ciclo, $cuentaCargo, $datos['fecha_proceso'], $datos['subtipo'], $datos['boleta_ids'] ?? []);
 
         if (! $resultado->listo || $resultado->archivo === null) {
             return response()->json([
@@ -474,6 +478,7 @@ class CicloRemunerativoController extends Controller
             'cuenta_cargo_id' => $cuentaCargo->id,
             'fecha_proceso' => $datos['fecha_proceso'],
             'subtipo' => $datos['subtipo'],
+            'seleccion_boletas' => $datos['boleta_ids'] ?? null,
             'abonos' => $resultado->validacion['abonos'] ?? null,
             'monto_total' => $resultado->validacion['monto_total'] ?? null,
         ]);

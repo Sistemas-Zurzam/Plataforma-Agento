@@ -249,8 +249,10 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const puedeCerrarPeriodo = user?.permisos?.includes('nominas.cerrar_periodo');
   const puedeAprobar = user?.permisos?.includes('nominas.aprobar');
   const puedePagar = user?.permisos?.includes('nominas.pagar');
+  const puedeExportarTelecredito = user?.permisos?.includes('nominas.telecredito_exportar');
   const puedeExportarBbvaNetCash = user?.permisos?.includes('nominas.bbva_netcash_exportar');
-  const puedeSeleccionarBoletas = puedeAprobar || puedeExportarBbvaNetCash;
+  const puedeExportarBanco = puedeExportarTelecredito || puedeExportarBbvaNetCash;
+  const puedeSeleccionarBoletas = puedeAprobar || puedeExportarTelecredito || puedeExportarBbvaNetCash;
   const boletasCalculadasSeleccionadas = boletas
     .filter((boleta) => boleta.estado === 'calculada' && boletasSeleccionadas.includes(boleta.id))
     .map((boleta) => boleta.id);
@@ -1065,7 +1067,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                     getCheckboxProps: (boleta) => ({
                       disabled: boleta.estado === 'calculada'
                         ? !puedeAprobar
-                        : !puedeExportarBbvaNetCash || !['aprobada', 'pagada'].includes(boleta.estado),
+                        : !puedeExportarBanco || !['aprobada', 'pagada'].includes(boleta.estado),
                     }),
                   } : undefined}
                   pagination={{
@@ -1199,6 +1201,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         open={bbvaNetCashModalOpen}
         onCancel={() => setBbvaNetCashModalOpen(false)}
         ciclo={cicloActivo}
+        boletaIds={boletasSeleccionadas}
         boletaIds={boletasSeleccionadas}
         fetchValidacion={fetchBbvaNetCashValidacion}
         exportarBbvaNetCash={exportarBbvaNetCash}

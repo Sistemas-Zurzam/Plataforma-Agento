@@ -51,11 +51,12 @@ class TelecreditoBcpValidator
      *   hallazgos: array<int, array>,
      * }
      */
-    public function validar(CicloRemunerativo $ciclo, EmpresaCuentaBancaria $cuentaCargo, string $fechaProceso, string $subtipo): array
+    /** @param array<int, int> $boletaIds */
+    public function validar(CicloRemunerativo $ciclo, EmpresaCuentaBancaria $cuentaCargo, string $fechaProceso, string $subtipo, array $boletaIds = []): array
     {
         $hallazgos = $this->validarCabecera($ciclo, $cuentaCargo, $fechaProceso, $subtipo);
 
-        $boletas = TelecreditoBcpCicloDatosLoader::poblacion($ciclo, $subtipo);
+        $boletas = TelecreditoBcpCicloDatosLoader::poblacion($ciclo, $subtipo, $boletaIds);
 
         foreach ($boletas as $boleta) {
             $hallazgos = [...$hallazgos, ...$this->validarTrabajador($boleta, $cuentaCargo)];

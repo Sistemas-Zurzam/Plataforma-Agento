@@ -35,7 +35,7 @@ function Hallazgo({ h }) {
  * validar — por eso el flujo es: completar parámetros → Validar →
  * revisar hallazgos → Generar archivo.
  */
-export default function TelecreditoBcpModal({ open, onCancel, ciclo, fetchValidacion, exportarTelecreditoBcp }) {
+export default function TelecreditoBcpModal({ open, onCancel, ciclo, boletaIds = [], fetchValidacion, exportarTelecreditoBcp }) {
   const { message } = App.useApp();
   const { cuentas, fetchCuentas } = useCuentasBancariasEmpresa(ciclo?.empresa?.id);
   const [form] = Form.useForm();
@@ -63,6 +63,7 @@ export default function TelecreditoBcpModal({ open, onCancel, ciclo, fetchValida
         cuenta_cargo_id: values.cuenta_cargo_id,
         fecha_proceso: values.fecha_proceso.format('YYYY-MM-DD'),
         subtipo: values.subtipo,
+        ...(boletaIds.length > 0 ? { boleta_ids: boletaIds } : {}),
       };
       const data = await fetchValidacion(ciclo.id, parametros);
       setValidacion(data);
@@ -81,6 +82,7 @@ export default function TelecreditoBcpModal({ open, onCancel, ciclo, fetchValida
         cuenta_cargo_id: values.cuenta_cargo_id,
         fecha_proceso: values.fecha_proceso.format('YYYY-MM-DD'),
         subtipo: values.subtipo,
+        ...(boletaIds.length > 0 ? { boleta_ids: boletaIds } : {}),
       };
       const resultado = await exportarTelecreditoBcp(ciclo.id, parametros);
       if (resultado.descargado) {
