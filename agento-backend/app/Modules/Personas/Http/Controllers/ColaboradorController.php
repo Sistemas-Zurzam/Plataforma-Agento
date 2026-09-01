@@ -291,7 +291,8 @@ class ColaboradorController extends Controller
                 $colaborador->tipo_trabajador === 'trabajador' ? 'required' : 'prohibited',
                 Rule::in(Colaborador::CATEGORIAS_TRABAJADOR),
             ],
-            'fecha_fin_contrato' => ['nullable', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'required_if:tipo_contrato,plazo_fijo'],
+            'fecha_ingreso' => ['required', 'date', 'before_or_equal:today'],
+            'fecha_fin_contrato' => ['nullable', 'date', 'after_or_equal:fecha_ingreso', 'required_if:tipo_contrato,plazo_fijo'],
             // V3 P3 — antes solo editable en Crear.
             'es_trabajador_confianza' => ['nullable', 'boolean'],
             // Configuración individual de efectos remunerativos de Asistencia.
@@ -299,7 +300,7 @@ class ColaboradorController extends Controller
             'contabilizar_tardanzas' => ['nullable', 'boolean'],
             'contabilizar_faltas' => ['nullable', 'boolean'],
             'contabilizar_horas_extra' => ['nullable', 'boolean'],
-            'condicion_vigencia_desde' => ['nullable', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'before_or_equal:today'],
+            'condicion_vigencia_desde' => ['nullable', 'date', 'after_or_equal:fecha_ingreso', 'before_or_equal:today'],
             'banco' => ['nullable', 'string', 'max:255'],
             'numero_cuenta' => ['nullable', 'string', 'max:255'],
             'tipo_cuenta' => ['nullable', Rule::in(['ahorro', 'corriente'])],

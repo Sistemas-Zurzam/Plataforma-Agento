@@ -18,7 +18,7 @@ import {
  */
 const CAMPOS_POR_TAB = {
   personal: ['nombres', 'apellido_paterno', 'apellido_materno', 'tipo_documento', 'numero_documento', 'fecha_nacimiento', 'email', 'celular_colaborador', 'celular_referencia', 'direccion'],
-  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_fin_contrato', 'es_trabajador_confianza', 'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'condicion_vigencia_desde'],
+  laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_ingreso', 'fecha_fin_contrato', 'es_trabajador_confianza', 'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'condicion_vigencia_desde'],
   previsional: ['sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_suspension_renta_4ta'],
   remuneracion: ['salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'vigencia_desde'],
   bancarios: ['banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
@@ -60,6 +60,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
       area_id: colaborador.area?.id,
       fecha_nacimiento: colaborador.fecha_nacimiento ? dayjs(colaborador.fecha_nacimiento) : null,
       fecha_fin_contrato: colaborador.fecha_fin_contrato ? dayjs(colaborador.fecha_fin_contrato) : null,
+      fecha_ingreso: colaborador.fecha_ingreso ? dayjs(colaborador.fecha_ingreso) : null,
       salario: vigente?.salario ?? null,
       moneda_salario: vigente?.moneda_salario ?? 'PEN',
       periodicidad_pago: vigente?.periodicidad_pago ?? 'mensual',
@@ -93,6 +94,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
         ...datosBasicos,
         fecha_nacimiento: values.fecha_nacimiento?.format('YYYY-MM-DD') ?? null,
         fecha_fin_contrato: values.fecha_fin_contrato?.format('YYYY-MM-DD') ?? null,
+        fecha_ingreso: values.fecha_ingreso?.format('YYYY-MM-DD') ?? null,
         condicion_vigencia_desde: condicion_vigencia_desde?.format('YYYY-MM-DD') ?? dayjs().format('YYYY-MM-DD'),
       },
       remuneracionCambio
@@ -170,7 +172,27 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
               <Select options={CATEGORIA_TRABAJADOR_OPTIONS} />
             </Form.Item>
           )}
-          <Form.Item label="Fin de contrato" name="fecha_fin_contrato" rules={[{ required: tipoContrato === 'plazo_fijo', message: 'Requerido para plazo fijo' }]} className="sm:col-span-2"><DatePicker className="w-full" format="DD/MM/YYYY" /></Form.Item>
+          <Form.Item label="Fecha de ingreso" name="fecha_ingreso" rules={[{ required: true, message: 'Indica la fecha de ingreso' }]}>
+            <DatePicker className="w-full" format="DD/MM/YYYY" disabledDate={(fecha) => fecha?.isAfter(dayjs(), 'day')} />
+          </Form.Item>
+          <Form.Item
+            label="Fin de contrato"
+            name="fecha_fin_contrato"
+            dependencies={['fecha_ingreso']}
+            rules={[
+              { required: tipoContrato === 'plazo_fijo', message: 'Requerido para plazo fijo' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  const ingreso = getFieldValue('fecha_ingreso');
+                  return !value || !ingreso || !value.isBefore(ingreso, 'day')
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('No puede ser anterior a la fecha de ingreso'));
+                },
+              }),
+            ]}
+          >
+            <DatePicker className="w-full" format="DD/MM/YYYY" />
+          </Form.Item>
           <Form.Item
             name="es_trabajador_confianza"
             valuePropName="checked"
