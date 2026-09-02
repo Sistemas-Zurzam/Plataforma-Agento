@@ -35,7 +35,7 @@ final class TelecreditoBcpPagoBuilder
 {
     private const TIPO_REGISTRO = '2';
 
-    private const LONGITUD_TOTAL = 195;
+    public const LONGITUD_TOTAL = 195;
 
     private const LONGITUD_NOMBRE = 75;
 
@@ -103,8 +103,13 @@ final class TelecreditoBcpPagoBuilder
             .TelecreditoBcpTxtFormatter::importe((string) $boleta->neto_a_pagar, 14, 2, 'importe_a_abonar', $colaborador->id)
             .TelecreditoBcpTxtFormatter::codigoFijo(TelecreditoBcpFormato::flagIdc(), 1, 'flag_idc');
 
-        if (strlen($linea) !== self::LONGITUD_TOTAL) {
-            throw TelecreditoBcpExportException::longitudLineaIncorrecta('PAGO', strlen($linea), self::LONGITUD_TOTAL);
+        // mb_strlen, NO strlen: acá la línea todavía está en UTF-8 (la
+        // conversión a Windows-1252/1 byte por carácter ocurre recién al
+        // final, en TelecreditoBcpTxtExporter) — un nombre con Ñ mide más
+        // BYTES que CARACTERES en este punto del pipeline sin que eso sea
+        // un error; lo que debe dar exacto acá son los 195 caracteres.
+        if (mb_strlen($linea) !== self::LONGITUD_TOTAL) {
+            throw TelecreditoBcpExportException::longitudLineaIncorrecta('PAGO', mb_strlen($linea), self::LONGITUD_TOTAL);
         }
 
         return $linea;

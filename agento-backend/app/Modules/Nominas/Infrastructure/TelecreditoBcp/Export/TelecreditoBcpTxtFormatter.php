@@ -19,15 +19,23 @@ use App\Modules\Nominas\Domain\TelecreditoBcp\TelecreditoBcpExportException;
  *    cuenta, moneda, flag IDC): se validan de longitud exacta, sin
  *    padding real necesario.
  *
- * ENCODING y LINE_ENDING: el PDF NO los especifica en ninguna parte —
- * decisión explícita de Agento, aislada acá, PENDIENTE DE HOMOLOGACIÓN
- * CON BCP (Sección 30/31 del encargo). Si la carga real falla por esto,
- * este es el único archivo que hay que tocar.
+ * ENCODING: CORREGIDO — era 'UTF-8' (no-op), causaba que Telecrédito BCP
+ * rechazara el archivo como "error de estructura" en cuanto un nombre
+ * traía Ñ/tilde. Confirmado byte a byte contra un archivo histórico
+ * válido (Livex Planilla - 40,028.83 (1).txt): ese archivo NO es UTF-8
+ * válido y codifica la Ñ como 1 solo byte (0xD1), igual que
+ * Windows-1252/Latin-1 — nunca como la secuencia UTF-8 de 2 bytes
+ * (0xC3 0x91) que Agento emitía. La línea seguía midiendo 195 bytes
+ * igual (str_pad compensa por bytes), pero para un parser de 1
+ * byte=1 carácter esos 2 bytes se leen como 2 caracteres, desplazando
+ * la interpretación de esa línea desde ahí — eso es el error de
+ * estructura, no una diferencia de longitud total.
+ *
+ * LINE_ENDING: confirmado igual contra el mismo archivo histórico (CRLF).
  */
 final class TelecreditoBcpTxtFormatter
 {
-    /** PENDIENTE DE HOMOLOGACIÓN BCP — el PDF no especifica encoding. */
-    public const ENCODING = 'UTF-8';
+    public const ENCODING = 'Windows-1252';
 
     /** PENDIENTE DE HOMOLOGACIÓN BCP — el PDF no especifica salto de línea. */
     public const LINE_ENDING = "\r\n";
@@ -36,14 +44,25 @@ final class TelecreditoBcpTxtFormatter
      * Alineado a la izquierda, relleno de espacios a la derecha — nunca
      * trunca (Sección 23/29): un valor que excede es un error de datos
      * real, no algo que el formatter deba recortar en silencio.
+     *
+     * CORREGIDO (V2 del fix de Telecrédito): usaba `str_pad`, que rellena
+     * contando BYTES, no caracteres. Con un valor que trae Ñ/tilde (1
+     * carácter = 2 bytes en UTF-8, todavía sin convertir a este punto del
+     * pipeline), `str_pad` restaba de menos y el campo terminaba con 1
+     * espacio de relleno de menos — bytes correctos por pura casualidad
+     * mientras la línea seguía en UTF-8, pero 1 byte corto en cuanto
+     * `convertirLinea()` la pasaba a Windows-1252 (1 byte = 1 carácter).
+     * Ahora se calcula el relleno explícitamente por `mb_strlen`, igual
+     * que ya hace BbvaNetCashTxtFormatter.
      */
     public static function textoIzquierda(string $valor, int $longitud, string $campo, ?int $colaboradorId = null): string
     {
-        if (mb_strlen($valor) > $longitud) {
+        $actual = mb_strlen($valor);
+        if ($actual > $longitud) {
             throw TelecreditoBcpExportException::valorExcedeLongitud($campo, $valor, $longitud, $colaboradorId);
         }
 
-        return str_pad($valor, $longitud, ' ', STR_PAD_RIGHT);
+        return $valor.str_repeat(' ', $longitud - $actual);
     }
 
     /**

@@ -39,7 +39,7 @@ final class TelecreditoBcpHeaderBuilder
 {
     private const TIPO_REGISTRO = '1';
 
-    private const LONGITUD_TOTAL = 113;
+    public const LONGITUD_TOTAL = 113;
 
     public static function construir(
         EmpresaCuentaBancaria $cuentaCargo,
@@ -69,8 +69,11 @@ final class TelecreditoBcpHeaderBuilder
             .TelecreditoBcpTxtFormatter::textoIzquierda($referenciaPlanilla, 40, 'referencia_planilla')
             .TelecreditoBcpTxtFormatter::numeroEntero((int) $checksum, 15, 'checksum');
 
-        if (strlen($linea) !== self::LONGITUD_TOTAL) {
-            throw TelecreditoBcpExportException::longitudLineaIncorrecta('CABECERA', strlen($linea), self::LONGITUD_TOTAL);
+        // mb_strlen, NO strlen — mismo motivo que TelecreditoBcpPagoBuilder:
+        // la conversión a Windows-1252 (1 byte = 1 carácter) ocurre recién
+        // al final, en TelecreditoBcpTxtExporter.
+        if (mb_strlen($linea) !== self::LONGITUD_TOTAL) {
+            throw TelecreditoBcpExportException::longitudLineaIncorrecta('CABECERA', mb_strlen($linea), self::LONGITUD_TOTAL);
         }
 
         return $linea;
