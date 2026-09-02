@@ -14,7 +14,8 @@ const ESTADO_COLOR = {
 };
 
 function soles(valor) {
-  return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  const texto = `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  return <span className="whitespace-nowrap">{texto}</span>;
 }
 
 export default function ResumenContableModal({ open, onCancel, ciclo, fetchResumenContable, onVerPlanilla }) {
