@@ -121,6 +121,11 @@ export function useRemuneraciones() {
     }
   }, []);
 
+  const fetchResumenContable = useCallback(async (params) => {
+    const { data } = await api.get('/ciclos-remunerativos-resumen-contable', { params });
+    return data;
+  }, []);
+
   const verBoleta = useCallback(async (boletaId) => {
     const { data } = await api.get(`/boletas/${boletaId}`);
     return data.data;
@@ -433,6 +438,7 @@ export function useRemuneraciones() {
     resumen,
     resumenLoading,
     fetchResumen,
+    fetchResumenContable,
     verBoleta,
     aprobarBoleta,
     fetchIncidenciasPendientesAprobar,

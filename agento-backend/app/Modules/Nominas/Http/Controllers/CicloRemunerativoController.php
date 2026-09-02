@@ -31,6 +31,7 @@ use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Services\BoletaService;
 use App\Modules\Nominas\Services\CicloRemunerativoService;
+use App\Modules\Nominas\Services\ResumenContableService;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,6 +56,7 @@ class CicloRemunerativoController extends Controller
         private readonly BbvaNetCashValidator $bbvaNetCashValidator,
         private readonly BbvaNetCashExportService $bbvaNetCashExportService,
         private readonly AsistenciaDecisionService $asistenciaDecisiones,
+        private readonly ResumenContableService $resumenContable,
     ) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -62,6 +64,22 @@ class CicloRemunerativoController extends Controller
         return CicloRemunerativoResource::collection(
             $this->ciclos->listar($this->empresaIdsAutorizadas($request), max(1, min((int) $request->input('per_page', 15), 50))),
         );
+    }
+
+    public function resumenContable(Request $request): JsonResponse
+    {
+        $datos = $request->validate([
+            'periodo' => ['required', 'date_format:Y-m'],
+            'estado' => ['nullable', Rule::in(['borrador', 'abierto', 'calculado', 'cerrado', 'reabierto', 'pagado'])],
+            'categoria' => ['nullable', Rule::in(['planilla', 'honorarios'])],
+        ]);
+
+        return response()->json($this->resumenContable->consolidar(
+            $this->empresaIdsAutorizadas($request),
+            $datos['periodo'],
+            $datos['estado'] ?? null,
+            $datos['categoria'] ?? null,
+        ));
     }
 
     /**

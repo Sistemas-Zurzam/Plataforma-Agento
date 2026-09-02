@@ -168,6 +168,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('/colaboradores/{colaborador}/foto-perfil', [ColaboradorController::class, 'verFotoPerfil'])->middleware('permiso:colaboradores.ver');
 
     Route::get('/ciclos-remunerativos', [CicloRemunerativoController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos-resumen-contable', [CicloRemunerativoController::class, 'resumenContable'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos', [CicloRemunerativoController::class, 'store'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'actualizar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::delete('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'eliminar'])->middleware('permiso:nominas.gestionar_ciclos');

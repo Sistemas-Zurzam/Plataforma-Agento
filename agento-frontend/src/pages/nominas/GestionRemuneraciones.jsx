@@ -34,6 +34,7 @@ import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCas
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
+import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
 import TelecreditoBcpModal from '../../modules/remuneraciones/components/TelecreditoBcpModal';
 import { useRemuneraciones } from '../../modules/remuneraciones/hooks/useRemuneraciones';
 import { colorForName, initialsForName } from '../../utils/avatarColor';
@@ -79,7 +80,6 @@ const ACCIONES_PROXIMAMENTE = [
   { key: 'proyeccion', label: 'Proyección Semanal', icon: <CalendarOutlined /> },
   { key: 'pagos', label: 'Pagos Masivos', icon: <SendOutlined /> },
   { key: 'contratos', label: 'Contratos', icon: <FileTextOutlined /> },
-  { key: 'contable', label: 'Resumen Contable', icon: <BarChartOutlined /> },
 ];
 
 function regimenLabel(regimen) {
@@ -211,7 +211,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
-    resumen, fetchResumen,
+    resumen, fetchResumen, fetchResumenContable,
     verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
@@ -255,6 +255,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [afpNetModalOpen, setAfpNetModalOpen] = useState(false);
   const [telecreditoBcpModalOpen, setTelecreditoBcpModalOpen] = useState(false);
   const [bbvaNetCashModalOpen, setBbvaNetCashModalOpen] = useState(false);
+  const [resumenContableModalOpen, setResumenContableModalOpen] = useState(false);
 
   const puedeVer = user?.permisos?.includes('nominas.ver');
   const puedeGestionarCiclos = user?.permisos?.includes('nominas.gestionar_ciclos');
@@ -992,6 +993,9 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             <Button disabled icon={accion.icon}>{accion.label}</Button>
           </Tooltip>
         ))}
+        <Button icon={<BarChartOutlined />} onClick={() => setResumenContableModalOpen(true)}>
+          Resumen Contable
+        </Button>
       </div>
 
       {resumen && (
@@ -1242,6 +1246,18 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         boletaIds={boletasSeleccionadas}
         fetchValidacion={fetchBbvaNetCashValidacion}
         exportarBbvaNetCash={exportarBbvaNetCash}
+      />
+
+      <ResumenContableModal
+        open={resumenContableModalOpen}
+        onCancel={() => setResumenContableModalOpen(false)}
+        ciclo={cicloActivo}
+        fetchResumenContable={fetchResumenContable}
+        onVerPlanilla={(id) => {
+          setCicloId(id);
+          setTabActiva('planilla');
+          setResumenContableModalOpen(false);
+        }}
       />
     </div>
   );
