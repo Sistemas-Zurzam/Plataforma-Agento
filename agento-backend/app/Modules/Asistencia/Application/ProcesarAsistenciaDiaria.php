@@ -375,24 +375,33 @@ class ProcesarAsistenciaDiaria
     /**
      * Se invoca únicamente cuando RR.HH. fuerza el estado de un día ya
      * procesado (AsistenciaDecisionService::editarDia() con `estado`
-     * forzado). Solo limpia incidencias automáticas que son variantes de un
-     * día "presente" (marcación incompleta, horario desplazado, horas
-     * incompletas) — nunca falta ni día sin clasificar, que representan una
-     * ausencia o una jornada sin determinar y exigen su propio flujo
-     * explícito (permiso real vía resolverIncidenciaConPermiso(), o
-     * resolverDiaSinClasificar()) para no perder la exigencia de
-     * justificación/auditoría de esos casos.
+     * forzado). Limpia toda incidencia automática que ya no corresponde al
+     * estado forzado — incluida "falta": CalcularBoletaColaborador cuenta
+     * `dias_falta` leyendo directamente `AsistenciaResultadoDiario.estado`
+     * (nunca el estado de la incidencia), así que en cuanto se fuerza el
+     * día a cualquier otro estado, el descuento por falta YA no se aplica —
+     * dejar la incidencia pendiente después de eso es solo una formalidad
+     * sin efecto económico, y forzar el estado ya exige motivo obligatorio
+     * y queda auditado (mismo nivel de trazabilidad que Aprobar/Rechazar la
+     * incidencia a mano).
+     *
+     * Queda afuera "día sin clasificar": a diferencia de los demás, tiene su
+     * propio flujo obligatorio (resolverDiaSinClasificar()) que además
+     * escribe la planificación real en colaborador_calendario_dias — forzar
+     * el estado acá no replica ese efecto, así que no debe darlo por
+     * resuelto.
      */
     public function limpiarIncidenciasDePresenteForzado(AsistenciaResultadoDiario $resultado): void
     {
-        $tiposRefinamientoPresente = [
+        $tiposLimpiablesPorForzado = [
+            AsistenciaIncidencia::TIPO_FALTA,
             AsistenciaIncidencia::TIPO_MARCACION_INCOMPLETA,
             AsistenciaIncidencia::TIPO_HORARIO_DESPLAZADO,
             AsistenciaIncidencia::TIPO_HORAS_INCOMPLETAS,
         ];
 
         $obsoletas = $resultado->incidencias()
-            ->whereIn('tipo', $tiposRefinamientoPresente)
+            ->whereIn('tipo', $tiposLimpiablesPorForzado)
             ->where('estado', AsistenciaIncidencia::ESTADO_PENDIENTE)
             ->get();
 
@@ -517,6 +526,7 @@ class ProcesarAsistenciaDiaria
             '100' => $resultado->minutos_extra_100,
         ];
         foreach ($tramos as $tasa => $minutos) {
+            $esFeriadoTrabajado = $resultado->tipo_dia === 'feriado' && (string) $tasa === '100';
             $registro = AsistenciaHoraExtra::query()->firstOrNew([
                 'resultado_diario_id' => $resultado->id,
                 'tasa' => $tasa,
@@ -532,7 +542,19 @@ class ProcesarAsistenciaDiaria
                 'fecha' => $resultado->fecha,
                 'minutos_observados' => $minutos,
                 'minutos_solicitados' => $minutos,
-                'estado' => 'pendiente',
+                // Un feriado legal trabajado se remunera automáticamente
+                // con factor 2 adicional: el primer jornal ya está incluido
+                // en el sueldo mensual. Los descansos ordinarios mantienen
+                // su flujo explícito de pago o descanso sustitutorio.
+                'minutos_aprobados' => $esFeriadoTrabajado ? $minutos : null,
+                'estado' => $esFeriadoTrabajado
+                    ? AsistenciaHoraExtra::ESTADO_APROBADO
+                    : AsistenciaHoraExtra::ESTADO_PENDIENTE,
+                'motivo' => $esFeriadoTrabajado
+                    ? 'Aprobación automática por trabajo en feriado legal.'
+                    : null,
+                'resuelto_por' => null,
+                'resuelto_at' => $esFeriadoTrabajado ? now() : null,
             ])->save();
         }
     }

@@ -39,4 +39,16 @@ class TelecreditoBcpExportException extends RuntimeException
     {
         return new self("Línea {$tipoLinea} con longitud incorrecta: {$longitudObtenida} (esperado {$longitudEsperada}). No se emite un archivo mal formado.");
     }
+
+    /**
+     * Resguardo estructural final (Sección "flag validar IDC"): se
+     * revalida cada detalle ya ensamblado justo antes de devolver el
+     * archivo, independiente de las validaciones que ya hizo
+     * TelecreditoBcpPagoBuilder al construir la línea — nunca se emite un
+     * archivo que Telecrédito BCP vaya a rechazar por este campo de nuevo.
+     */
+    public static function detalleEstructuralmenteInvalido(int $numeroDetalle, string $motivo): self
+    {
+        return new self("Detalle {$numeroDetalle} inválido: {$motivo}");
+    }
 }

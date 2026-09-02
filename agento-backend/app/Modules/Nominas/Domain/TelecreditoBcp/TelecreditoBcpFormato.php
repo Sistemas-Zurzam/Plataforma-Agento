@@ -51,7 +51,16 @@ final class TelecreditoBcpFormato
 
     private const TIPO_CUENTA_ABONO_INTERBANCARIA = 'B';
 
-    private const FLAG_IDC_OBLIGATORIO = '1';
+    /**
+     * CORREGIDO: era '1' — Telecrédito BCP rechazaba el archivo con "El
+     * flag validar IDC tiene un valor incorrecto" en la posición 195 de
+     * cada detalle. Confirmado contra un archivo histórico real aceptado
+     * por el banco (37 detalles, mezcla de cuenta propia/interbancaria y
+     * DNI/CE): el valor es 'S' en el 100% de los casos, sin excepción —
+     * no depende de tipo de cuenta de abono ni de tipo de documento, es
+     * un valor fijo único.
+     */
+    private const FLAG_IDC_OBLIGATORIO = 'S';
 
     public static function codigoDocumento(string $tipoDocumento): ?string
     {

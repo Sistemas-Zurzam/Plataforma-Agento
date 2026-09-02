@@ -169,6 +169,18 @@ function DetalleBoleta({ boletaId, verBoleta }) {
   const conceptos = detalle.conceptos ?? [];
   const ingresos = conceptos.filter((c) => c.tipo === 'ingreso');
   const egresos = conceptos.filter((c) => c.tipo === 'egreso');
+  const diasFalta = Number(detalle.dias_falta ?? 0);
+  const descuentoFalta = diasFalta > 0
+    ? Number(detalle.sueldo_basico ?? 0) / 30 * diasFalta
+    : 0;
+  const egresosVisibles = diasFalta > 0
+    ? [{
+        id: 'descuento-falta-informativo',
+        nombre: 'Descuento por falta (aplicado en el básico)',
+        monto: descuentoFalta,
+        formula_texto: `(${detalle.sueldo_basico}/30) × ${diasFalta} día(s) — ya descontado de la remuneración básica; no se resta nuevamente`,
+      }, ...egresos]
+    : egresos;
   const aportaciones = conceptos.filter((c) => c.tipo === 'aportacion');
 
   return (
@@ -180,7 +192,7 @@ function DetalleBoleta({ boletaId, verBoleta }) {
       )}
       <div className="grid grid-cols-1 gap-2 lg:grid-cols-3">
         <BloqueConceptos titulo="Ingresos" lineas={ingresos} tono="text-green-600" />
-        <BloqueConceptos titulo="Egresos / descuentos" lineas={egresos} tono="text-red-600" />
+        <BloqueConceptos titulo="Egresos / descuentos" lineas={egresosVisibles} tono="text-red-600" />
         <BloqueConceptos titulo="Aportaciones del empleador" lineas={aportaciones} tono="text-blue-600" />
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-0.5 rounded-lg border border-gray-100 bg-white px-2.5 py-1.5 text-[10px] text-gray-400">

@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Infrastructure\TelecreditoBcp\Export;
 
 use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
 use App\Modules\Nominas\Domain\TelecreditoBcp\TelecreditoBcpChecksumCalculator;
+use App\Modules\Nominas\Domain\TelecreditoBcp\TelecreditoBcpExportException;
 use App\Modules\Nominas\Domain\TelecreditoBcp\TelecreditoBcpHeaderBuilder;
 use App\Modules\Nominas\Domain\TelecreditoBcp\TelecreditoBcpPagoBuilder;
 use App\Modules\Nominas\Models\Boleta;
@@ -13,10 +14,14 @@ use Illuminate\Support\Collection;
  * Orquesta CABECERA + PAGOS + CHECKSUM en el archivo final (Sección 3/29
  * del encargo del exportador). Nunca implementa reglas de campo propias
  * — eso vive en los Builders — solo ensambla y hace el resguardo final de
- * longitud antes de devolver cualquier contenido.
+ * longitud/flag IDC antes de devolver cualquier contenido.
  */
 final class TelecreditoBcpTxtExporter
 {
+    private const POSICION_FLAG_IDC = 194; // posición humana 195, índice base cero 194
+
+    private const VALOR_FLAG_IDC_ESPERADO = 'S';
+
     /**
      * @param  Collection<int, Boleta>  $boletas  Con `datosPago.banco` ya precargado.
      */
@@ -55,8 +60,19 @@ final class TelecreditoBcpTxtExporter
         );
 
         $lineas = [$header];
+        $numeroDetalle = 0;
         foreach ($boletas as $boleta) {
-            $lineas[] = TelecreditoBcpPagoBuilder::construir($boleta, $referenciaBeneficiario, $referenciaEmpresa);
+            $numeroDetalle++;
+            $detalle = TelecreditoBcpPagoBuilder::construir($boleta, $referenciaBeneficiario, $referenciaEmpresa);
+
+            if (($detalle[self::POSICION_FLAG_IDC] ?? null) !== self::VALOR_FLAG_IDC_ESPERADO) {
+                throw TelecreditoBcpExportException::detalleEstructuralmenteInvalido(
+                    $numeroDetalle,
+                    "posición 195 debe contener '".self::VALOR_FLAG_IDC_ESPERADO."'.",
+                );
+            }
+
+            $lineas[] = $detalle;
         }
 
         $texto = implode(TelecreditoBcpTxtFormatter::LINE_ENDING, $lineas);

@@ -26,6 +26,10 @@ class PlanillaDependienteCalculator implements RegimenCalculator
     {
         $diasPagados = 30 - $diasFalta - ($horasPermisoSinGoce / 8);
         $monto = round(($sueldoBasico / 30) * $diasPagados, 2);
+        $descuentoFalta = round(($sueldoBasico / 30) * $diasFalta, 2);
+        $detalleFalta = $diasFalta > 0
+            ? " — descuento por {$diasFalta} falta(s): S/ ".number_format($descuentoFalta, 2, '.', ',').' ya aplicado en el básico'
+            : '';
 
         return [
             'dias_pagados' => $diasPagados,
@@ -35,7 +39,7 @@ class PlanillaDependienteCalculator implements RegimenCalculator
                 'base_utilizada' => $sueldoBasico,
                 'tasa_aplicada' => null,
                 'cantidad' => $diasPagados,
-                'formula_texto' => "({$sueldoBasico} / 30) × {$diasPagados} días pagados",
+                'formula_texto' => "({$sueldoBasico} / 30) × {$diasPagados} días pagados{$detalleFalta}",
             ],
         ];
     }

@@ -22,7 +22,9 @@ use App\Modules\Personas\Models\Colaborador;
  *   154-173 Referencia empresa       A(20), espacios
  *   174-177 Moneda del importe       A(4)
  *   178-194 Importe a abonar         9(14).99, derecha, ceros (17 caracteres)
- *   195-195 Flag validar IDC         fijo "1"
+ *   195-195 Flag validar IDC         fijo "S" (confirmado contra archivo
+ *                                    histórico real aceptado por BCP —
+ *                                    ver TelecreditoBcpFormato)
  *
  * Usa EXCLUSIVAMENTE boleta_datos_pago (Sección 17 del encargo) — nunca
  * colaborador.numero_cuenta/cci directamente: los datos actuales del
