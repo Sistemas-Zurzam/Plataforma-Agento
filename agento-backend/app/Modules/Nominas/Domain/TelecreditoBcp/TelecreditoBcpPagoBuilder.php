@@ -18,13 +18,25 @@ use App\Modules\Personas\Models\Colaborador;
  *   24-35   Número documento empleado A(12), izquierda, espacios
  *   36-38   Correlativo menor de edad A(3) — 3 espacios si adulto
  *   39-113  Nombre del trabajador     A(75), espacios
- *   114-153 Referencia beneficiario   A(40), espacios
- *   154-173 Referencia empresa       A(20), espacios
+ *   114-153 Referencia beneficiario   A(40), espacios — "Referencia
+ *                                     Beneficiario {numero_documento}"
+ *   154-173 Referencia empresa       A(20), espacios — "Ref Emp
+ *                                    {numero_documento}"
  *   174-177 Moneda del importe       A(4)
  *   178-194 Importe a abonar         9(14).99, derecha, ceros (17 caracteres)
  *   195-195 Flag validar IDC         fijo "S" (confirmado contra archivo
  *                                    histórico real aceptado por BCP —
  *                                    ver TelecreditoBcpFormato)
+ *
+ * CORREGIDO (referencia beneficiario/empresa): antes se recibían como
+ * strings fijos para todo el lote (ej. "HABERES AGOSTO" / "CICLO
+ * AGOSTO", iguales en las 195 filas). BCP rechazó el archivo. Confirmado
+ * byte a byte contra el histórico real aceptado (37/37 detalles, sin
+ * excepción): ambos campos se construyen POR COLABORADOR con el
+ * documento del propio trabajador como sufijo — nunca un texto fijo de
+ * lote. Esto también contradice el regex "solo letras y espacios" que
+ * imprime el PDF (Sección 14/24/25 de TelecreditoBcpExportService): el
+ * archivo real sí lleva dígitos aquí, así que prevalece el archivo real.
  *
  * Usa EXCLUSIVAMENTE boleta_datos_pago (Sección 17 del encargo) — nunca
  * colaborador.numero_cuenta/cci directamente: los datos actuales del
@@ -39,7 +51,7 @@ final class TelecreditoBcpPagoBuilder
 
     private const LONGITUD_NOMBRE = 75;
 
-    public static function construir(Boleta $boleta, string $referenciaBeneficiario, string $referenciaEmpresa): string
+    public static function construir(Boleta $boleta): string
     {
         /** @var Colaborador $colaborador */
         $colaborador = $boleta->colaborador;
@@ -79,6 +91,12 @@ final class TelecreditoBcpPagoBuilder
         $correlativoMenor = '   '; // 3 espacios — adulto (único caso soportado).
 
         $nombre = trim("{$colaborador->apellido_paterno} {$colaborador->apellido_materno} {$colaborador->nombres}");
+
+        // Confirmado contra el histórico real aceptado por BCP: 37/37
+        // detalles llevan el documento del propio trabajador, nunca un
+        // texto fijo de lote.
+        $referenciaBeneficiario = "Referencia Beneficiario {$colaborador->numero_documento}";
+        $referenciaEmpresa = "Ref Emp {$colaborador->numero_documento}";
 
         $codigoMoneda = TelecreditoBcpFormato::codigoMoneda((string) $datosPago->moneda_snapshot);
         if (blank($codigoMoneda)) {

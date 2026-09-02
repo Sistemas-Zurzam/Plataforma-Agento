@@ -58,7 +58,7 @@ class TelecreditoBcpExportService
 
         $boletas = TelecreditoBcpCicloDatosLoader::poblacion($ciclo, $subtipo, $boletaIds);
 
-        [$referenciaPlanilla, $referenciaBeneficiario, $referenciaEmpresa] = $this->construirReferencias($ciclo);
+        $referenciaPlanilla = $this->construirReferenciaPlanilla($ciclo);
 
         try {
             $contenido = TelecreditoBcpTxtExporter::generar(
@@ -66,8 +66,6 @@ class TelecreditoBcpExportService
                 Carbon::parse($fechaProceso)->format('Ymd'),
                 $subtipo,
                 $referenciaPlanilla,
-                $referenciaBeneficiario,
-                $referenciaEmpresa,
                 $boletas,
             );
         } catch (TelecreditoBcpExportException $e) {
@@ -87,25 +85,22 @@ class TelecreditoBcpExportService
     }
 
     /**
-     * Referencias determinísticas (Sección 14/24/25) — SOLO letras y
-     * espacios: el regex de caracteres permitidos que imprime el PDF
-     * ("^[a-zA-ZáéíóúÁÉÍÓÚñÑýÝ -.()#/@&]*$") no incluye dígitos, así que
-     * NO se genera "AGOSTO 2026" ni "CICLO 123" hasta confirmar si BCP
-     * realmente los rechaza. Limitación documentada (Sección 25): sin
-     * dígitos disponibles, la referencia de empresa no es única entre
-     * ciclos del mismo mes en años distintos — aceptable para esta
-     * primera versión, a revisar cuando se homologue el regex real.
-     *
-     * @return array{0: string, 1: string, 2: string}
+     * CORREGIDO: el regex "solo letras y espacios" que imprime el PDF
+     * ("^[a-zA-ZáéíóúÁÉÍÓÚñÑýÝ -.()#/@&]*$") es falso en la práctica —
+     * confirmado leyendo byte a byte la cabecera de un archivo histórico
+     * real aceptado por BCP: la referencia de planilla es literalmente
+     * "Planilla Julio 2026" (con dígitos de año). Ante el conflicto entre
+     * el PDF y el archivo realmente aceptado por el banco, prevalece el
+     * archivo (mismo criterio que el resto del formato — ver
+     * TelecreditoBcpHeaderBuilder). Las referencias de beneficiario/
+     * empresa (por colaborador, no de lote) se corrigieron aparte, en
+     * TelecreditoBcpPagoBuilder.
      */
-    private function construirReferencias(CicloRemunerativo $ciclo): array
+    private function construirReferenciaPlanilla(CicloRemunerativo $ciclo): string
     {
-        $mes = mb_strtoupper($ciclo->fecha_inicio->translatedFormat('F'), 'UTF-8');
+        $mes = ucfirst(mb_strtolower($ciclo->fecha_inicio->translatedFormat('F'), 'UTF-8'));
+        $anio = $ciclo->fecha_inicio->format('Y');
 
-        return [
-            "PLANILLA HABERES {$mes}",
-            "HABERES {$mes}",
-            "CICLO {$mes}",
-        ];
+        return "Planilla {$mes} {$anio}";
     }
 }

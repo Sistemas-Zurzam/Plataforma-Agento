@@ -30,8 +30,6 @@ final class TelecreditoBcpTxtExporter
         string $fechaProcesoAaaammdd,
         string $subtipo,
         string $referenciaPlanilla,
-        string $referenciaBeneficiario,
-        string $referenciaEmpresa,
         Collection $boletas,
     ): string {
         $montoTotal = $boletas->reduce(fn (string $acc, Boleta $b) => bcadd($acc, (string) $b->neto_a_pagar, 2), '0.00');
@@ -63,7 +61,7 @@ final class TelecreditoBcpTxtExporter
         $numeroDetalle = 0;
         foreach ($boletas as $boleta) {
             $numeroDetalle++;
-            $detalle = TelecreditoBcpPagoBuilder::construir($boleta, $referenciaBeneficiario, $referenciaEmpresa);
+            $detalle = TelecreditoBcpPagoBuilder::construir($boleta);
 
             // mb_substr, NO acceso por índice ($detalle[194]): ese acceso es
             // por BYTE, y con un nombre/referencia que trae Ñ antes de esta
