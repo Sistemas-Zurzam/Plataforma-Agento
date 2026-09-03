@@ -47,7 +47,8 @@ class EvaluarIntegridadDescansoSemanal
 
         $resultados = AsistenciaResultadoDiario::query()
             ->where('colaborador_id', $colaborador->id)
-            ->whereBetween('fecha', [$inicioSemana->toDateString(), $finSemana->toDateString()])
+            ->whereDate('fecha', '>=', $inicioSemana->toDateString())
+            ->whereDate('fecha', '<=', $finSemana->toDateString())
             ->get()
             ->keyBy(fn (AsistenciaResultadoDiario $resultado) => $resultado->fecha->toDateString());
 

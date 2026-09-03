@@ -121,7 +121,6 @@ class AsegurarCoberturaAsistenciaPeriodo
     private function detectarFaltantes(Empresa $empresa, AsistenciaPeriodo $periodo): array
     {
         [$fechaInicio, $fechaHastaProcesar] = $this->rangoAProcesar($periodo);
-
         if ($fechaHastaProcesar === null) {
             return [];
         }
@@ -137,7 +136,11 @@ class AsegurarCoberturaAsistenciaPeriodo
             ->whereDate('fecha_ingreso', '<=', $fechaHastaProcesar->toDateString())
             ->where(fn ($query) => $query->whereNull('fecha_cese')
                 ->orWhereDate('fecha_cese', '>=', $fechaInicio->toDateString()))
-            ->get(['id', 'fecha_ingreso', 'fecha_cese']);
+            // Cada modelo se entrega después a ProcesarAsistenciaDiaria,
+            // que necesita también empresa_id, horario_id, documento y las
+            // condiciones de control de asistencia. Un select parcial deja
+            // esos atributos en null y convierte toda la cobertura en error.
+            ->get();
 
         if ($colaboradores->isEmpty()) {
             return [];
@@ -148,7 +151,8 @@ class AsegurarCoberturaAsistenciaPeriodo
         // cientos de colaboradores.
         $cubiertasPorColaborador = AsistenciaResultadoDiario::query()
             ->where('empresa_id', $empresa->id)
-            ->whereBetween('fecha', [$fechaInicio->toDateString(), $fechaHastaProcesar->toDateString()])
+            ->whereDate('fecha', '>=', $fechaInicio->toDateString())
+            ->whereDate('fecha', '<=', $fechaHastaProcesar->toDateString())
             ->get(['colaborador_id', 'fecha'])
             ->groupBy('colaborador_id')
             ->map(fn ($grupo) => $grupo->pluck('fecha')->map(fn ($fecha) => $fecha->toDateString())->flip());
@@ -180,7 +184,8 @@ class AsegurarCoberturaAsistenciaPeriodo
 
         return AsistenciaResultadoDiario::query()
             ->where('empresa_id', $empresa->id)
-            ->whereBetween('fecha', [$fechaInicio->toDateString(), $fechaHastaProcesar->toDateString()])
+            ->whereDate('fecha', '>=', $fechaInicio->toDateString())
+            ->whereDate('fecha', '<=', $fechaHastaProcesar->toDateString())
             ->count();
     }
 

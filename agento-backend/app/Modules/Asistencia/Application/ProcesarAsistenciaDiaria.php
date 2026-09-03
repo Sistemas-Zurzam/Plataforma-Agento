@@ -100,10 +100,15 @@ class ProcesarAsistenciaDiaria
         // se sabe si esas horas trabajadas corresponden a un día laboral o
         // a un descanso trabajado — cero impacto financiero hasta que
         // RR.HH. lo clasifique (Sección 11 del encargo).
-        $extraObservada = ($entrada && $salida && $jornada['tipo_dia'] !== 'sin_rol_definido')
+        $esDiaDescanso = in_array($jornada['tipo_dia'], ['descanso', 'feriado'], true);
+        // En un día laborable sin tramo horario concreto no existe una
+        // jornada programada contra la cual medir exceso. Descansos y
+        // feriados sí remuneran todo el tiempo trabajado aunque no tengan
+        // horario_dia.
+        $puedeMedirExtra = $esDiaDescanso || $horarioDia !== null;
+        $extraObservada = ($entrada && $salida && $jornada['tipo_dia'] !== 'sin_rol_definido' && $puedeMedirExtra)
             ? $this->minutosExtraObservados($jornada['tipo_dia'], $minutosTrabajados, $minutosProgramados, (bool) $colaborador->contabilizar_horas_extra)
             : 0;
-        $esDiaDescanso = in_array($jornada['tipo_dia'], ['descanso', 'feriado'], true);
 
         return DB::transaction(function () use (
             $colaborador, $fecha, $jornada, $estado, $entrada, $salida,
@@ -120,7 +125,11 @@ class ProcesarAsistenciaDiaria
                 [
                     'empresa_id' => $colaborador->empresa_id,
                     'colaborador_id' => $colaborador->id,
-                    'fecha' => $fecha->toDateString(),
+                    // Mantener el mismo formato que aplica el cast `date`
+                    // al persistir. En SQLite, buscar con "Y-m-d" no
+                    // encontraba la fila guardada como medianoche y el
+                    // reproceso intentaba violar el índice único.
+                    'fecha' => $fecha,
                 ],
                 [
                     'periodo_id' => $periodo?->id,
@@ -189,7 +198,7 @@ class ProcesarAsistenciaDiaria
                 [
                     'empresa_id' => $colaborador->empresa_id,
                     'colaborador_id' => $colaborador->id,
-                    'fecha' => $fecha->toDateString(),
+                    'fecha' => $fecha,
                 ],
                 [
                     'periodo_id' => $periodo?->id,
@@ -546,7 +555,9 @@ class ProcesarAsistenciaDiaria
                 // con factor 2 adicional: el primer jornal ya está incluido
                 // en el sueldo mensual. Los descansos ordinarios mantienen
                 // su flujo explícito de pago o descanso sustitutorio.
-                'minutos_aprobados' => $esFeriadoTrabajado ? $minutos : null,
+                // La columna es NOT NULL; cero expresa que sigue pendiente
+                // de una decisión humana.
+                'minutos_aprobados' => $esFeriadoTrabajado ? $minutos : 0,
                 'estado' => $esFeriadoTrabajado
                     ? AsistenciaHoraExtra::ESTADO_APROBADO
                     : AsistenciaHoraExtra::ESTADO_PENDIENTE,
