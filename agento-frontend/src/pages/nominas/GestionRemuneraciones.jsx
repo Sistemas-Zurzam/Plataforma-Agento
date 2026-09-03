@@ -33,6 +33,7 @@ import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
 import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCashModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
+import PlanillasComplementariasModal from '../../modules/remuneraciones/components/PlanillasComplementariasModal';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
 import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
 import TelecreditoBcpModal from '../../modules/remuneraciones/components/TelecreditoBcpModal';
@@ -223,6 +224,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     fetchAfpNetValidacion, exportarAfpNet,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
+    fetchComplementarias, crearComplementaria, agregarConceptoComplementaria, eliminarConceptoComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria,
   } = useRemuneraciones();
 
   const [cicloId, setCicloId] = useState(null);
@@ -256,6 +258,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [telecreditoBcpModalOpen, setTelecreditoBcpModalOpen] = useState(false);
   const [bbvaNetCashModalOpen, setBbvaNetCashModalOpen] = useState(false);
   const [resumenContableModalOpen, setResumenContableModalOpen] = useState(false);
+  const [complementariasModalOpen, setComplementariasModalOpen] = useState(false);
 
   const puedeVer = user?.permisos?.includes('nominas.ver');
   const puedeGestionarCiclos = user?.permisos?.includes('nominas.gestionar_ciclos');
@@ -439,7 +442,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         title: 'Colaboradores omitidos',
         content: (
           <ul className="list-disc pl-4 text-xs">
-            {resultado.omitidas.map((o) => <li key={o.colaborador_id}>Colaborador #{o.colaborador_id}: {o.motivo}</li>)}
+            {resultado.omitidas.map((o) => (
+              <li key={o.colaborador_id}>
+                Colaborador: {o.colaborador_nombre || `#${o.colaborador_id}`} — {o.motivo}
+              </li>
+            ))}
           </ul>
         ),
       });
@@ -973,6 +980,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             PDT PLAME
           </Button>
         </Tooltip>
+        <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Regulariza diferencias sin modificar la planilla pagada' : 'Disponible para ciclos pagados'}>
+          <Button icon={<PlusOutlined />} disabled={cicloActivo?.estado !== 'pagado'} onClick={() => setComplementariasModalOpen(true)}>
+            Planilla complementaria
+          </Button>
+        </Tooltip>
         <Tooltip title={cicloActivo ? '' : 'Selecciona un ciclo remunerativo primero'}>
           <Button icon={<FileProtectOutlined />} disabled={!cicloActivo} onClick={() => setAfpNetModalOpen(true)}>
             AFPnet
@@ -1120,17 +1132,26 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   expandable={{
                     expandedRowRender: (boleta) => <DetalleBoleta boletaId={boleta.id} verBoleta={verBoleta} />,
                   }}
-                  summary={() => resumen && boletas.length > 0 && (
-                    <Table.Summary fixed>
-                      <Table.Summary.Row>
-                        <Table.Summary.Cell index={0} colSpan={7}><strong>Totales</strong></Table.Summary.Cell>
-                        <Table.Summary.Cell index={1}><strong className="text-green-600">{soles(resumen.total_ingresos)}</strong></Table.Summary.Cell>
-                        <Table.Summary.Cell index={2}><strong className="text-red-500">{soles(resumen.total_egresos)}</strong></Table.Summary.Cell>
-                        <Table.Summary.Cell index={3}><strong>{soles(resumen.neto_a_pagar)}</strong></Table.Summary.Cell>
-                        <Table.Summary.Cell index={4} colSpan={2} />
-                      </Table.Summary.Row>
-                    </Table.Summary>
-                  )}
+                  summary={() => {
+                    if (!resumen || boletas.length === 0) return null;
+
+                    // Ant Design agrega columnas técnicas para expandir y
+                    // seleccionar filas antes de las columnas declaradas.
+                    const columnasTecnicas = 1 + (puedeSeleccionarBoletas ? 1 : 0);
+                    const indiceIngresos = columnasTecnicas + 6;
+
+                    return (
+                      <Table.Summary fixed>
+                        <Table.Summary.Row>
+                          <Table.Summary.Cell index={0} colSpan={indiceIngresos}><strong>Totales</strong></Table.Summary.Cell>
+                          <Table.Summary.Cell index={indiceIngresos} align="center"><strong className="text-green-600">{soles(resumen.total_ingresos)}</strong></Table.Summary.Cell>
+                          <Table.Summary.Cell index={indiceIngresos + 1} align="center"><strong className="text-red-500">{soles(resumen.total_egresos)}</strong></Table.Summary.Cell>
+                          <Table.Summary.Cell index={indiceIngresos + 2} align="center"><strong>{soles(resumen.neto_a_pagar)}</strong></Table.Summary.Cell>
+                          <Table.Summary.Cell index={indiceIngresos + 3} colSpan={2} />
+                        </Table.Summary.Row>
+                      </Table.Summary>
+                    );
+                  }}
                   locale={{ emptyText: 'Este ciclo todavía no tiene boletas calculadas' }}
                 />
               </div>
@@ -1258,6 +1279,16 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           setTabActiva('planilla');
           setResumenContableModalOpen(false);
         }}
+      />
+
+      <PlanillasComplementariasModal
+        open={complementariasModalOpen}
+        onCancel={() => setComplementariasModalOpen(false)}
+        ciclo={cicloActivo}
+        boletaIds={boletasSeleccionadas}
+        api={{ fetchComplementarias, crearComplementaria, agregarConceptoComplementaria, eliminarConceptoComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria }}
+        permisos={{ calcular: puedeCalcular, aprobar: puedeAprobar, pagar: puedePagar, telecredito: puedeExportarTelecredito, bbva: puedeExportarBbvaNetCash }}
+        catalogoConceptos={catalogoConceptos}
       />
     </div>
   );

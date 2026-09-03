@@ -237,7 +237,13 @@ class ParametroLaboralService
                 ->map(fn (ParametroLaboralValor $valor) => "{$valor->definicion_id}|{$valor->regimen_laboral}")
                 ->flip();
 
-            $hoy = now()->toDateString();
+            // Los valores de referencia son anuales. Si se inicializan hoy y
+            // se guardan con la fecha de hoy, una planilla de un mes anterior
+            // queda artificialmente sin parámetros vigentes. Hacerlos regir
+            // desde el inicio del año permite el cálculo histórico del mismo
+            // ejercicio; los cambios posteriores siguen registrándose con su
+            // fecha real mediante crearValores().
+            $inicioDelAnio = now()->startOfYear()->toDateString();
 
             foreach (self::VALORES_POR_DEFECTO as $regimen => $valoresPorClave) {
                 foreach ($valoresPorClave as $clave => $valorPorDefecto) {
@@ -251,7 +257,7 @@ class ParametroLaboralService
                         'empresa_id' => $empresa->id,
                         'definicion_id' => $definicion->id,
                         'regimen_laboral' => $regimen,
-                        'vigencia_desde' => $hoy,
+                        'vigencia_desde' => $inicioDelAnio,
                         'valor' => $valorPorDefecto,
                         'creado_por_id' => $usuario?->id,
                         'motivo' => 'Inicialización de valores por defecto',

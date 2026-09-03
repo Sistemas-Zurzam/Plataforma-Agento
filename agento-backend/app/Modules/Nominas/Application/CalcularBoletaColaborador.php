@@ -693,7 +693,7 @@ class CalcularBoletaColaborador
             $resultado = $resultadosPorFecha->get($fechaTexto);
             if ($resultado === null || $resultado->estado === AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR) {
                 throw new RuntimeException(
-                    "El colaborador #{$colaborador->id} tiene horario rotativo y le falta declarar el rol de turnos del {$fechaTexto} — no se puede calcular su planilla hasta que se complete.",
+                    "Tiene horario rotativo y le falta declarar el rol de turnos del {$fechaTexto} — no se puede calcular su planilla hasta que se complete.",
                 );
             }
         }

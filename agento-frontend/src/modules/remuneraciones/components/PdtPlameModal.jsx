@@ -56,7 +56,7 @@ function Hallazgo({ h }) {
  * rechazaría; los botones ya llegan deshabilitados a ese estado.
  */
 export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, exportarPlame }) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [validacion, setValidacion] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [exportando, setExportando] = useState(null);
@@ -71,7 +71,7 @@ export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, 
     return () => { activo = false; };
   }, [open, ciclo, fetchValidacion]);
 
-  const handleExportar = async (tipo) => {
+  const ejecutarExportar = async (tipo) => {
     setExportando(tipo);
     try {
       const resultado = await exportarPlame(ciclo.id, tipo);
@@ -86,6 +86,39 @@ export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, 
     } finally {
       setExportando(null);
     }
+  };
+
+  const complementarias = validacion?.complementarias_incluidas ?? [];
+
+  const handleExportar = (tipo) => {
+    if (complementarias.length === 0) return ejecutarExportar(tipo);
+
+    modal.confirm({
+      title: 'Este PLAME incluye planillas complementarias',
+      icon: <ExclamationCircleOutlined />,
+      width: 520,
+      content: (
+        <div className="space-y-2">
+          <p className="text-sm text-gray-600">
+            Además de las boletas originales del ciclo, se declarará el monto ya corregido de:
+          </p>
+          <div className="max-h-48 space-y-1.5 overflow-y-auto pr-1">
+            {complementarias.map((c, i) => (
+              <div key={i} className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 text-xs">
+                <p className="font-medium text-gray-800">{c.colaborador_nombre}</p>
+                <p className="text-gray-500">{c.complementaria_nombre} — {c.motivo}</p>
+                <p className={Number(c.diferencia_neta) >= 0 ? 'text-green-600' : 'text-red-500'}>
+                  Diferencia: S/ {Number(c.diferencia_neta).toFixed(2)}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ),
+      okText: 'Sí, incluir y generar',
+      cancelText: 'Cancelar',
+      onOk: () => ejecutarExportar(tipo),
+    });
   };
 
   const cicloPagado = ciclo?.estado === 'pagado';
@@ -131,6 +164,15 @@ export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, 
               showIcon
               message="El ciclo debe estar pagado para generar los archivos definitivos PLAME."
               description="Esta validación es preliminar mientras tanto — puedes revisar hallazgos y corregir datos, pero la descarga definitiva quedará deshabilitada."
+            />
+          )}
+
+          {complementarias.length > 0 && (
+            <Alert
+              type="info"
+              showIcon
+              message={`Este PLAME incluirá ${complementarias.length} planilla(s) complementaria(s) aprobada(s)/pagada(s)`}
+              description="Se declarará el monto ya corregido de esos colaboradores, no solo lo de la boleta original. Se pedirá confirmación al exportar."
             />
           )}
 

@@ -47,6 +47,30 @@ class AsistenciaIncidencia extends Model
     // tipo automático; este evento es ortogonal al estado).
     public const TIPO_TRABAJO_EN_DESCANSO = 'trabajo_en_descanso';
 
+    // Descanso semanal flexible automático (opt-in, Empresa::descanso_flexible_automatico)
+    // — generadas únicamente por EvaluarIntegridadDescansoSemanal, ancladas al
+    // resultado diario del DOMINGO de la semana evaluada (reutiliza la unique
+    // (resultado_diario_id, tipo) ya existente, sin columna nueva). Nunca se
+    // infieren de "cero candidatos": se calculan contando días efectivamente
+    // trabajados. Mutuamente excluyentes entre sí para una misma semana.
+    //
+    // Severa: la semana no tuvo NINGÚN descanso y el colaborador trabajó
+    // efectivamente todos los días aplicables (sin permiso/feriado). Se
+    // resuelve marcando a mano uno de esos días como descanso — eso dispara
+    // TIPO_TRABAJO_EN_DESCANSO, que ya tiene pago/sustitutorio/corregir.
+    public const TIPO_SIN_DESCANSO_SEMANAL = 'sin_descanso_semanal';
+
+    // General: se asignaron menos descansos automáticos de los que
+    // dias_descanso_rotativo_por_semana exige (p. ej. un permiso cubrió
+    // parte de la semana y no quedaron suficientes días candidatos).
+    public const TIPO_DESCANSO_FLEXIBLE_INCOMPLETO = 'descanso_flexible_incompleto';
+
+    // Generada por AsignarDescansoFlexibleSemanal (no por el evaluador de
+    // integridad) cuando un segmento no pudo clasificarse por datos
+    // insuficientes o un error técnico — NUNCA por el cruce normal de
+    // periodos, que se resuelve solo por segmentos sin necesitar esto.
+    public const TIPO_SEMANA_ROTATIVA_OMITIDA = 'semana_rotativa_omitida';
+
     // Estados posibles del ciclo de resolución de una incidencia.
     public const ESTADO_PENDIENTE = 'pendiente';
 

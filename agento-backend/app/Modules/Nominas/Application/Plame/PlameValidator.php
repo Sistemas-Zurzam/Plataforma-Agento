@@ -8,6 +8,7 @@ use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Domain\Plame\ConceptosPlame;
 use App\Modules\Nominas\Domain\Plame\RequisitoRucPlame;
 use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Models\SunatMapeo;
 use App\Modules\Nominas\Services\SunatCatalogoService;
 use App\Modules\Personas\Models\Colaborador;
@@ -55,6 +56,7 @@ class PlameValidator
      *   resumen: array{trabajadores: int, rh: int, bloqueantes: int, observaciones: int},
      *   archivos: array<string, array{estado: string, registros: int, bloqueantes: int, observaciones: int}>,
      *   hallazgos: array<int, array>,
+     *   complementarias_incluidas: array<int, array>,
      * }
      */
     public function validar(CicloRemunerativo $ciclo): array
@@ -63,6 +65,7 @@ class PlameValidator
         $hallazgos = [];
 
         $hallazgos = [...$hallazgos, ...$this->validarEmpresaYCiclo($empresa, $ciclo)];
+        $hallazgos = [...$hallazgos, ...$this->validarComplementariasPendientes($ciclo)];
 
         $boletasPlanilla = PlameCicloDatosLoader::boletasPlanilla($ciclo);
         $boletasRh = PlameCicloDatosLoader::boletasRh($ciclo);
@@ -116,6 +119,32 @@ class PlameValidator
         }
 
         return $hallazgos;
+    }
+
+    /**
+     * Una planilla complementaria "calculada" (sin aprobar todavía) bloquea
+     * el PLAME completo del ciclo — nunca se declara un ajuste que RR.HH.
+     * calculó pero que nadie confirmó, y aprobarla después de generar el
+     * PLAME dejaría el archivo ya descargado desactualizado sin ningún
+     * aviso. No aplica a "aprobada"/"pagada": esas SÍ participan del
+     * recálculo de conceptos (ver PlameCicloDatosLoader).
+     */
+    private function validarComplementariasPendientes(CicloRemunerativo $ciclo): array
+    {
+        return PlanillaComplementariaDetalle::whereHas(
+            'complementaria',
+            fn ($q) => $q->where('ciclo_id', $ciclo->id)->where('estado', 'calculada'),
+        )
+            ->with('colaborador', 'complementaria')
+            ->get()
+            ->map(fn (PlanillaComplementariaDetalle $d) => $this->hallazgoColaborador(
+                'PLAME_COMPLEMENTARIA_PENDIENTE', 'error', self::TODOS_LOS_ARCHIVOS, self::GRUPO_GENERAL, $d->colaborador,
+                "Tiene una planilla complementaria \"{$d->complementaria->nombre}\" calculada pero sin aprobar (diferencia: S/ {$d->diferencia_neta}).",
+                'Aprueba o revisa la planilla complementaria de este colaborador antes de generar el PLAME del ciclo.',
+                entidad: 'planilla_complementaria', entidadId: $d->planilla_complementaria_id,
+            ))
+            ->values()
+            ->all();
     }
 
     // ===================== PLANILLA (identidad/contractual/previsional) =====================
@@ -461,7 +490,38 @@ class PlameValidator
             ],
             'archivos' => $archivos,
             'hallazgos' => $hallazgos,
+            'complementarias_incluidas' => $this->complementariasIncluidas($ciclo),
         ];
+    }
+
+    /**
+     * Complementarias aprobadas/pagadas de este ciclo que YA participan del
+     * recálculo de conceptos (PlameCicloDatosLoader) — informativo para que
+     * el frontend pida confirmación explícita antes de exportar, mostrando
+     * exactamente qué se está incluyendo de más sobre lo originalmente
+     * pagado.
+     *
+     * @return array<int, array>
+     */
+    private function complementariasIncluidas(CicloRemunerativo $ciclo): array
+    {
+        return PlanillaComplementariaDetalle::whereHas(
+            'complementaria',
+            fn ($q) => $q->where('ciclo_id', $ciclo->id)->whereIn('estado', ['aprobada', 'pagada']),
+        )
+            ->with('colaborador', 'complementaria')
+            ->get()
+            ->map(fn (PlanillaComplementariaDetalle $d) => [
+                'complementaria_id' => $d->planilla_complementaria_id,
+                'complementaria_nombre' => $d->complementaria->nombre,
+                'estado' => $d->complementaria->estado,
+                'colaborador_id' => $d->colaborador_id,
+                'colaborador_nombre' => trim(($d->colaborador?->nombres ?? '').' '.($d->colaborador?->apellidos ?? '')),
+                'motivo' => $d->complementaria->motivo,
+                'diferencia_neta' => $d->diferencia_neta,
+            ])
+            ->values()
+            ->all();
     }
 
     /**

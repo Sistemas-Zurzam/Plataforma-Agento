@@ -32,6 +32,7 @@ class EmpresaResource extends JsonResource
             'numero_registro_remype' => $this->numero_registro_remype,
             'seguro_salud' => $this->seguro_salud,
             'activa' => $this->activa,
+            'descanso_flexible_automatico' => $this->descanso_flexible_automatico,
             // Un administrador global opera como Administrador en TODAS las
             // empresas, incluidas las que no traen `pivot` cargado (porque
             // vinieron de Empresa::all(), no de $user->empresas()) — ver

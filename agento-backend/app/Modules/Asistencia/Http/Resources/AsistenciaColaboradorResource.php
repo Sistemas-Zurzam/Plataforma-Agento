@@ -45,6 +45,7 @@ class AsistenciaColaboradorResource extends JsonResource
                 'tipo_dia' => $resultado->tipo_dia,
                 'entrada' => $resultado->entrada_at?->format('Y-m-d H:i:s'),
                 'salida' => $resultado->salida_at?->format('Y-m-d H:i:s'),
+                'minutos_trabajados' => $resultado->minutos_trabajados,
                 'minutos_tardanza' => $resultado->minutos_tardanza,
                 'minutos_extra' => $resultado->minutos_extra_observados,
             ]),

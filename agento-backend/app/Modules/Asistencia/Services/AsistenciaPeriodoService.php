@@ -3,6 +3,7 @@
 namespace App\Modules\Asistencia\Services;
 
 use App\Modules\Asistencia\Application\AsegurarCoberturaAsistenciaPeriodo;
+use App\Modules\Asistencia\Application\AsignarDescansoFlexibleSemanal;
 use App\Modules\Asistencia\Jobs\AsegurarCoberturaAsistenciaPeriodoJob;
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
@@ -24,11 +25,15 @@ class AsistenciaPeriodoService
         AsistenciaIncidencia::TIPO_HORAS_INCOMPLETAS => 'horas incompletas',
         AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR => 'días sin clasificar',
         AsistenciaIncidencia::TIPO_TRABAJO_EN_DESCANSO => 'trabajos en descanso pendientes de decisión',
+        AsistenciaIncidencia::TIPO_SIN_DESCANSO_SEMANAL => 'semanas sin descanso',
+        AsistenciaIncidencia::TIPO_DESCANSO_FLEXIBLE_INCOMPLETO => 'descansos flexibles incompletos',
+        AsistenciaIncidencia::TIPO_SEMANA_ROTATIVA_OMITIDA => 'semanas rotativas omitidas',
     ];
 
     public function __construct(
         private readonly AsistenciaAuditoriaService $auditoria,
         private readonly AsegurarCoberturaAsistenciaPeriodo $cobertura,
+        private readonly AsignarDescansoFlexibleSemanal $descansoFlexible,
     ) {}
 
     /**
@@ -56,12 +61,14 @@ class AsistenciaPeriodoService
 
         $this->asegurarSinFechasFuturas($periodo);
 
-        return DB::transaction(function () use ($empresa, $periodo, $usuarioId) {
-            // lockForUpdate cierra la ventana de carrera entre "leer
-            // cobertura_estado" y "marcarlo en_proceso" si dos clics llegan
-            // casi al mismo tiempo — sin introducir Cache::lock ni ninguna
-            // infraestructura nueva, solo un lock de fila ya nativo de la
-            // transacción.
+        // Fase 1 (transaccional, sin cambios de fondo respecto a la versión
+        // previa): decide si hace falta encolar la cobertura diaria. El
+        // lockForUpdate solo protege ESTA decisión (evitar que dos clics
+        // casi simultáneos encolen el job dos veces) — nunca debe envolver
+        // pasos posteriores que puedan lanzar una ValidationException,
+        // porque eso revertiría también cualquier escritura legítima hecha
+        // mientras tanto (ver Fase 2).
+        $cobertura = DB::transaction(function () use ($empresa, $periodo, $usuarioId) {
             $periodo = AsistenciaPeriodo::query()->lockForUpdate()->findOrFail($periodo->id);
 
             if ($periodo->cobertura_estado === 'en_proceso') {
@@ -99,13 +106,34 @@ class AsistenciaPeriodoService
                 ];
             }
 
-            $pendientes = $this->pendientesPeriodo($empresa, $periodo);
-            if ($pendientes !== null) {
-                throw ValidationException::withMessages(['pendientes' => [$this->mensajePendientes($pendientes)]]);
-            }
-
             return null;
         });
+
+        if ($cobertura !== null) {
+            return $cobertura;
+        }
+
+        // Fase 2 — la cobertura diaria ya está confirmada completa. El
+        // descanso semanal flexible automático (opt-in) corre acá, FUERA de
+        // la transacción de arriba y con sus propias transacciones por
+        // segmento (AsignarDescansoFlexibleSemanal::persistirSegmento()):
+        // si genera una incidencia semanal, debe quedar realmente
+        // persistida aunque el chequeo de pendientes de abajo rechace este
+        // intento de cierre — de lo contrario la incidencia desaparecería
+        // junto con el rollback, y RR.HH. nunca podría encontrarla para
+        // resolverla. Reutiliza pendientesPeriodo() tal cual (ya agrupa
+        // cualquier incidencia pendiente por tipo) para bloquear el cierre
+        // — sin ningún gate de bloqueo nuevo.
+        if ($empresa->descanso_flexible_automatico) {
+            $this->descansoFlexible->procesarPeriodo($empresa, $periodo, $usuarioId);
+        }
+
+        $pendientes = $this->pendientesPeriodo($empresa, $periodo);
+        if ($pendientes !== null) {
+            throw ValidationException::withMessages(['pendientes' => [$this->mensajePendientes($pendientes)]]);
+        }
+
+        return null;
     }
 
     public function listar(Empresa $empresa, int $perPage = 25): LengthAwarePaginator

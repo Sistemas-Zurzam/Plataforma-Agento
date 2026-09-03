@@ -38,6 +38,7 @@ class UpdateEmpresaRequest extends FormRequest
             'fecha_inscripcion_remype' => ['nullable', 'date', 'required_if:inscrita_remype,true'],
             'numero_registro_remype' => ['nullable', 'string', 'max:255', 'required_if:inscrita_remype,true'],
             'seguro_salud' => ['nullable', Rule::in(['essalud', 'sis'])],
+            'descanso_flexible_automatico' => ['nullable', 'boolean'],
         ];
     }
 

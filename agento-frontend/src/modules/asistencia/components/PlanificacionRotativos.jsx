@@ -1,4 +1,4 @@
-import { LeftOutlined, RightOutlined, WarningOutlined } from '@ant-design/icons';
+import { LeftOutlined, RightOutlined, SyncOutlined, WarningOutlined } from '@ant-design/icons';
 import { Alert, App, Button, Card, Checkbox, Dropdown, Empty, Input, Select, Space, Table, Tag, Typography } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/es';
@@ -136,13 +136,23 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
         const dia = row.dias[index];
         const info = celda(dia.tipo);
         const editable = puedeEditar && !NO_EDITABLES.includes(dia.tipo);
+        const esAutomatico = dia.origen === 'descanso_flexible_automatico';
         const tagBase = (
           <Tag
             className={`!m-0 min-w-8 text-center ${editable ? 'cursor-pointer' : ''}`}
             color={info.color}
-            title={dia.trabajo_en_descanso ? 'Descanso planificado, pero con marcaciones ese día' : undefined}
+            style={esAutomatico ? { background: 'transparent', borderStyle: 'dashed' } : undefined}
+            title={
+              dia.trabajo_en_descanso
+                ? 'Descanso planificado, pero con marcaciones ese día'
+                : esAutomatico
+                  ? 'Asignado por el descanso semanal flexible automático'
+                  : undefined
+            }
           >
-            {info.abrev}{dia.trabajo_en_descanso ? ' ⚠' : ''}
+            {info.abrev}
+            {dia.trabajo_en_descanso ? <WarningOutlined className="ml-1" /> : null}
+            {esAutomatico ? <SyncOutlined className="ml-1" /> : null}
           </Tag>
         );
         // Fase 3.1 — un día con trabajo_en_descanso pendiente no se edita
@@ -204,7 +214,7 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
         type="info"
         showIcon
         message="Planificación de horarios rotativos"
-        description="Aquí se declara cuáles días le tocan de descanso, trabajo presencial u home office a cada colaborador rotativo — nunca se infiere automáticamente. Un día sin marcar queda 'sin planificar' hasta que se procese, y ahí genera la incidencia de clasificación pendiente que sí bloquea el envío a Nómina."
+        description="Aquí se declara cuáles días le tocan de descanso, trabajo presencial u home office a cada colaborador rotativo. Un día sin marcar queda 'sin planificar' hasta que se procese, y ahí genera la incidencia de clasificación pendiente que sí bloquea el envío a Nómina. Si la empresa activó el descanso semanal flexible automático, algunos días pueden llegar ya clasificados solos al cerrar el período (marcados con el ícono de sincronización) — igual pueden corregirse manualmente como cualquier otro día."
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -258,6 +268,7 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
         />
       </Card>
       <Text type="secondary" className="flex items-center gap-1 text-xs"><WarningOutlined /> El icono de advertencia indica un descanso planificado que igual registró marcaciones ese día — solo informativo.</Text>
+      <Text type="secondary" className="flex items-center gap-1 text-xs"><SyncOutlined /> El icono de sincronización indica un día clasificado por el descanso semanal flexible automático — puede corregirse manualmente igual que cualquier otro.</Text>
     </div>
   );
 }

@@ -24,9 +24,18 @@ const duracion = (minutos) => `${Math.floor((minutos ?? 0) / 60)}h ${String((min
 const hora = (valor) => (valor ? dayjs(valor).format('HH:mm') : '—');
 const claveEstado = (resultado) => (resultado?.estado === 'presente' && resultado?.minutos_tardanza > 0 ? 'tardanza' : resultado?.estado);
 
-function EstadoDia({ resultado }) {
+function EstadoDia({ resultado, mostrarHoras = false }) {
   const estado = resultado ? (ESTADOS[claveEstado(resultado)] ?? ESTADOS.no_programado) : ESTADOS.no_programado;
-  return <Tag color={estado[2]} title={estado[1]} className="!m-0 min-w-7 text-center">{estado[0]}</Tag>;
+  return (
+    <div className="flex flex-col items-start gap-1">
+      <Tag color={estado[2]} title={estado[1]} className="!m-0 min-w-7 text-center">{estado[0]}</Tag>
+      {mostrarHoras && Number(resultado?.minutos_trabajados) > 0 && (
+        <span className="text-[11px] font-medium text-slate-600" title="Horas trabajadas">
+          {duracion(Number(resultado.minutos_trabajados))}
+        </span>
+      )}
+    </div>
+  );
 }
 
 const ESTADOS_CORREGIBLES = [
@@ -54,7 +63,9 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
   const tipoProgramado = colaborador.calendario?.[fechaTexto];
   const resultado = colaborador.resultados?.[fechaTexto];
   const estado = resultado ? (ESTADOS[claveEstado(resultado)] ?? ESTADOS.no_programado) : ESTADOS.no_programado;
-  const marcacionesDelDia = (colaborador.marcaciones ?? []).filter((m) => m.marcado_at?.startsWith(fechaTexto));
+  const marcacionesDelDia = (colaborador.marcaciones ?? [])
+    .filter((m) => m.marcado_at?.startsWith(fechaTexto))
+    .sort((a, b) => dayjs(a.marcado_at).valueOf() - dayjs(b.marcado_at).valueOf());
   const puedeCorregir = Boolean(resultado?.id);
 
   return (
@@ -108,7 +119,25 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
           <p className="mt-1 text-sm text-gray-400">Sin marcaciones registradas</p>
         ) : (
           <ul className="mt-1 space-y-1 text-sm text-gray-700">
-            {marcacionesDelDia.map((m) => <li key={m.id}>{dayjs(m.marcado_at).format('HH:mm:ss')} · {m.origen}</li>)}
+            {marcacionesDelDia.map((m, index) => {
+              const horaMarcacion = dayjs(m.marcado_at).format('HH:mm:ss');
+              const horaEntrada = resultado?.entrada ? dayjs(resultado.entrada).format('HH:mm:ss') : null;
+              const horaSalida = resultado?.salida ? dayjs(resultado.salida).format('HH:mm:ss') : null;
+              const esEntrada = horaEntrada ? horaMarcacion === horaEntrada : index === 0;
+              const esSalida = horaSalida
+                ? horaMarcacion === horaSalida
+                : (marcacionesDelDia.length === 2 && !esEntrada)
+                  || (marcacionesDelDia.length > 2 && index === marcacionesDelDia.length - 1);
+              const etiqueta = esEntrada ? 'Entrada' : esSalida ? 'Salida' : 'Intermedia';
+              const color = esEntrada ? 'green' : esSalida ? 'blue' : 'default';
+
+              return (
+                <li key={m.id} className="flex items-center gap-2">
+                  <Tag color={color} className="!m-0 w-20 text-center">{etiqueta}</Tag>
+                  <span>{horaMarcacion} · {m.origen}</span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
@@ -242,7 +271,7 @@ function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reproc
   if (loading || !colaborador) return <Card loading className="min-h-72" />;
   const resumen = colaborador.resumen ?? {};
   const resultadoDelDia = (fecha) => colaborador.resultados?.[fecha.format('YYYY-MM-DD')];
-  const calendario = <div className="rounded-xl border border-slate-200 bg-white p-3"><Calendar fullscreen onSelect={setDiaSeleccionado} cellRender={(fecha, info) => info.type === 'date' ? <div className="mt-1"><EstadoDia resultado={resultadoDelDia(fecha)} /></div> : info.originNode} /></div>;
+  const calendario = <div className="rounded-xl border border-slate-200 bg-white p-3"><Calendar fullscreen onSelect={setDiaSeleccionado} cellRender={(fecha, info) => info.type === 'date' ? <div className="mt-1"><EstadoDia resultado={resultadoDelDia(fecha)} mostrarHoras /></div> : info.originNode} /></div>;
   const marcaciones = <Table size="small" rowKey="id" dataSource={colaborador.marcaciones ?? []} columns={[
     { title: 'Fecha', dataIndex: 'marcado_at', render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Hora', dataIndex: 'marcado_at', render: (value) => dayjs(value).format('HH:mm:ss') },

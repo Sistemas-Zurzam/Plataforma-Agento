@@ -34,7 +34,7 @@ class CalcularReciboHonorarios
 {
     public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null): array
     {
-        $parametros = ParametrosVigentesResolver::paraRegimen($colaborador->empresa, 'Locacion de Servicios', $fechaCorte);
+        $parametros = ParametrosVigentesResolver::paraHonorarios($colaborador->empresa, $fechaCorte);
 
         $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
             ->whereDate('vigencia_desde', '<=', $fechaCorte)

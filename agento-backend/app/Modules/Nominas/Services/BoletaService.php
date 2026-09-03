@@ -184,7 +184,7 @@ class BoletaService
      * reabrirlo primero. Cada colaborador que falle se registra como
      * "omitida" en vez de tumbar el cálculo de toda la empresa.
      *
-     * @return array{procesadas: int, omitidas: array<int, array{colaborador_id: int, motivo: string}>}
+     * @return array{procesadas: int, omitidas: array<int, array{colaborador_id: int, colaborador_nombre: string, motivo: string}>}
      */
     public function calcularPlanilla(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): array
     {
@@ -206,7 +206,11 @@ class BoletaService
                 $this->calcularBoletaColaborador($ciclo, $colaborador, $usuarioId, $motivoRecalculo);
                 $procesadas++;
             } catch (Throwable $e) {
-                $omitidas[] = ['colaborador_id' => $colaborador->id, 'motivo' => $e->getMessage()];
+                $omitidas[] = [
+                    'colaborador_id' => $colaborador->id,
+                    'colaborador_nombre' => trim("{$colaborador->nombres} {$colaborador->apellidos}"),
+                    'motivo' => $e->getMessage(),
+                ];
             }
         }
 

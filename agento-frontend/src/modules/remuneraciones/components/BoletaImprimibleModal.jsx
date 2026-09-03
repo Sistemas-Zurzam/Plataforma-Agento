@@ -57,7 +57,7 @@ function Dato({ label, value }) {
 
 function Tarjeta({ titulo, icono, children, pie }) {
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200">
+    <div className="overflow-hidden rounded-lg border border-gray-200 print:break-inside-avoid">
       <div className="flex items-center gap-1.5 bg-agento-blue px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white uppercase">
         {icono}
         {titulo}
@@ -162,7 +162,7 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
       ) : (
         <div id="boleta-imprimible" className="overflow-hidden rounded-xl border border-gray-200">
           {!esOficial && (
-            <div className="border-b border-orange-200 bg-orange-50 px-3 py-2 text-center text-xs font-semibold tracking-wide text-orange-700 uppercase">
+            <div className="border-b border-orange-200 bg-orange-50 px-3 py-2 text-center text-xs font-semibold tracking-wide text-orange-700 uppercase print:hidden">
               Previsualización — documento no oficial, sujeto a cambios hasta que la boleta se marque como pagada
             </div>
           )}
@@ -186,11 +186,11 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
               <p className="text-sm font-bold text-gray-900">{empresaTitulo}</p>
               <p className="text-[11px] text-gray-500">RUC: {texto(empresa?.ruc)} · {texto(empresa?.direccion)}</p>
             </div>
-            <Tag color={esOficial ? 'green' : 'orange'}>{esOficial ? 'Oficial' : `Versión ${detalle.version} — no oficial`}</Tag>
+            <Tag className="print:!hidden" color={esOficial ? 'green' : 'orange'}>{esOficial ? 'Oficial' : `Versión ${detalle.version} — no oficial`}</Tag>
           </div>
 
-          <div className="space-y-3 p-4">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-3 p-4 print:space-y-1.5 print:p-2">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 print:gap-1.5">
               <Tarjeta titulo="Datos del trabajador" icono={<UserOutlined />}>
                 <Dato label="Apellidos y Nombres" value={detalle.colaborador?.nombre_completo} />
                 <Dato label="DNI" value={texto(detalle.colaborador?.numero_documento)} />
@@ -221,7 +221,7 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
               <TablaConceptos conceptos={ingresos} vacio="Sin ingresos registrados" />
             </Tarjeta>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 print:gap-1.5">
               <Tarjeta
                 titulo="Descuentos"
                 icono={<ArrowDownOutlined />}
@@ -265,6 +265,10 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
       )}
 
       <style>{`
+        /* Margen por defecto del navegador (~2.5cm) sobra espacio en una
+           boleta de una sola página — con esto suele alcanzar para que
+           entre completa sin partirse en 2. */
+        @page { margin: 6mm; }
         @media print {
           /* #root es el resto de la app detrás del modal (la tabla de
              planilla, tarjetas, etc.) — con visibility:hidden solo se
@@ -274,10 +278,37 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
           #root { display: none !important; }
           body * { visibility: hidden; }
           #boleta-imprimible, #boleta-imprimible * { visibility: visible; }
-          /* position:fixed hace que Chrome repita el elemento en CADA página
-             impresa (mismo comportamiento que un encabezado/pie fijo) — con
-             el fondo ya colapsado no hace falta fijarlo a la ventana. */
-          #boleta-imprimible { position: absolute; top: 0; left: 0; width: 100%; }
+          /* El wrapper de Ant Design (.ant-modal-wrap) es position:fixed +
+             overflow:auto acotado al viewport, y .ant-modal es
+             position:relative — eso convierte a .ant-modal en el ancestro
+             posicionado de #boleta-imprimible, así que un position:absolute
+             ahí quedaba recortado por el overflow:auto del wrapper (se
+             perdía el encabezado de arriba y el texto del pie se
+             superponía). Se neutraliza toda la cadena a static/visible para
+             que el contenido fluya en la página impresa como un documento
+             normal, sin las restricciones de "ventana modal en pantalla". */
+          .ant-modal-root, .ant-modal-mask, .ant-modal-wrap, .ant-modal,
+          .ant-modal-content, .ant-modal-body {
+            position: static !important;
+            inset: auto !important;
+            top: auto !important;
+            overflow: visible !important;
+            height: auto !important;
+            max-height: none !important;
+            box-shadow: none !important;
+          }
+          /* El Modal tiene width:820 fijo para pantalla (prop "width" del
+             componente) — sin resetearlo también, #boleta-imprimible al
+             100% seguía significando "100% de 820px", no de la hoja
+             completa, y quedaba una columna angosta centrada rodeada de
+             margen en blanco. */
+          .ant-modal, .ant-modal-content {
+            width: 100% !important;
+            max-width: 100% !important;
+            padding: 0 !important;
+            margin: 0 !important;
+          }
+          #boleta-imprimible { position: static; width: 100%; }
           /* Los navegadores no imprimen fondos de color por defecto (para
              ahorrar tinta) — sin esto el header/tarjetas de marca salen en
              blanco y negro al "Guardar como PDF". */

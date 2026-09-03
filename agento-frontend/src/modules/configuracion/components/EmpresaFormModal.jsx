@@ -45,6 +45,7 @@ export default function EmpresaFormModal({
           : null,
         numero_registro_remype: initialValues?.numero_registro_remype ?? '',
         seguro_salud: initialValues?.seguro_salud ?? 'essalud',
+        descanso_flexible_automatico: initialValues?.descanso_flexible_automatico ?? false,
       });
     }
   }, [open, initialValues, form]);
@@ -175,6 +176,15 @@ export default function EmpresaFormModal({
           </Form.Item>
 
           <Form.Item label="Inscrita en REMYPE" name="inscrita_remype" valuePropName="checked">
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            label="Descanso semanal flexible automático"
+            name="descanso_flexible_automatico"
+            valuePropName="checked"
+            extra="Para colaboradores rotativos: el primer día elegible sin marcaciones de la semana se clasifica solo como descanso, los siguientes como falta -- respetando siempre permisos, feriados y trabajo real. Con esto apagado (por defecto), nada cambia."
+          >
             <Switch />
           </Form.Item>
 

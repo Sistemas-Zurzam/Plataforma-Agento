@@ -66,6 +66,16 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
     { title: 'Ingresos', dataIndex: 'total_ingresos', align: 'right', render: soles },
     { title: 'Descuentos', dataIndex: 'total_egresos', align: 'right', render: soles },
     { title: 'Aportaciones', dataIndex: 'total_aportaciones', align: 'right', render: soles },
+    {
+      title: (
+        <Tooltip title="Ajuste neto de planillas complementarias aprobadas/pagadas del período (bonos, comisiones, descuentos y correcciones de asistencia) — ya incluido en Neto.">
+          Complementarias
+        </Tooltip>
+      ),
+      dataIndex: 'total_complementarias',
+      align: 'right',
+      render: (valor) => <span className={Number(valor) >= 0 ? 'text-green-600' : 'text-red-500'}>{soles(valor)}</span>,
+    },
     { title: 'Neto', dataIndex: 'neto_a_pagar', align: 'right', render: (valor) => <strong>{soles(valor)}</strong> },
     {
       title: 'Acciones',
@@ -130,7 +140,7 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
           dataSource={resultado?.empresas ?? []}
           columns={columnas}
           pagination={false}
-          scroll={{ x: 980 }}
+          scroll={{ x: 1120 }}
           locale={{ emptyText: <Empty description="No hay ciclos para los filtros seleccionados" /> }}
           summary={() => totales && (
             <Table.Summary fixed>
@@ -141,8 +151,11 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
                 <Table.Summary.Cell index={3} align="right"><strong>{soles(totales.total_ingresos)}</strong></Table.Summary.Cell>
                 <Table.Summary.Cell index={4} align="right"><strong>{soles(totales.total_egresos)}</strong></Table.Summary.Cell>
                 <Table.Summary.Cell index={5} align="right"><strong>{soles(totales.total_aportaciones)}</strong></Table.Summary.Cell>
-                <Table.Summary.Cell index={6} align="right"><strong>{soles(totales.neto_a_pagar)}</strong></Table.Summary.Cell>
-                <Table.Summary.Cell index={7} />
+                <Table.Summary.Cell index={6} align="right">
+                  <strong className={totales.total_complementarias >= 0 ? 'text-green-600' : 'text-red-500'}>{soles(totales.total_complementarias)}</strong>
+                </Table.Summary.Cell>
+                <Table.Summary.Cell index={7} align="right"><strong>{soles(totales.neto_a_pagar)}</strong></Table.Summary.Cell>
+                <Table.Summary.Cell index={8} />
               </Table.Summary.Row>
             </Table.Summary>
           )}

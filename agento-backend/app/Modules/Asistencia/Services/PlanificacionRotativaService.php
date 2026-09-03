@@ -148,6 +148,11 @@ class PlanificacionRotativaService
             $dias[] = [
                 'fecha' => $fechaTexto,
                 'tipo' => $fueraDePeriodo ? 'fuera_de_periodo' : $tipo,
+                // Permite a la UI distinguir un día asignado por el
+                // descanso semanal flexible automático (Empresa::descanso_flexible_automatico)
+                // de una planificación manual — la clasificación en sí es
+                // idéntica, esto es solo transparencia visual.
+                'origen' => $fueraDePeriodo ? null : $porFecha->get($fechaTexto)?->origen,
                 // Descanso planificado pero con marcaciones reales ese
                 // día — solo informativo, no cambia ninguna regla de pago.
                 'trabajo_en_descanso' => $trabajoEnDescanso,

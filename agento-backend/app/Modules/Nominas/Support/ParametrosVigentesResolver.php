@@ -6,6 +6,7 @@ use App\Modules\Configuracion\Models\ComisionAfp;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\ParametroLaboralDefinicion;
 use App\Modules\Configuracion\Models\ParametroLaboralValor;
+use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Nominas\Models\TramoRenta;
 use RuntimeException;
 
@@ -65,14 +66,25 @@ class ParametrosVigentesResolver
 
         $definiciones = ParametroLaboralDefinicion::pluck('id', 'clave');
 
-        $valores = ParametroLaboralValor::where('empresa_id', $empresa->id)
+        // Indexar por la clave funcional evita depender del tipo con el que
+        // PDO hidrate definicion_id (int/string), que puede variar entre el
+        // proceso HTTP y CLI y provocar que Collection::get() no encuentre
+        // un valor que sí existe en la base.
+        $valores = ParametroLaboralValor::query()
+            // La empresa ya fue autorizada por el caso de uso. Un admin
+            // global puede calcular una empresa distinta de la activa en su
+            // usuario; conservar EmpresaScope añadiría dos empresa_id
+            // contradictorios y ocultaría todos los parámetros.
+            ->withoutGlobalScope(EmpresaScope::class)
+            ->join('parametro_laboral_definiciones as definiciones', 'definiciones.id', '=', 'parametro_laboral_valores.definicion_id')
+            ->where('parametro_laboral_valores.empresa_id', $empresa->id)
             ->where('regimen_laboral', $regimenLaboral)
             ->whereDate('vigencia_desde', '<=', $fechaCorte)
-            ->whereIn('definicion_id', $definiciones->values())
+            ->whereIn('parametro_laboral_valores.definicion_id', $definiciones->values())
             ->orderByDesc('vigencia_desde')
-            ->orderByDesc('id')
-            ->get()
-            ->groupBy('definicion_id')
+            ->orderByDesc('parametro_laboral_valores.id')
+            ->get(['definiciones.clave', 'parametro_laboral_valores.valor'])
+            ->groupBy('clave')
             ->map(fn ($grupo) => (float) $grupo->first()->valor);
 
         // $porDefecto = null significa "no existe un valor por defecto legal
@@ -89,7 +101,7 @@ class ParametrosVigentesResolver
                 throw new RuntimeException("El parámetro laboral \"{$clave}\" no existe en el catálogo (parametro_laboral_definiciones) — revisa el seeder.");
             }
 
-            $valorResuelto = $valores->get($definicionId);
+            $valorResuelto = $valores->get($clave);
 
             if ($valorResuelto !== null) {
                 return $valorResuelto;
@@ -148,6 +160,59 @@ class ParametrosVigentesResolver
 
         $parametros['asignacion_familiar_monto'] = round($parametros['rmv'] * $parametros['tasa_asignacion_familiar'], 2);
         $parametros['version_id'] = self::versionId($empresa, $regimenLaboral, $fechaCorte, $parametros);
+
+        return self::$cacheParametros[$claveCache] = $parametros;
+    }
+
+    /**
+     * Parámetros mínimos del motor civil de recibos por honorarios. Un
+     * locador no usa RMV, EsSalud, AFP/ONP, CTS, vacaciones ni renta de
+     * quinta; exigir el paquete laboral completo impedía regularizar un RH
+     * aunque los únicos valores necesarios sí estuvieran configurados.
+     *
+     * @return array<string, float|string>
+     */
+    public static function paraHonorarios(Empresa $empresa, string $fechaCorte): array
+    {
+        $regimen = 'Locacion de Servicios';
+        $claveCache = "honorarios:{$empresa->id}:{$fechaCorte}";
+        if (isset(self::$cacheParametros[$claveCache])) {
+            return self::$cacheParametros[$claveCache];
+        }
+
+        $claves = [
+            'renta_4ta_tasa', 'renta_4ta_umbral',
+            'horas_extra_tasa_x25', 'horas_extra_tasa_x35', 'horas_extra_tasa_nocturna',
+        ];
+        $definiciones = ParametroLaboralDefinicion::whereIn('clave', $claves)->pluck('id', 'clave');
+        $valores = ParametroLaboralValor::withoutGlobalScope(EmpresaScope::class)
+            ->where('empresa_id', $empresa->id)
+            ->where('regimen_laboral', $regimen)
+            ->whereDate('vigencia_desde', '<=', $fechaCorte)
+            ->whereIn('definicion_id', $definiciones->values())
+            ->orderByDesc('vigencia_desde')->orderByDesc('id')->get()
+            ->groupBy('definicion_id')->map(fn ($grupo) => (float) $grupo->first()->valor);
+
+        $requerido = function (string $clave) use ($definiciones, $valores, $empresa, $regimen, $fechaCorte): float {
+            $id = $definiciones->get($clave);
+            $valor = $id ? $valores->get($id) : null;
+            if ($valor === null) {
+                throw new RuntimeException(
+                    "Falta configurar el parámetro \"{$clave}\" para el régimen \"{$regimen}\" de {$empresa->nombre_comercial}, vigente a {$fechaCorte}. ".
+                    'Configúralo en Configuración → Parámetros Laborales antes de calcular la planilla.'
+                );
+            }
+            return $valor;
+        };
+
+        $parametros = [
+            'tasa_retencion_4ta' => $requerido('renta_4ta_tasa') / 100,
+            'umbral_retencion_4ta' => $requerido('renta_4ta_umbral'),
+            'horas_extra_tasa_x25' => $valores->get($definiciones->get('horas_extra_tasa_x25'), 1.25) ?: 1.25,
+            'horas_extra_tasa_x35' => $valores->get($definiciones->get('horas_extra_tasa_x35'), 1.35) ?: 1.35,
+            'horas_extra_tasa_nocturna' => $valores->get($definiciones->get('horas_extra_tasa_nocturna'), 2.0) ?: 2.0,
+        ];
+        $parametros['version_id'] = self::versionId($empresa, $regimen, $fechaCorte, $parametros);
 
         return self::$cacheParametros[$claveCache] = $parametros;
     }
@@ -222,7 +287,8 @@ class ParametrosVigentesResolver
             return self::$cacheRmaAfp[$claveCache] = null;
         }
 
-        $valor = ParametroLaboralValor::where('empresa_id', $empresa->id)
+        $valor = ParametroLaboralValor::withoutGlobalScope(EmpresaScope::class)
+            ->where('empresa_id', $empresa->id)
             ->where('definicion_id', $definicionId)
             ->where('regimen_laboral', $regimenLaboral)
             ->whereDate('vigencia_desde', '<=', $fechaPago)

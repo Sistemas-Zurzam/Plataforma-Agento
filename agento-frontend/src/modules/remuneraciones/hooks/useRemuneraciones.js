@@ -126,6 +126,53 @@ export function useRemuneraciones() {
     return data;
   }, []);
 
+  const fetchComplementarias = useCallback(async (cicloId) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias`);
+    return data.data;
+  }, []);
+
+  const crearComplementaria = useCallback(async (cicloId, boletaIds, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias`, { boleta_ids: boletaIds, motivo });
+    return data.data;
+  }, []);
+
+  const agregarConceptoComplementaria = useCallback(async (detalleId, conceptoId, conceptoDefinicionId, monto, motivo) => {
+    const { data } = await api.post(`/planillas-complementarias-detalles/${detalleId}/conceptos`, {
+      concepto_id: conceptoId, concepto_definicion_id: conceptoDefinicionId, monto, motivo,
+    });
+    return data.data;
+  }, []);
+
+  const eliminarConceptoComplementaria = useCallback(async (detalleId, lineaId) => {
+    const { data } = await api.delete(`/planillas-complementarias-detalles/${detalleId}/conceptos/${lineaId}`);
+    return data.data;
+  }, []);
+
+  const eliminarComplementaria = useCallback(async (id) => {
+    await api.delete(`/planillas-complementarias/${id}`);
+  }, []);
+
+  const aprobarComplementaria = useCallback(async (id) => {
+    const { data } = await api.patch(`/planillas-complementarias/${id}/aprobar`);
+    return data.data;
+  }, []);
+
+  const pagarComplementaria = useCallback(async (id, referenciaPago) => {
+    const { data } = await api.patch(`/planillas-complementarias/${id}/pagar`, { referencia_pago: referenciaPago });
+    return data.data;
+  }, []);
+
+  const exportarComplementaria = useCallback(async (id, banco, parametros) => {
+    const response = await api.post(`/planillas-complementarias/${id}/${banco}/exportar`, parametros, { responseType: 'blob' });
+    const contentType = response.headers?.['content-type'] ?? '';
+    if (contentType.includes('application/json')) return { descargado: false, ...JSON.parse(await response.data.text()) };
+    const nombre = response.headers?.['content-disposition']?.match(/filename="?([^";]+)"?/)?.[1] ?? `COMPLEMENTARIA_${id}.txt`;
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a'); enlace.href = url; enlace.download = nombre;
+    document.body.appendChild(enlace); enlace.click(); enlace.remove(); window.URL.revokeObjectURL(url);
+    return { descargado: true };
+  }, []);
+
   const verBoleta = useCallback(async (boletaId) => {
     const { data } = await api.get(`/boletas/${boletaId}`);
     return data.data;
@@ -439,6 +486,14 @@ export function useRemuneraciones() {
     resumenLoading,
     fetchResumen,
     fetchResumenContable,
+    fetchComplementarias,
+    crearComplementaria,
+    agregarConceptoComplementaria,
+    eliminarConceptoComplementaria,
+    eliminarComplementaria,
+    aprobarComplementaria,
+    pagarComplementaria,
+    exportarComplementaria,
     verBoleta,
     aprobarBoleta,
     fetchIncidenciasPendientesAprobar,

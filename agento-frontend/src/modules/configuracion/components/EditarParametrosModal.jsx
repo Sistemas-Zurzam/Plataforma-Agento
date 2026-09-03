@@ -12,11 +12,18 @@ export default function EditarParametrosModal({ open, regimen, onSubmit, onCance
   useEffect(() => {
     if (open && regimen) {
       const valoresIniciales = {};
+      let vigenciaActual = null;
       regimen.parametros.forEach((parametro) => {
         valoresIniciales[campoValor(parametro.definicion_id)] =
           parametro.valor !== null ? Number(parametro.valor) : undefined;
+        if (parametro.vigencia_desde && (!vigenciaActual || parametro.vigencia_desde > vigenciaActual)) {
+          vigenciaActual = parametro.vigencia_desde;
+        }
       });
-      form.setFieldsValue({ ...valoresIniciales, vigencia_desde: dayjs() });
+      form.setFieldsValue({
+        ...valoresIniciales,
+        vigencia_desde: vigenciaActual ? dayjs(vigenciaActual) : dayjs(),
+      });
     }
   }, [open, regimen, form]);
 

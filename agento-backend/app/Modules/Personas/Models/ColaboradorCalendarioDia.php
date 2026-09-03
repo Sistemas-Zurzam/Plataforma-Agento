@@ -38,6 +38,20 @@ class ColaboradorCalendarioDia extends Model
     public const ORIGEN_DESCANSO_SUSTITUTORIO = 'descanso_sustitutorio';
 
     /**
+     * Descanso semanal flexible automático (opt-in por empresa, ver
+     * Empresa::descanso_flexible_automatico) — asignado por
+     * AsignarDescansoFlexibleSemanal al cerrar un período, nunca a mano.
+     * A diferencia de ORIGEN_HORARIO_AUTOMATICO/ORIGEN_FERIADO_AUTOMATICO
+     * (que sí se purgan en AjustarCalendarioPorCambioHorario::invalidarAutomaticas()),
+     * este origen NUNCA debe agregarse a esa purga: su invalidación/recálculo
+     * vive únicamente en AsignarDescansoFlexibleSemanal::persistirSegmento(),
+     * condicionada a que el período siga abierto — mezclar ambos mecanismos
+     * podría borrar una asignación ya cerrada creyendo que es un default
+     * de horario reemplazable.
+     */
+    public const ORIGEN_DESCANSO_FLEXIBLE_AUTOMATICO = 'descanso_flexible_automatico';
+
+    /**
      * Eloquent pluralizaría "ColaboradorCalendarioDia" incorrectamente en
      * español; la tabla real es "colaborador_calendario_dias".
      */
