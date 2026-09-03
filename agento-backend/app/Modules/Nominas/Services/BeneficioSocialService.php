@@ -6,7 +6,9 @@ use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Models\BeneficioSocial;
 use App\Modules\Nominas\Models\BeneficioSocialDetalle;
 use App\Modules\Nominas\Models\BoletaConcepto;
+use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -206,12 +208,16 @@ class BeneficioSocialService
             ->with(['boleta.colaborador', 'concepto'])
             ->get();
 
-        $porColaborador = $conceptos->groupBy('boleta.colaborador_id')->map(function ($lineas) use ($empresa) {
+        $ajustesPorColaborador = $this->ajustesComplementariasPorCodigo($empresa, $rango['codigos'], $rango['inicio'], $rango['fin']);
+
+        $porColaborador = $conceptos->groupBy('boleta.colaborador_id')->map(function ($lineas) use ($empresa, $ajustesPorColaborador) {
             $boleta = $lineas->first()->boleta;
             $colaborador = $boleta->colaborador;
-            $bruta = $lineas->where('concepto.codigo', 'GRATIFICACION_LEGAL')->sum('monto')
-                + $lineas->where('concepto.codigo', 'CTS_PROVISION')->sum('monto');
-            $bonificacionExtraordinaria = $lineas->where('concepto.codigo', 'BONIFICACION_EXTRAORDINARIA')->sum('monto');
+            $ajustes = $ajustesPorColaborador->get($colaborador->id, []);
+
+            $bruta = $lineas->where('concepto.codigo', 'GRATIFICACION_LEGAL')->sum('monto') + ($ajustes['GRATIFICACION_LEGAL'] ?? 0.0)
+                + $lineas->where('concepto.codigo', 'CTS_PROVISION')->sum('monto') + ($ajustes['CTS_PROVISION'] ?? 0.0);
+            $bonificacionExtraordinaria = $lineas->where('concepto.codigo', 'BONIFICACION_EXTRAORDINARIA')->sum('monto') + ($ajustes['BONIFICACION_EXTRAORDINARIA'] ?? 0.0);
             $meses = $lineas->pluck('boleta_id')->unique()->count();
 
             return [
@@ -233,5 +239,52 @@ class BeneficioSocialService
             'total_bruto' => round($porColaborador->sum('bruta'), 2),
             'total_neto' => round($porColaborador->sum('neta'), 2),
         ];
+    }
+
+    /**
+     * Ajuste neto por colaborador y por código ($codigos, ej.
+     * GRATIFICACION_LEGAL/BONIFICACION_EXTRAORDINARIA o CTS_PROVISION según
+     * $tipo) que aportan las planillas complementarias aprobadas/pagadas de
+     * boletas dentro del semestre — sin esto, un ingreso remunerativo
+     * agregado después de pagar (PlanillaComplementariaService::
+     * recalcularProvisiones()) nunca llegaría al cálculo real de CTS/
+     * gratificación, porque este servicio SIEMPRE lee boleta_conceptos
+     * directo (nunca planillas_complementarias) por diseño (ver docblock de
+     * la clase). Se calcula como (snapshot corregido − boleta original) por
+     * código, nunca el valor absoluto del snapshot, para no descontar dos
+     * veces lo que boleta_conceptos ya aporta arriba.
+     *
+     * @param  array<int, string>  $codigos
+     * @return Collection<int, array<string, float>> indexada por colaborador_id
+     */
+    private function ajustesComplementariasPorCodigo(Empresa $empresa, array $codigos, string $inicio, string $fin): Collection
+    {
+        $detalles = PlanillaComplementariaDetalle::whereHas(
+            'complementaria',
+            fn ($q) => $q->where('empresa_id', $empresa->id)->whereIn('estado', ['aprobada', 'pagada']),
+        )
+            ->whereHas('boletaOriginal', fn ($q) => $q->whereHas(
+                'ciclo',
+                fn ($q2) => $q2->whereDate('fecha_inicio', '>=', $inicio)->whereDate('fecha_fin', '<=', $fin),
+            ))
+            ->with('boletaOriginal.conceptos.concepto')
+            ->get();
+
+        if ($detalles->isEmpty()) {
+            return collect();
+        }
+
+        return $detalles->groupBy('colaborador_id')->map(function (Collection $grupo) use ($codigos) {
+            $porCodigo = [];
+            foreach ($codigos as $codigo) {
+                $nuevo = $grupo->sum(fn (PlanillaComplementariaDetalle $d) => collect($d->calculo_snapshot['aportaciones'] ?? [])
+                    ->where('codigo', $codigo)->sum('monto'));
+                $original = $grupo->sum(fn (PlanillaComplementariaDetalle $d) => $d->boletaOriginal->conceptos
+                    ->filter(fn ($c) => $c->concepto?->codigo === $codigo)->sum('monto'));
+                $porCodigo[$codigo] = round($nuevo - $original, 2);
+            }
+
+            return $porCodigo;
+        });
     }
 }

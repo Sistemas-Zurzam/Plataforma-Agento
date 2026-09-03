@@ -34,6 +34,14 @@ function EstadoDia({ resultado, mostrarHoras = false }) {
           {duracion(Number(resultado.minutos_trabajados))}
         </span>
       )}
+      {mostrarHoras && (resultado?.entrada || resultado?.salida) && (
+        <span
+          className="text-[10px] leading-tight text-slate-500"
+          title={`Entrada: ${hora(resultado?.entrada)} · Salida: ${hora(resultado?.salida)}`}
+        >
+          E {hora(resultado?.entrada)} · S {hora(resultado?.salida)}
+        </span>
+      )}
     </div>
   );
 }

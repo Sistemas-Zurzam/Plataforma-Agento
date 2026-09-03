@@ -7,6 +7,7 @@ use App\Modules\Nominas\Domain\AfpNet\AfpNetExportContext;
 use App\Modules\Nominas\Domain\AfpNet\AfpNetMapeoLookup;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use Illuminate\Support\Collection;
 
@@ -44,6 +45,8 @@ final class AfpNetCicloDatosLoader
             return in_array($sistemaPrevisional, self::CLAVES_AFP, true);
         })->values();
 
+        self::aplicarComplementariasAprobadas($ciclo, $boletasAfp);
+
         $permisosPorColaborador = self::cargarPermisos($boletasAfp->pluck('colaborador_id'), $ciclo)
             ->groupBy('colaborador_id');
 
@@ -55,6 +58,53 @@ final class AfpNetCicloDatosLoader
             $permisosPorColaborador,
             AfpNetMapeoLookup::cargar(),
         );
+    }
+
+    /**
+     * AFPnet solo declara `remuneracion_asegurable`, que es
+     * `AFP_APORTE_OBLIGATORIO.base_utilizada` (ver AfpNetFilaBuilder /
+     * AfpNetValidator) — nunca el monto del aporte. Si el colaborador tiene
+     * una planilla complementaria aprobada/pagada para este ciclo, esa base
+     * ya viene corregida en `calculo_snapshot` (PlanillaComplementariaService::
+     * recalcularAfpEssalud()), así que basta con actualizar ESE único campo
+     * en memoria — nunca se reconstruye toda la colección de conceptos como
+     * sí hace PlameCicloDatosLoader (.rem declara cada concepto por línea;
+     * AFPnet no).
+     */
+    private static function aplicarComplementariasAprobadas(CicloRemunerativo $ciclo, Collection $boletas): void
+    {
+        $detalles = PlanillaComplementariaDetalle::whereHas(
+            'complementaria',
+            fn ($q) => $q->where('ciclo_id', $ciclo->id)->whereIn('estado', ['aprobada', 'pagada']),
+        )
+            ->where('calculo_snapshot->regimen_laboral', '!=', 'Locacion de Servicios')
+            ->latest('id')
+            ->get()
+            ->unique('colaborador_id')
+            ->keyBy('colaborador_id');
+
+        if ($detalles->isEmpty()) {
+            return;
+        }
+
+        foreach ($boletas as $boleta) {
+            /** @var PlanillaComplementariaDetalle|null $detalle */
+            $detalle = $detalles->get($boleta->colaborador_id);
+            if (! $detalle) {
+                continue;
+            }
+
+            $lineaAfp = collect($detalle->calculo_snapshot['egresos'] ?? [])
+                ->first(fn (array $l) => $l['codigo'] === 'AFP_APORTE_OBLIGATORIO');
+            if (! $lineaAfp) {
+                continue; // colaborador ONP — ya excluido por el filtro AFP de cargar(), resguardo explícito
+            }
+
+            $conceptoAfp = $boleta->conceptos->first(fn ($c) => $c->concepto?->codigo === 'AFP_APORTE_OBLIGATORIO');
+            if ($conceptoAfp) {
+                $conceptoAfp->base_utilizada = $lineaAfp['base_utilizada'];
+            }
+        }
     }
 
     private static function cargarPermisos(Collection $colaboradorIds, CicloRemunerativo $ciclo): Collection

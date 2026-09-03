@@ -7,12 +7,14 @@ use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
 use App\Modules\Nominas\Infrastructure\BbvaNetCash\Export\BbvaNetCashTxtExporter;
 use App\Modules\Nominas\Infrastructure\TelecreditoBcp\Export\TelecreditoBcpTxtExporter;
+use App\Modules\Nominas\Domain\RegimenCalculatorFactory;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaDatosPago;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\PlanillaComplementaria;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
+use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -140,6 +142,13 @@ class PlanillaComplementariaService
      * snapshot para que quede internamente consistente — tanto para esta
      * exportación como para una futura complementaria que encadene sobre
      * "última pagada" (ver crear()).
+     *
+     * Si el concepto es un ingreso "es_remunerativo_laboral" (catálogo
+     * ConceptoRemuneracionSeeder: COMISION/BONIFICACION marcan afecta_afp=
+     * true), el aporte AFP/ONP y EsSalud del colaborador se recalculan sobre
+     * la nueva base remunerativa — nunca quedan congelados con el valor del
+     * cálculo original, porque legalmente si sube el ingreso computable
+     * también sube el aporte previsional (ver recalcularAfpEssalud()).
      */
     public function agregarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, int $conceptoId, ?int $conceptoDefinicionId, float $monto, ?string $motivo, int $usuarioId): PlanillaComplementaria
     {
@@ -167,7 +176,7 @@ class PlanillaComplementariaService
         $montoRedondeado = round($monto, 2);
         $bloque = $concepto->tipo === 'ingreso' ? 'ingresos' : 'egresos';
 
-        DB::transaction(function () use ($detalle, $concepto, $conceptoDefinicionId, $montoRedondeado, $bloque, $motivo, $usuarioId) {
+        DB::transaction(function () use ($detalle, $concepto, $conceptoDefinicionId, $montoRedondeado, $bloque, $motivo, $usuarioId, $esHonorarios) {
             $snapshot = $detalle->calculo_snapshot;
             $snapshot[$bloque][] = [
                 // Identificador propio (no hay columna dedicada: la línea
@@ -192,8 +201,13 @@ class PlanillaComplementariaService
                 'agregado_por' => $usuarioId,
                 'agregado_en' => now()->toDateTimeString(),
             ];
-            $this->recalcularTotalesSnapshot($snapshot);
-            $this->aplicarDeltaDetalle($detalle, $bloque, $montoRedondeado, 1, $snapshot);
+
+            if ($bloque === 'ingresos' && ! $esHonorarios && $concepto->es_remunerativo_laboral) {
+                $this->recalcularAfpEssalud($detalle, $snapshot, $montoRedondeado);
+                $this->recalcularProvisiones($detalle, $snapshot, $montoRedondeado);
+            }
+
+            $this->guardarSnapshotYDiferencias($detalle, $snapshot);
         });
 
         return $this->cargar($item);
@@ -205,6 +219,11 @@ class PlanillaComplementariaService
      * toca una línea que produjo el motor de cálculo (solo las marcadas con
      * `agregado_por`): no existe forma de "eliminar" un descuento por falta
      * real, solo de corregir la asistencia y volver a calcular.
+     *
+     * Si la línea eliminada era un ingreso remunerativo que ya había
+     * disparado un recálculo de AFP/EsSalud (agregarConcepto()), ese aporte
+     * se revierte simétricamente acá — nunca queda inflado con un ingreso
+     * que ya no existe.
      */
     public function eliminarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, string $lineaId): PlanillaComplementaria
     {
@@ -227,8 +246,17 @@ class PlanillaComplementariaService
                 ->reject(fn (array $l) => ($l['id'] ?? null) === $lineaId)
                 ->values()->all();
 
-            $this->recalcularTotalesSnapshot($snapshot);
-            $this->aplicarDeltaDetalle($detalle, $bloque, (float) $linea['monto'], -1, $snapshot);
+            if ($bloque === 'ingresos') {
+                $colaborador = $detalle->colaborador;
+                $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
+                $concepto = ConceptoRemuneracion::where('codigo', $linea['codigo'])->first();
+                if (! $esHonorarios && $concepto?->es_remunerativo_laboral) {
+                    $this->recalcularAfpEssalud($detalle, $snapshot, -1 * (float) $linea['monto']);
+                    $this->recalcularProvisiones($detalle, $snapshot, -1 * (float) $linea['monto']);
+                }
+            }
+
+            $this->guardarSnapshotYDiferencias($detalle, $snapshot);
         });
 
         return $this->cargar($item);
@@ -251,33 +279,135 @@ class PlanillaComplementariaService
         return [null, null];
     }
 
+    /**
+     * Recalcula AFP/ONP y EsSalud/SIS sobre la base remunerativa + $deltaBase
+     * (positivo al agregar un ingreso remunerativo, negativo al eliminarlo),
+     * reutilizando EXACTAMENTE las mismas fórmulas de
+     * PlanillaDependienteCalculator (tope RMA de la prima de seguro, piso
+     * legal de EsSalud, tipo de comisión AFP del colaborador) en vez de
+     * reimplementarlas — un cálculo propio acá divergiría en los casos
+     * límite (tope/piso) del que ya usó CalcularBoletaColaborador para el
+     * cálculo original. Reemplaza las líneas AFP/ONP/EsSalud existentes del
+     * snapshot por las nuevas — nunca sirve solo la diferencia porque el
+     * tope/piso no escalan linealmente con la base.
+     *
+     * Nunca se llama para honorarios (ya filtrado por el caller): un
+     * locador no tiene AFP/ONP/EsSalud.
+     */
+    private function recalcularAfpEssalud(PlanillaComplementariaDetalle $detalle, array &$snapshot, float $deltaBase): void
+    {
+        $colaborador = $detalle->colaborador;
+        $ciclo = $detalle->boletaOriginal->ciclo;
+        $regimen = $colaborador->regimen_laboral ?: 'General';
+        $fechaCorte = $ciclo->fecha_corte_asistencia->toDateString();
+        $fechaPago = $ciclo->fecha_pago->toDateString();
+
+        $parametros = ParametrosVigentesResolver::paraRegimen($colaborador->empresa, $regimen, $fechaCorte);
+        $rmaAfp = $colaborador->sistema_previsional === 'onp'
+            ? null
+            : ParametrosVigentesResolver::rmaAfp($colaborador->empresa, $regimen, $fechaPago);
+        $calculadora = RegimenCalculatorFactory::paraRegimen($regimen);
+
+        $codigosPrevisionales = ['AFP_APORTE_OBLIGATORIO', 'AFP_PRIMA_SEGURO', 'AFP_COMISION', 'ONP'];
+        $lineaPrevisionalActual = collect($snapshot['egresos'] ?? [])
+            ->first(fn (array $l) => in_array($l['codigo'], $codigosPrevisionales, true));
+        $baseActual = (float) ($lineaPrevisionalActual['base_utilizada'] ?? 0.0);
+        $nuevaBase = max(0.0, round($baseActual + $deltaBase, 2));
+
+        $nuevasLineasPrevisionales = $calculadora->calcularAporteAfpOnp($colaborador, $nuevaBase, $parametros, $fechaCorte, $rmaAfp);
+        $snapshot['egresos'] = collect($snapshot['egresos'] ?? [])
+            ->reject(fn (array $l) => in_array($l['codigo'], $codigosPrevisionales, true))
+            ->concat($nuevasLineasPrevisionales)
+            ->values()->all();
+
+        $essalud = $calculadora->calcularEsSalud($nuevaBase, $parametros, $colaborador->empresa->seguro_salud);
+        $codigosEssalud = ['ESSALUD', 'SIS_APORTACION'];
+        $snapshot['aportaciones'] = collect($snapshot['aportaciones'] ?? [])
+            ->reject(fn (array $l) => in_array($l['codigo'], $codigosEssalud, true))
+            ->push($essalud['linea'])
+            ->values()->all();
+    }
+
+    /**
+     * Recalcula las provisiones de CTS/gratificación/bonificación
+     * extraordinaria/vacaciones (siempre dentro de `calculo_snapshot`, la
+     * boleta original nunca se toca) cuando se agrega o elimina un ingreso
+     * remunerativo — misma razón que recalcularAfpEssalud(): estas
+     * provisiones también deben subir/bajar con la base remunerativa
+     * (ConceptoRemuneracionSeeder: COMISION/BONIFICACION marcan
+     * afecta_cts=afecta_gratificacion=afecta_vacaciones=true).
+     *
+     * Usa la base REGULAR (antes de descuentos de asistencia), no la neta
+     * de asistencia que usa recalcularAfpEssalud() — son bases distintas a
+     * propósito en CalcularBoletaColaborador, VACACIONES_PROVISION/
+     * GRATIFICACION_LEGAL ya la guardan tal cual en `base_utilizada` así que
+     * no hace falta volver a derivarla.
+     *
+     * Importante: por sí sola, esta corrección es interna al snapshot de la
+     * complementaria — BeneficioSocialService::calcularEnVivo() (el cálculo
+     * real de CTS/gratificación que se paga en mayo/noviembre/julio/
+     * diciembre) también fue extendido para leer este ajuste; sin ese otro
+     * cambio, esto habría quedado meramente informativo.
+     */
+    private function recalcularProvisiones(PlanillaComplementariaDetalle $detalle, array &$snapshot, float $deltaBase): void
+    {
+        $colaborador = $detalle->colaborador;
+        $ciclo = $detalle->boletaOriginal->ciclo;
+        $regimen = $colaborador->regimen_laboral ?: 'General';
+        $fechaCorte = $ciclo->fecha_corte_asistencia->toDateString();
+        $parametros = ParametrosVigentesResolver::paraRegimen($colaborador->empresa, $regimen, $fechaCorte);
+        $calculadora = RegimenCalculatorFactory::paraRegimen($regimen);
+
+        $codigosProvisiones = ['CTS_PROVISION', 'GRATIFICACION_LEGAL', 'BONIFICACION_EXTRAORDINARIA', 'VACACIONES_PROVISION'];
+        $lineaBaseRegular = collect($snapshot['aportaciones'] ?? [])
+            ->first(fn (array $l) => in_array($l['codigo'], ['VACACIONES_PROVISION', 'GRATIFICACION_LEGAL'], true));
+        $baseRegularActual = (float) ($lineaBaseRegular['base_utilizada'] ?? 0.0);
+        $nuevaBaseRegular = max(0.0, round($baseRegularActual + $deltaBase, 2));
+
+        $gratificacionesSemestre = $this->calculador->gratificacionesPercibidasSemestre($colaborador, $fechaCorte, $ciclo->id);
+        $nuevasLineasProvisiones = $calculadora->calcularProvisiones($nuevaBaseRegular, $gratificacionesSemestre, $parametros);
+
+        $snapshot['aportaciones'] = collect($snapshot['aportaciones'] ?? [])
+            ->reject(fn (array $l) => in_array($l['codigo'], $codigosProvisiones, true))
+            ->concat($nuevasLineasProvisiones)
+            ->values()->all();
+    }
+
+    /**
+     * Recalcula los totales del snapshot y las 4 columnas de diferencia a
+     * partir de la ECUACIÓN que ya define crear() (diferencia = nuevo -
+     * base), nunca acumulando deltas sueltos: la "base" (lo que ya estaba
+     * vigente antes de este cambio, sea el agregado de un concepto manual o
+     * el recálculo de AFP/EsSalud que dispara) se despeja de lo que YA está
+     * persistido (snapshot/diferencias actuales), así que un solo mecanismo
+     * cubre cualquier combinación de cambios sin arrastrar un error de
+     * redondeo o de signo entre agregarConcepto()/eliminarConcepto().
+     */
+    private function guardarSnapshotYDiferencias(PlanillaComplementariaDetalle $detalle, array $snapshot): void
+    {
+        $snapshotAntes = $detalle->calculo_snapshot;
+        $baseIngresos = (float) ($snapshotAntes['total_ingresos'] ?? 0.0) - (float) $detalle->diferencia_ingresos;
+        $baseEgresos = (float) ($snapshotAntes['total_egresos'] ?? 0.0) - (float) $detalle->diferencia_egresos;
+        $baseAportaciones = (float) ($snapshotAntes['total_aportaciones'] ?? 0.0) - (float) $detalle->diferencia_aportaciones;
+
+        $this->recalcularTotalesSnapshot($snapshot);
+
+        $detalle->update([
+            'calculo_snapshot' => $snapshot,
+            'neto_recalculado' => $snapshot['neto_a_pagar'],
+            'diferencia_ingresos' => round($snapshot['total_ingresos'] - $baseIngresos, 2),
+            'diferencia_egresos' => round($snapshot['total_egresos'] - $baseEgresos, 2),
+            'diferencia_aportaciones' => round($snapshot['total_aportaciones'] - $baseAportaciones, 2),
+            'diferencia_neta' => round($snapshot['neto_a_pagar'] - (float) $detalle->neto_original, 2),
+        ]);
+    }
+
     private function recalcularTotalesSnapshot(array &$snapshot): void
     {
         $snapshot['total_ingresos'] = round(collect($snapshot['ingresos'] ?? [])->sum('monto'), 2);
         $snapshot['total_egresos'] = round(collect($snapshot['egresos'] ?? [])->sum('monto'), 2);
+        $snapshot['total_aportaciones'] = round(collect($snapshot['aportaciones'] ?? [])->sum('monto'), 2);
         $snapshot['neto_a_pagar'] = round($snapshot['total_ingresos'] - $snapshot['total_egresos'], 2);
-    }
-
-    /**
-     * Aplica (dirección +1) o revierte (dirección -1) el efecto de una línea
-     * de monto $monto en $bloque ('ingresos'/'egresos') sobre los
-     * acumuladores de diferencia del detalle — misma cuenta que
-     * agregarConcepto() usaba en línea, ahora compartida con
-     * eliminarConcepto() para que ambas nunca diverjan.
-     */
-    private function aplicarDeltaDetalle(PlanillaComplementariaDetalle $detalle, string $bloque, float $monto, int $direccion, array $snapshot): void
-    {
-        $esIngreso = $bloque === 'ingresos';
-        $deltaBloque = $direccion * $monto;
-        $deltaNeto = $direccion * ($esIngreso ? 1 : -1) * $monto;
-
-        $detalle->update([
-            'calculo_snapshot' => $snapshot,
-            'neto_recalculado' => bcadd((string) $detalle->neto_recalculado, (string) $deltaNeto, 2),
-            'diferencia_ingresos' => $esIngreso ? bcadd((string) $detalle->diferencia_ingresos, (string) $deltaBloque, 2) : $detalle->diferencia_ingresos,
-            'diferencia_egresos' => ! $esIngreso ? bcadd((string) $detalle->diferencia_egresos, (string) $deltaBloque, 2) : $detalle->diferencia_egresos,
-            'diferencia_neta' => bcadd((string) $detalle->diferencia_neta, (string) $deltaNeto, 2),
-        ]);
     }
 
     public function aprobar(Empresa $empresa, PlanillaComplementaria $item, int $usuarioId): PlanillaComplementaria

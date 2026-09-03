@@ -456,7 +456,13 @@ class CalcularBoletaColaborador
         ];
     }
 
-    private function gratificacionesPercibidasSemestre(Colaborador $colaborador, string $fechaCorte, ?int $cicloId): float
+    /**
+     * Público (no solo uso interno de calcular()): PlanillaComplementariaService
+     * la reutiliza para recalcular la provisión de CTS/gratificación cuando se
+     * agrega un ingreso remunerativo a una complementaria — la misma consulta
+     * real contra boleta_conceptos, nunca una fórmula paralela.
+     */
+    public function gratificacionesPercibidasSemestre(Colaborador $colaborador, string $fechaCorte, ?int $cicloId): float
     {
         $fecha = Carbon::parse($fechaCorte);
         $inicioSemestre = $fecha->month <= 6 ? $fecha->copy()->startOfYear() : Carbon::create($fecha->year, 7, 1);
