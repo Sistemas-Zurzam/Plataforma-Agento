@@ -359,6 +359,20 @@ export function useRemuneraciones() {
     return { descargado: true };
   }, []);
 
+  const exportarPlanillaPagadaExcel = useCallback(async (cicloId) => {
+    const response = await api.get(`/ciclos-remunerativos/${cicloId}/planilla-pagada/excel`, { responseType: 'blob' });
+    const disposicion = response.headers?.['content-disposition'] ?? '';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Planilla_pagada.xlsx';
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
   /**
    * Completamente independiente de PLAME/AFPnet (Sección 3 del encargo
    * Telecrédito: ni un import ni una función compartida) — la validación
@@ -522,6 +536,7 @@ export function useRemuneraciones() {
     exportarPlame,
     fetchAfpNetValidacion,
     exportarAfpNet,
+    exportarPlanillaPagadaExcel,
     fetchTelecreditoBcpValidacion,
     exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion,

@@ -9,6 +9,7 @@ import {
   DownloadOutlined,
   EditOutlined,
   FilePdfOutlined,
+  FileExcelOutlined,
   FileProtectOutlined,
   FileTextOutlined,
   LockOutlined,
@@ -222,6 +223,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     previsualizacion, previsualizacionLoading, fetchPrevisualizacion,
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
+    exportarPlanillaPagadaExcel,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
     fetchComplementarias, crearComplementaria, agregarConceptoComplementaria, eliminarConceptoComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria,
@@ -235,6 +237,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [cicloEditar, setCicloEditar] = useState(null);
   const [creandoCiclo, setCreandoCiclo] = useState(false);
   const [calculando, setCalculando] = useState(false);
+  const [exportandoPlanilla, setExportandoPlanilla] = useState(false);
 
   const [configuracionColaborador, setConfiguracionColaborador] = useState(null);
   const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
@@ -542,6 +545,20 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         }
       },
     });
+  };
+
+  const handleExportarPlanillaPagada = async () => {
+    if (!cicloActivo) return;
+
+    setExportandoPlanilla(true);
+    try {
+      await exportarPlanillaPagadaExcel(cicloActivo.id);
+      message.success('Excel de la planilla pagada generado');
+    } catch {
+      message.error('No se pudo generar el Excel de la planilla pagada');
+    } finally {
+      setExportandoPlanilla(false);
+    }
   };
 
   const handleAprobar = async (boleta) => {
@@ -983,6 +1000,16 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Regulariza diferencias sin modificar la planilla pagada' : 'Disponible para ciclos pagados'}>
           <Button icon={<PlusOutlined />} disabled={cicloActivo?.estado !== 'pagado'} onClick={() => setComplementariasModalOpen(true)}>
             Planilla complementaria
+          </Button>
+        </Tooltip>
+        <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Exporta el resumen y detalle histórico del ciclo pagado' : 'Disponible para ciclos pagados'}>
+          <Button
+            icon={<FileExcelOutlined />}
+            disabled={cicloActivo?.estado !== 'pagado'}
+            loading={exportandoPlanilla}
+            onClick={handleExportarPlanillaPagada}
+          >
+            Excel planilla pagada
           </Button>
         </Tooltip>
         <Tooltip title={cicloActivo ? '' : 'Selecciona un ciclo remunerativo primero'}>

@@ -26,6 +26,7 @@ use App\Modules\Nominas\Http\Resources\CicloRemunerativoResource;
 use App\Modules\Nominas\Http\Resources\ColaboradorConceptoPeriodoResource;
 use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
 use App\Modules\Nominas\Infrastructure\Plame\Export\PlameZipBuilder;
+use App\Modules\Nominas\Infrastructure\PlanillaPagada\Export\PlanillaPagadaExcelExporter;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
@@ -35,6 +36,7 @@ use App\Modules\Nominas\Services\ResumenContableService;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -80,6 +82,38 @@ class CicloRemunerativoController extends Controller
             $datos['estado'] ?? null,
             $datos['categoria'] ?? null,
         ));
+    }
+
+    public function exportarPlanillaPagadaExcel(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        abort_unless($ciclo->estado === 'pagado', 422, 'El Excel solo está disponible cuando el ciclo está pagado.');
+
+        $boletas = $ciclo->boletas()
+            ->where('es_version_vigente', true)
+            ->where('estado', 'pagada')
+            ->with(['colaborador:id,nombres,apellidos,numero_documento', 'datosPago.banco:id,nombre'])
+            ->get()
+            ->sortBy(fn ($boleta) => mb_strtolower(trim(($boleta->colaborador?->apellidos ?? '').' '.($boleta->colaborador?->nombres ?? ''))))
+            ->values();
+
+        abort_if($boletas->isEmpty(), 422, 'El ciclo no tiene boletas pagadas para exportar.');
+
+        $contenido = PlanillaPagadaExcelExporter::generar($ciclo->loadMissing('empresa'), $boletas);
+        $nombre = sprintf('%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
+
+        Log::info('planilla_pagada.excel_exportado', [
+            'usuario_id' => $request->user('api')->id,
+            'empresa_id' => $empresa->id,
+            'ciclo_id' => $ciclo->id,
+            'boletas' => $boletas->count(),
+        ]);
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
     }
 
     /**

@@ -180,6 +180,7 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/ciclos-remunerativos/{ciclo}/cerrar', [CicloRemunerativoController::class, 'cerrar'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/reabrir', [CicloRemunerativoController::class, 'reabrir'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/marcar-pagado', [CicloRemunerativoController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
+    Route::get('/ciclos-remunerativos/{ciclo}/planilla-pagada/excel', [CicloRemunerativoController::class, 'exportarPlanillaPagadaExcel'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/plame-validacion', [CicloRemunerativoController::class, 'validarPlame'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/planilla', [CicloRemunerativoController::class, 'exportarPlamePlanilla'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/rh', [CicloRemunerativoController::class, 'exportarPlameRh'])->middleware('permiso:nominas.ver');
