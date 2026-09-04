@@ -212,7 +212,9 @@ Route::middleware('jwt')->group(function () {
     Route::get('/boletas/{boleta}', [BoletaController::class, 'show'])->middleware('permiso:nominas.ver');
     Route::patch('/boletas/{boleta}/comprobante-rh', [BoletaController::class, 'guardarComprobanteRh'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias', [PlanillaComplementariaController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos/{ciclo}/complementarias/feriados-historicos', [PlanillaComplementariaController::class, 'feriadosDisponibles'])->middleware('permiso:nominas.calcular');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias', [PlanillaComplementariaController::class, 'store'])->middleware('permiso:nominas.calcular');
+    Route::post('/ciclos-remunerativos/{ciclo}/complementarias/regularizacion-feriado-historico', [PlanillaComplementariaController::class, 'regularizarFeriadoHistorico'])->middleware('permiso:nominas.calcular');
     Route::post('/planillas-complementarias-detalles/{detalle}/conceptos', [PlanillaComplementariaController::class, 'agregarConcepto'])->middleware('permiso:nominas.calcular');
     Route::delete('/planillas-complementarias-detalles/{detalle}/conceptos/{lineaId}', [PlanillaComplementariaController::class, 'eliminarConcepto'])->middleware('permiso:nominas.calcular');
     Route::delete('/planillas-complementarias/{complementaria}', [PlanillaComplementariaController::class, 'eliminar'])->middleware('permiso:nominas.calcular');

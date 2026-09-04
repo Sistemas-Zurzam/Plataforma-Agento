@@ -398,7 +398,7 @@ class CalcularBoletaColaborador
      * liquidación por cese (que sí necesita la lista completa de conceptos
      * inafectos del art. 18° LIR, distinta de esta).
      */
-    private function calcularRenta5ta(Colaborador $colaborador, float $ingresoMensualAfectoRenta5ta, array $parametros, string $fechaCorte, ?int $cicloId): ?array
+    public function calcularRenta5ta(Colaborador $colaborador, float $ingresoMensualAfectoRenta5ta, array $parametros, string $fechaCorte, ?int $cicloId): ?array
     {
         if (empty($parametros['tramos_renta_5ta'])) {
             return null;

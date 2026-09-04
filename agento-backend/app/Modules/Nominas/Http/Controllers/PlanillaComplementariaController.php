@@ -26,6 +26,12 @@ class PlanillaComplementariaController extends Controller
         return response()->json(['data' => $this->service->listar($empresa, $ciclo)->map(fn ($i) => $this->presentar($i))]);
     }
 
+    public function feriadosDisponibles(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $empresa = $this->empresa($request, $ciclo);
+        return response()->json(['data' => $this->service->feriadosDisponibles($empresa, $ciclo)]);
+    }
+
     public function store(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
         $datos = $request->validate([
@@ -38,6 +44,28 @@ class PlanillaComplementariaController extends Controller
         } catch (RuntimeException $e) {
             throw ValidationException::withMessages(['calculo' => $e->getMessage()]);
         }
+        return response()->json(['data' => $this->presentar($item)], 201);
+    }
+
+    public function regularizarFeriadoHistorico(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate([
+            'boleta_ids' => ['required', 'array', 'min:1'],
+            'boleta_ids.*' => ['integer', 'distinct'],
+            'fecha_feriado' => ['required', 'date'],
+            'sin_descanso_sustitutorio' => ['accepted'],
+            'motivo' => ['required', 'string', 'max:1000'],
+        ]);
+
+        $item = $this->service->crearRegularizacionFeriadoHistorico(
+            $this->empresa($request, $ciclo),
+            $ciclo,
+            $datos['boleta_ids'],
+            $datos['fecha_feriado'],
+            $datos['motivo'],
+            $request->user('api')->id,
+        );
+
         return response()->json(['data' => $this->presentar($item)], 201);
     }
 

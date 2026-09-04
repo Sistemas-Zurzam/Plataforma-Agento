@@ -136,6 +136,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchFeriadosHistoricos = useCallback(async (cicloId) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/feriados-historicos`);
+    return data.data;
+  }, []);
+
   const agregarConceptoComplementaria = useCallback(async (detalleId, conceptoId, conceptoDefinicionId, monto, motivo) => {
     const { data } = await api.post(`/planillas-complementarias-detalles/${detalleId}/conceptos`, {
       concepto_id: conceptoId, concepto_definicion_id: conceptoDefinicionId, monto, motivo,
@@ -359,6 +364,16 @@ export function useRemuneraciones() {
     return { descargado: true };
   }, []);
 
+  const crearRegularizacionFeriadoHistorico = useCallback(async (cicloId, boletaIds, fechaFeriado, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/regularizacion-feriado-historico`, {
+      boleta_ids: boletaIds,
+      fecha_feriado: fechaFeriado,
+      sin_descanso_sustitutorio: true,
+      motivo,
+    });
+    return data.data;
+  }, []);
+
   const exportarPlanillaPagadaExcel = useCallback(async (cicloId) => {
     const response = await api.get(`/ciclos-remunerativos/${cicloId}/planilla-pagada/excel`, { responseType: 'blob' });
     const disposicion = response.headers?.['content-disposition'] ?? '';
@@ -502,6 +517,8 @@ export function useRemuneraciones() {
     fetchResumenContable,
     fetchComplementarias,
     crearComplementaria,
+    fetchFeriadosHistoricos,
+    crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,
     eliminarConceptoComplementaria,
     eliminarComplementaria,

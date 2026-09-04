@@ -1,5 +1,5 @@
 import { BankOutlined, CreditCardOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Button, Descriptions, Form, Input, Modal, Popconfirm, Select, Table, Tag } from 'antd';
+import { App, Button, Checkbox, DatePicker, Descriptions, Form, Input, Modal, Popconfirm, Select, Table, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import { useCuentasBancariasEmpresa } from '../../configuracion/hooks/useCuentasBancariasEmpresa';
@@ -15,6 +15,10 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [loading, setLoading] = useState(false);
   const [creando, setCreando] = useState(false);
   const [motivo, setMotivo] = useState('');
+  const [tipoRegularizacion, setTipoRegularizacion] = useState('diferencia_ciclo');
+  const [fechaFeriado, setFechaFeriado] = useState(null);
+  const [feriadosDisponibles, setFeriadosDisponibles] = useState([]);
+  const [sinDescansoSustitutorio, setSinDescansoSustitutorio] = useState(false);
   const [cuentaBcp, setCuentaBcp] = useState(null);
   const [categoria, setCategoria] = useState('5');
   const [detalleParaConcepto, setDetalleParaConcepto] = useState(null);
@@ -32,7 +36,12 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       cargar();
       fetchCuentas();
       setMotivo('');
+      setTipoRegularizacion('diferencia_ciclo');
+      setFechaFeriado(null);
+      setFeriadosDisponibles([]);
+      setSinDescansoSustitutorio(false);
       setCategoria('5');
+      api.fetchFeriadosHistoricos(ciclo.id).then(setFeriadosDisponibles);
     });
   }, [open, ciclo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -43,9 +52,17 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const crear = async () => {
     if (!motivo.trim()) return message.warning('Ingresa el motivo de la regularización.');
     if (!boletaIds.length) return message.warning('Selecciona las boletas pagadas que deseas regularizar.');
+    if (tipoRegularizacion === 'feriado_historico' && !fechaFeriado) return message.warning('Selecciona la fecha del feriado histórico.');
+    if (tipoRegularizacion === 'feriado_historico' && !sinDescansoSustitutorio) return message.warning('Confirma que no se otorgó descanso sustitutorio.');
     setCreando(true);
-    await ejecutar(() => api.crearComplementaria(ciclo.id, boletaIds, motivo.trim()), 'Planilla complementaria calculada.');
-    setCreando(false);
+    try {
+      const accion = tipoRegularizacion === 'feriado_historico'
+        ? () => api.crearRegularizacionFeriadoHistorico(ciclo.id, boletaIds, fechaFeriado.format('YYYY-MM-DD'), motivo.trim())
+        : () => api.crearComplementaria(ciclo.id, boletaIds, motivo.trim());
+      await ejecutar(accion, tipoRegularizacion === 'feriado_historico' ? 'Regularización histórica calculada.' : 'Planilla complementaria calculada.');
+    } finally {
+      setCreando(false);
+    }
   };
 
   const exportar = async (item, banco) => {
@@ -108,10 +125,32 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         </Descriptions>
 
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
-          <div className="mb-2 text-sm">Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</div>
+          <div className="mb-2 flex flex-wrap items-center gap-2">
+            <Select className="w-72" value={tipoRegularizacion} onChange={setTipoRegularizacion} options={[
+              { value: 'diferencia_ciclo', label: 'Diferencia del ciclo pagado' },
+              { value: 'feriado_historico', label: 'Feriado histórico no pagado' },
+            ]} />
+            {tipoRegularizacion === 'feriado_historico' && (
+              <DatePicker value={fechaFeriado} onChange={setFechaFeriado} format="DD/MM/YYYY" placeholder="Fecha del feriado"
+                disabledDate={(fecha) => !feriadosDisponibles.includes(fecha.format('YYYY-MM-DD'))}
+                defaultPickerValue={ciclo?.fecha_inicio ? dayjs(ciclo.fecha_inicio).subtract(1, 'day') : undefined} />
+            )}
+          </div>
+          <div className="mb-2 text-sm">
+            {tipoRegularizacion === 'feriado_historico'
+              ? <>Se usará el sueldo vigente en el feriado y se calculará automáticamente <strong>sueldo / 30 × 2</strong> para las <strong>{boletaIds.length}</strong> personas seleccionadas.</>
+              : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
+          </div>
+          {tipoRegularizacion === 'feriado_historico' && (
+            <Checkbox className="mb-2" checked={sinDescansoSustitutorio} onChange={(event) => setSinDescansoSustitutorio(event.target.checked)}>
+              Confirmo que trabajaron el feriado y no recibieron descanso sustitutorio
+            </Checkbox>
+          )}
           <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
-            <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>Calcular diferencia</Button>
+            <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>
+              {tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
+            </Button>
           </div>
         </div>
 
