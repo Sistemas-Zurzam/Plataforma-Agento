@@ -210,12 +210,25 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 rowSelection={{ selectedRowKeys: seleccionDescuentos, onChange: setSeleccionDescuentos, preserveSelectedRowKeys: true,
                   getCheckboxProps: (d) => ({ disabled: !d.reintegrable || creando }) }}
                 columns={[
-                  { title: 'Colaborador', dataIndex: 'colaborador', width: 190, onCell: separadorGrupo,
-                    render: (v, d) => esPrimeraDeGrupo(d) ? <span className="font-medium text-gray-800">{v}</span> : null },
-                  { title: 'Descuento', dataIndex: 'nombre', onCell: separadorGrupo, render: (v, d) => <div>{v}{!d.reintegrable && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? 'Este colaborador tiene una complementaria pendiente. Completa su pago o elimina el borrador para generar otra.' : 'Retención o aporte: requiere revisión específica'}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
-                  { title: 'Pendiente de devolver', dataIndex: 'monto', align: 'right', onCell: separadorGrupo, render: soles },
-                  { title: 'Reintegrar', align: 'right', width: 130, onCell: separadorGrupo, render: (_, d) => d.reintegrable ? <InputNumber className="w-full" min={0.01} max={Number(d.monto)} precision={2} value={montosReintegro[claveDescuento(d)]}
-                    disabled={creando} onChange={(v) => setMontosReintegro((prev) => ({ ...prev, [claveDescuento(d)]: v }))} /> : '—' },
+                  {
+                    title: 'Colaborador y descuento',
+                    children: [
+                      { title: 'Colaborador', dataIndex: 'colaborador', width: 190, onCell: separadorGrupo,
+                        render: (v, d) => esPrimeraDeGrupo(d) ? <span className="font-medium text-gray-800">{v}</span> : null },
+                      { title: 'Descuento', dataIndex: 'nombre', onCell: separadorGrupo, render: (v, d) => <div>{v}{!d.reintegrable && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? 'Este colaborador tiene una complementaria pendiente. Completa su pago o elimina el borrador para generar otra.' : 'Retención o aporte: requiere revisión específica'}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
+                    ],
+                  },
+                  {
+                    title: 'Reintegro',
+                    children: [
+                      { title: 'Pendiente de devolver', dataIndex: 'monto', align: 'right', width: 130,
+                        onCell: (d, i) => ({ className: `${separadorGrupo(d, i).className ?? ''} border-l-2 border-blue-100 bg-blue-50/60`.trim() }), render: soles },
+                      { title: 'A reintegrar', align: 'right', width: 140,
+                        onCell: (d, i) => ({ className: `${separadorGrupo(d, i).className ?? ''} bg-blue-50/60`.trim() }),
+                        render: (_, d) => d.reintegrable ? <InputNumber className="w-full" min={0.01} max={Number(d.monto)} precision={2} value={montosReintegro[claveDescuento(d)]}
+                          disabled={creando} onChange={(v) => setMontosReintegro((prev) => ({ ...prev, [claveDescuento(d)]: v }))} /> : '—' },
+                    ],
+                  },
                 ]} />
               <div className="font-medium text-green-700">{colaboradoresSeleccionados} colaboradores · {seleccionDescuentos.length} descuentos · Reintegro seleccionado: {soles(seleccionDescuentos.reduce((s, key) => s + Number(montosReintegro[key] || 0), 0))}</div>
               <p className="text-xs text-gray-500">Los descuentos incluidos en una complementaria pendiente ya no aparecen aquí. Si eliminas el borrador, vuelven a estar disponibles.</p>
