@@ -264,16 +264,25 @@ class PlanillaComplementariaService
     {
         $originales = $this->boletasParaReintegro($empresa, $ciclo, $boletaIds);
         $nombres = ConceptoRemuneracion::pluck('nombre', 'codigo');
-        return $originales->flatMap(function ($boleta) use ($nombres) {
+        $pendientes = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $originales->pluck('id'))
+            ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada']))
+            ->get()->keyBy('boleta_original_id');
+        return $originales->flatMap(function ($boleta) use ($nombres, $pendientes) {
             $snapshot = $this->baseParaReintegro($boleta);
             $version = hash('sha256', json_encode($snapshot));
-            return collect($snapshot['egresos'] ?? [])->map(function ($linea, $indice) use ($boleta, $nombres, $version) {
+            $pendiente = $pendientes->get($boleta->id);
+            $reservados = collect($pendiente?->calculo_snapshot['reintegros_descuentos'] ?? []);
+            return collect($snapshot['egresos'] ?? [])->reject(function ($linea, $indice) use ($reservados) {
+                return $reservados->contains(fn ($r) => isset($r['indice'])
+                    ? (int) $r['indice'] === $indice : $r['codigo'] === $linea['codigo']);
+            })->map(function ($linea, $indice) use ($boleta, $nombres, $version, $pendiente) {
                 return [
                     'boleta_id' => $boleta->id, 'indice' => $indice, 'version' => $version,
                     'colaborador' => trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos),
                     'codigo' => $linea['codigo'], 'nombre' => $nombres[$linea['codigo']] ?? $linea['codigo'],
                     'monto' => $linea['monto'], 'formula' => $linea['formula_texto'] ?? null,
-                    'reintegrable' => $this->esDescuentoReintegrable($linea['codigo']),
+                    'reintegrable' => ! $pendiente && $this->esDescuentoReintegrable($linea['codigo']),
+                    'complementaria_pendiente_id' => $pendiente?->planilla_complementaria_id,
                 ];
             })->filter(fn ($linea) => (float) $linea['monto'] > 0)->values();
         })->values()->all();
@@ -339,7 +348,7 @@ class PlanillaComplementariaService
                     $indices[$indice] = true;
                     $snapshot['egresos'][$indice]['monto'] = (float) bcsub((string) $linea['monto'], $monto, 2);
                     $snapshot['reintegros_descuentos'][] = [
-                        'codigo' => $linea['codigo'], 'monto' => $monto, 'monto_anterior' => $linea['monto'],
+                        'indice' => $indice, 'codigo' => $linea['codigo'], 'monto' => $monto, 'monto_anterior' => $linea['monto'],
                         'motivo' => $motivo, 'registrado_por' => $usuarioId, 'registrado_en' => now()->toDateTimeString(),
                     ];
                     $total = bcadd($total, $monto, 2);

@@ -20,7 +20,14 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [seleccionDescuentos, setSeleccionDescuentos] = useState([]);
   const [montosReintegro, setMontosReintegro] = useState({});
   const [cargandoDescuentos, setCargandoDescuentos] = useState(false);
+  const [busquedaDescuentos, setBusquedaDescuentos] = useState('');
+  const [filtroDescuento, setFiltroDescuento] = useState(null);
   const claveDescuento = (d) => `${d.boleta_id}-${d.indice}`;
+  const descuentosFiltrados = descuentos.filter((d) =>
+    (!filtroDescuento || d.codigo === filtroDescuento)
+    && d.colaborador.toLocaleLowerCase().includes(busquedaDescuentos.trim().toLocaleLowerCase()));
+  const disponiblesFiltrados = descuentosFiltrados.filter((d) => d.reintegrable);
+  const colaboradoresSeleccionados = new Set(descuentos.filter((d) => seleccionDescuentos.includes(claveDescuento(d))).map((d) => d.boleta_id)).size;
   const cargarDescuentos = async () => {
     setSeleccionDescuentos([]);
     setDescuentos([]);
@@ -54,6 +61,8 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       cargar();
       fetchCuentas();
       setMotivo('');
+      setBusquedaDescuentos('');
+      setFiltroDescuento(null);
       setTipoRegularizacion('reintegro_descuentos');
       cargarDescuentos();
       setFechaFeriado(null);
@@ -64,8 +73,11 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
     });
   }, [open, ciclo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ejecutar = async (accion, exito) => {
-    try { await accion(); message.success(exito); await cargar(); } catch (e) { message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudo completar la operación'); }
+  const ejecutar = async (accion, exito, actualizarDescuentos = false) => {
+    try {
+      await accion(); message.success(exito); await cargar();
+      if (actualizarDescuentos) await cargarDescuentos();
+    } catch (e) { message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudo completar la operación'); }
   };
 
   const crear = async () => {
@@ -81,6 +93,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         if (!elegidos.length) return message.warning('Selecciona al menos un descuento para reintegrar.');
         if (elegidos.some((d) => !d.monto || d.monto <= 0)) return message.warning('Ingresa un importe de reintegro mayor a cero.');
         await api.reintegrarDescuentosComplementaria(ciclo.id, elegidos, motivo.trim());
+        setMotivo('');
         message.success('Reintegro generado. Revisa el detalle y aprueba para descargar el TXT.');
         await cargar();
         await cargarDescuentos();
@@ -171,7 +184,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           </div>
           <div className="mb-2 text-sm">
             {tipoRegularizacion === 'reintegro_descuentos'
-              ? <>Selecciona los descuentos que corresponde devolver. Puedes reintegrar el importe completo o una parte. Se conservan los demás conceptos de la boleta pagada.</>
+              ? <>Boletas seleccionadas: <strong>{boletaIds.length}</strong>. Puedes generar un solo lote para todos los colaboradores. Filtra los descuentos y selecciona los que corresponde devolver.</>
               : tipoRegularizacion === 'feriado_historico'
               ? <>Se usará el sueldo vigente en el feriado y se calculará automáticamente <strong>sueldo / 30 × 2</strong> para las <strong>{boletaIds.length}</strong> personas seleccionadas.</>
               : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
@@ -179,19 +192,29 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           {tipoRegularizacion === 'reintegro_descuentos' && (
             <div className="mb-3 space-y-2">
               <Button size="small" onClick={cargarDescuentos} loading={cargandoDescuentos}>Actualizar descuentos</Button>
-              <Table size="small" rowKey={claveDescuento} dataSource={descuentos} loading={cargandoDescuentos}
-                pagination={{ pageSize: 5, hideOnSinglePage: true }}
+              <div className="flex flex-wrap gap-2">
+                <Input.Search className="w-64" placeholder="Buscar colaborador" allowClear value={busquedaDescuentos} onChange={(e) => setBusquedaDescuentos(e.target.value)} />
+                <Select className="w-64" placeholder="Todos los descuentos" allowClear value={filtroDescuento} onChange={setFiltroDescuento}
+                  options={Array.from(new Map(descuentos.map((d) => [d.codigo, { value: d.codigo, label: d.nombre }])).values())} />
+                <Button disabled={creando || !disponiblesFiltrados.length} onClick={() => setSeleccionDescuentos((prev) => [...new Set([...prev, ...disponiblesFiltrados.map(claveDescuento)])])}>
+                  Seleccionar todos los del filtro ({disponiblesFiltrados.length})
+                </Button>
+                <Button disabled={creando || !seleccionDescuentos.length} onClick={() => setSeleccionDescuentos([])}>Limpiar selección</Button>
+              </div>
+              <Table size="small" rowKey={claveDescuento} dataSource={descuentosFiltrados} loading={cargandoDescuentos}
+                pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (total) => `${total} descuentos` }}
                 locale={{ emptyText: 'No hay descuentos pendientes en las boletas seleccionadas.' }}
-                rowSelection={{ selectedRowKeys: seleccionDescuentos, onChange: setSeleccionDescuentos,
+                rowSelection={{ selectedRowKeys: seleccionDescuentos, onChange: setSeleccionDescuentos, preserveSelectedRowKeys: true,
                   getCheckboxProps: (d) => ({ disabled: !d.reintegrable || creando }) }}
                 columns={[
                   { title: 'Colaborador', dataIndex: 'colaborador' },
-                  { title: 'Descuento', dataIndex: 'nombre', render: (v, d) => <div>{v}{!d.reintegrable && <div className="text-xs text-gray-500">Retención o aporte: requiere revisión específica</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
+                  { title: 'Descuento', dataIndex: 'nombre', render: (v, d) => <div>{v}{!d.reintegrable && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? 'Este colaborador tiene una complementaria pendiente. Completa su pago o elimina el borrador para generar otra.' : 'Retención o aporte: requiere revisión específica'}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
                   { title: 'Pendiente de devolver', dataIndex: 'monto', render: soles },
                   { title: 'Reintegrar', render: (_, d) => d.reintegrable ? <InputNumber min={0.01} max={Number(d.monto)} precision={2} value={montosReintegro[claveDescuento(d)]}
                     disabled={creando} onChange={(v) => setMontosReintegro((prev) => ({ ...prev, [claveDescuento(d)]: v }))} /> : '—' },
                 ]} />
-              <div className="font-medium text-green-700">Reintegro seleccionado: {soles(seleccionDescuentos.reduce((s, key) => s + Number(montosReintegro[key] || 0), 0))}</div>
+              <div className="font-medium text-green-700">{colaboradoresSeleccionados} colaboradores · {seleccionDescuentos.length} descuentos · Reintegro seleccionado: {soles(seleccionDescuentos.reduce((s, key) => s + Number(montosReintegro[key] || 0), 0))}</div>
+              <p className="text-xs text-gray-500">Los descuentos incluidos en una complementaria pendiente ya no aparecen aquí. Si eliminas el borrador, vuelven a estar disponibles.</p>
             </div>
           )}
           {tipoRegularizacion === 'feriado_historico' && (
@@ -225,7 +248,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                   <Popconfirm
                     title="¿Eliminar esta complementaria?"
                     description="Se borra por completo, incluyendo los conceptos que hayas agregado. La boleta original no se ve afectada."
-                    onConfirm={() => ejecutar(() => api.eliminarComplementaria(item.id), 'Complementaria eliminada.')}
+                    onConfirm={() => ejecutar(() => api.eliminarComplementaria(item.id), 'Complementaria eliminada.', true)}
                   >
                     <Button danger icon={<DeleteOutlined />}>Eliminar</Button>
                   </Popconfirm>
@@ -233,7 +256,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 {item.estado === 'calculada' && permisos.aprobar && <Button onClick={() => ejecutar(() => api.aprobarComplementaria(item.id), 'Complementaria aprobada.')}>Aprobar</Button>}
                 {item.estado === 'aprobada' && permisos.telecredito && <Button icon={<CreditCardOutlined />} onClick={() => exportar(item, 'telecredito-bcp')}>Telecrédito</Button>}
                 {item.estado === 'aprobada' && permisos.bbva && <Button icon={<BankOutlined />} onClick={() => exportar(item, 'bbva-netcash')}>Net Cash</Button>}
-                {item.estado === 'aprobada' && permisos.pagar && <Popconfirm title="Referencia del pago" description={<Form><Input id={`ref-${item.id}`} placeholder="Operación o lote" /></Form>} onConfirm={() => { const ref = document.getElementById(`ref-${item.id}`)?.value; if (ref) ejecutar(() => api.pagarComplementaria(item.id, ref), 'Complementaria marcada como pagada.'); }}><Button>Marcar pagada</Button></Popconfirm>}
+                {item.estado === 'aprobada' && permisos.pagar && <Popconfirm title="Referencia del pago" description={<Form><Input id={`ref-${item.id}`} placeholder="Operación o lote" /></Form>} onConfirm={() => { const ref = document.getElementById(`ref-${item.id}`)?.value; if (ref) ejecutar(() => api.pagarComplementaria(item.id, ref), 'Complementaria marcada como pagada.', true); }}><Button>Marcar pagada</Button></Popconfirm>}
               </div>
             </div>
             <Table

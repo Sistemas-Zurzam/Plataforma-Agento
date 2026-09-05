@@ -128,4 +128,62 @@ class ReintegroDescuentosTest extends TestCase
             ->assertCreated()->assertJsonPath('data.total_a_pagar', '46.67')
             ->assertJsonPath('data.detalles.0.reintegros_descuentos.0.codigo', 'DESCUENTO_FALTA');
     }
+
+    public function test_oculta_reservados_desde_calculada_y_los_restaura_al_eliminar(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
+        $linea = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id])[0];
+        $item = $service->reintegrarDescuentos($empresa, $ciclo, [$linea], 'Descanso', $usuarioId);
+        $restantes = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]);
+        $this->assertCount(2, $restantes);
+        $this->assertNotContains('DESCUENTO_FALTA', array_column($restantes, 'codigo'));
+        $this->assertFalse($restantes[0]['reintegrable']);
+        $this->assertSame($item->id, $restantes[0]['complementaria_pendiente_id']);
+        $service->eliminar($empresa, $item);
+        $restaurados = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]);
+        $this->assertCount(3, $restaurados);
+        $this->assertTrue($restaurados[0]['reintegrable']);
+        $this->assertEquals(46.67, $restaurados[0]['monto']);
+        $item = $service->reintegrarDescuentos($empresa, $ciclo, [$restaurados[0]], 'Descanso', $usuarioId);
+        $service->aprobar($empresa, $item, $usuarioId);
+        $this->assertCount(2, $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]));
+    }
+
+    public function test_genera_un_lote_y_un_txt_para_41_colaboradores(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
+        $ids = [$boleta->id];
+        for ($i = 1; $i <= 40; $i++) {
+            $colaborador = $this->crearColaborador($empresa, [
+                'tipo_contrato' => 'locacion_servicios', 'regimen_laboral' => 'Locacion de Servicios',
+                'numero_documento' => (string) (80000000 + $i),
+                'banco_id' => $boleta->colaborador->banco_id, 'numero_cuenta' => '19123456789012',
+                'tipo_cuenta' => 'ahorro', 'moneda_cuenta' => 'PEN',
+            ]);
+            $copia = $boleta->replicate();
+            $copia->colaborador_id = $colaborador->id;
+            $copia->save();
+            foreach ($boleta->conceptos as $concepto) {
+                $linea = $concepto->replicate();
+                $linea->boleta_id = $copia->id;
+                $linea->save();
+            }
+            $ids[] = $copia->id;
+        }
+        $descuentos = $service->descuentosReintegrables($empresa, $ciclo, $ids);
+        $this->assertCount(123, $descuentos);
+        $faltas = array_values(array_filter($descuentos, fn ($d) => $d['codigo'] === 'DESCUENTO_FALTA'));
+        $item = $service->reintegrarDescuentos($empresa, $ciclo, $faltas, 'Subsanación del lote', $usuarioId);
+        $this->assertCount(41, $item->detalles);
+        $this->assertSame('1913.47', $item->detalles->reduce(fn ($total, $d) => bcadd($total, $d->diferencia_neta, 2), '0.00'));
+        $restantes = $service->descuentosReintegrables($empresa, $ciclo, $ids);
+        $this->assertCount(82, $restantes);
+        $this->assertNotContains('DESCUENTO_FALTA', array_column($restantes, 'codigo'));
+        $service->aprobar($empresa, $item, $usuarioId);
+        $cuenta = new EmpresaCuentaBancaria(['tipo_cuenta' => 'corriente', 'moneda' => 'PEN', 'numero_cuenta' => '1912345678901']);
+        $lineas = explode("\r\n", trim($service->exportarBcp($empresa, $item, $cuenta, '2026-09-05', '4')));
+        $this->assertCount(42, $lineas);
+        $this->assertSame('000041', substr($lineas[0], 1, 6));
+        $this->assertSame('00000000001913.47', substr($lineas[0], 41, 17));
+    }
 }
