@@ -166,7 +166,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const cuentasBcp = cuentas.filter((c) => c.activo && c.uso === 'haberes' && c.banco?.codigo === 'bcp');
 
   return (
-    <Modal title="Planillas complementarias" open={open} onCancel={onCancel} footer={null} width={1180} destroyOnHidden>
+    <Modal title="Planillas complementarias" open={open} onCancel={onCancel} footer={null} width={1320} destroyOnHidden>
       <div className="space-y-4">
         <Descriptions size="small" bordered column={3}>
           <Descriptions.Item label="Empresa">{ciclo?.empresa?.nombre_comercial}</Descriptions.Item>
@@ -175,7 +175,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         </Descriptions>
 
         <div className="flex flex-col gap-4 lg:flex-row">
-        <div className="min-w-0 flex-1 rounded-lg border border-blue-200 bg-blue-50 p-3 lg:max-w-[680px]">
+        <div className="min-w-0 flex-1 rounded-lg border border-blue-200 bg-blue-50 p-3 lg:max-w-[760px]">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Select className="w-72" value={tipoRegularizacion} onChange={setTipoRegularizacion} options={[
               { value: 'reintegro_descuentos', label: 'Reintegrar descuentos' },
@@ -265,12 +265,8 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           </div>
         </div>
 
-        <div className="w-full shrink-0 space-y-3 lg:w-[440px]">
-          <div className="flex flex-col gap-2">
-            <Select value={categoria} onChange={setCategoria} options={[{ value: '5', label: '5ta categoría' }, { value: '4', label: '4ta categoría' }]} />
-            <Select allowClear placeholder="Cuenta BCP para Telecrédito" value={cuentaBcp} onChange={setCuentaBcp}
-              options={cuentasBcp.map((c) => ({ value: c.id, label: `${c.banco?.nombre ?? 'BCP'} • ${c.numero_cuenta}` }))} />
-          </div>
+        <div className="w-full shrink-0 space-y-3 lg:w-[480px]">
+          <Select value={categoria} onChange={setCategoria} options={[{ value: '5', label: '5ta categoría' }, { value: '4', label: '4ta categoría' }]} />
 
           <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
           {items.map((item) => (
@@ -290,7 +286,18 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                   </Popconfirm>
                 )}
                 {item.estado === 'calculada' && permisos.aprobar && <Button onClick={() => ejecutar(() => api.aprobarComplementaria(item.id), 'Complementaria aprobada.')}>Aprobar</Button>}
-                {item.estado === 'aprobada' && permisos.telecredito && <Button icon={<CreditCardOutlined />} onClick={() => exportar(item, 'telecredito-bcp')}>Telecrédito</Button>}
+                {item.estado === 'aprobada' && permisos.telecredito && (
+                  <Popconfirm
+                    title="Cuenta BCP de cargo"
+                    description={
+                      <Select className="w-64" placeholder="Selecciona una cuenta" value={cuentaBcp} onChange={setCuentaBcp}
+                        options={cuentasBcp.map((c) => ({ value: c.id, label: `${c.banco?.nombre ?? 'BCP'} • ${c.numero_cuenta}` }))} />
+                    }
+                    onConfirm={() => exportar(item, 'telecredito-bcp')}
+                  >
+                    <Button icon={<CreditCardOutlined />}>Telecrédito</Button>
+                  </Popconfirm>
+                )}
                 {item.estado === 'aprobada' && permisos.bbva && <Button icon={<BankOutlined />} onClick={() => exportar(item, 'bbva-netcash')}>Net Cash</Button>}
                 {item.estado === 'aprobada' && permisos.pagar && <Popconfirm title="Referencia del pago" description={<Form><Input id={`ref-${item.id}`} placeholder="Operación o lote" /></Form>} onConfirm={() => { const ref = document.getElementById(`ref-${item.id}`)?.value; if (ref) ejecutar(() => api.pagarComplementaria(item.id, ref), 'Complementaria marcada como pagada.', true); }}><Button>Marcar pagada</Button></Popconfirm>}
               </div>
