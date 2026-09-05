@@ -189,6 +189,33 @@ class BoletaController extends Controller
     }
 
     /**
+     * Mismo patrón que aprobarMasivo(): reutiliza BoletaService::marcarPagada()
+     * por cada boleta dentro de una sola transacción, sin duplicar la regla
+     * de negocio (solo "aprobada" → "pagada"). Existe porque marcar el ciclo
+     * completo como pagado (CicloRemunerativoService::marcarPagado) exige que
+     * todas las boletas vigentes ya estén pagadas, y hacerlo una por una es
+     * tedioso con muchos colaboradores.
+     */
+    public function pagarMasivo(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $datos = $request->validate([
+            'ids' => ['required', 'array', 'min:1', 'max:200'],
+            'ids.*' => ['required', 'integer', 'distinct'],
+            'referencia_pago' => ['nullable', 'string', 'max:255'],
+        ]);
+
+        $boletas = Boleta::where('ciclo_id', $ciclo->id)->whereIn('id', $datos['ids'])->get();
+        abort_if($boletas->count() !== count($datos['ids']), 404, 'Una o más boletas no pertenecen a este ciclo.');
+
+        $usuarioId = $request->user('api')->id;
+        $referenciaPago = $datos['referencia_pago'] ?? null;
+        DB::transaction(fn () => $boletas->each(fn ($boleta) => $this->boletas->marcarPagada($empresa, $boleta, $usuarioId, $referenciaPago)));
+
+        return response()->json(['message' => 'Boletas marcadas como pagadas.', 'procesadas' => $boletas->count()]);
+    }
+
+    /**
      * Estructura E20/.4ta de PLAME — se completa manualmente cuando RR.HH.
      * recibe el recibo por honorarios real del locador; no se auto-genera
      * al calcular la boleta. indicador_retencion_4ta se DERIVA del cálculo

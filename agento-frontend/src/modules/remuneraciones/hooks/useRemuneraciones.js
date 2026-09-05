@@ -223,6 +223,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const pagarBoletasMasivo = useCallback(async (cicloId, boletaIds, referenciaPago) => {
+    const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/boletas/pagar-masivo`, { ids: boletaIds, referencia_pago: referenciaPago });
+    return data;
+  }, []);
+
   const fetchAfps = useCallback(async () => {
     const { data } = await api.get('/afps');
     setAfps(data.data);
@@ -541,6 +546,7 @@ export function useRemuneraciones() {
     aprobarBoletasMasivo,
     fetchIncidenciasPendientesAprobarMasivo,
     pagarBoleta,
+    pagarBoletasMasivo,
     fetchDescuentosComplementaria,
     reintegrarDescuentosComplementaria,
     guardarComprobanteRh,

@@ -209,6 +209,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/ciclos-remunerativos/{ciclo}/boletas/incidencias-pendientes-aprobar-masivo', [BoletaController::class, 'incidenciasPendientesAprobarMasivo'])->middleware('permiso:nominas.aprobar');
     Route::patch('/ciclos-remunerativos/{ciclo}/boletas/aprobar-masivo', [BoletaController::class, 'aprobarMasivo'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/pagar', [BoletaController::class, 'marcarPagada'])->middleware('permiso:nominas.pagar');
+    Route::patch('/ciclos-remunerativos/{ciclo}/boletas/pagar-masivo', [BoletaController::class, 'pagarMasivo'])->middleware('permiso:nominas.pagar');
     Route::get('/boletas/{boleta}', [BoletaController::class, 'show'])->middleware('permiso:nominas.ver');
     Route::patch('/boletas/{boleta}/comprobante-rh', [BoletaController::class, 'guardarComprobanteRh'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias', [PlanillaComplementariaController::class, 'index'])->middleware('permiso:nominas.ver');

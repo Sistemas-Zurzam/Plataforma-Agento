@@ -214,7 +214,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
     resumen, fetchResumen, fetchResumenContable,
-    verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, guardarComprobanteRh,
+    verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
@@ -272,9 +272,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const puedeExportarTelecredito = user?.permisos?.includes('nominas.telecredito_exportar');
   const puedeExportarBbvaNetCash = user?.permisos?.includes('nominas.bbva_netcash_exportar');
   const puedeExportarBanco = puedeExportarTelecredito || puedeExportarBbvaNetCash;
-  const puedeSeleccionarBoletas = puedeAprobar || puedeExportarTelecredito || puedeExportarBbvaNetCash;
+  const puedeSeleccionarBoletas = puedeAprobar || puedePagar || puedeExportarTelecredito || puedeExportarBbvaNetCash;
   const boletasCalculadasSeleccionadas = boletas
     .filter((boleta) => boleta.estado === 'calculada' && boletasSeleccionadas.includes(boleta.id))
+    .map((boleta) => boleta.id);
+  const boletasAprobadasSeleccionadas = boletas
+    .filter((boleta) => boleta.estado === 'aprobada' && boletasSeleccionadas.includes(boleta.id))
     .map((boleta) => boleta.id);
 
   /**
@@ -588,6 +591,28 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           fetchCiclos();
         } catch (err) {
           message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudieron aprobar las boletas seleccionadas');
+        }
+      },
+    });
+  };
+
+  const handlePagarMasivo = async () => {
+    const idsPagar = boletasAprobadasSeleccionadas;
+    const cantidad = idsPagar.length;
+    modal.confirm({
+      title: 'Marcar como pagadas las boletas seleccionadas',
+      content: `Se marcarán ${cantidad} boleta(s) en estado "aprobada" como pagadas.`,
+      okText: 'Marcar pagadas',
+      cancelText: 'Cancelar',
+      onOk: async () => {
+        try {
+          const resultado = await pagarBoletasMasivo(cicloId, idsPagar);
+          message.success(`${resultado.procesadas} boleta(s) marcada(s) como pagada(s).`);
+          setBoletasSeleccionadas([]);
+          recargar();
+          fetchCiclos();
+        } catch (err) {
+          message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudieron marcar las boletas seleccionadas como pagadas');
         }
       },
     });
@@ -1113,6 +1138,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                           Aprobar {boletasCalculadasSeleccionadas.length} calculada(s)
                         </Button>
                       )}
+                      {puedePagar && boletasAprobadasSeleccionadas.length > 0 && (
+                        <Button type="primary" size="small" icon={<BankOutlined />} onClick={handlePagarMasivo}>
+                          Marcar {boletasAprobadasSeleccionadas.length} pagada(s)
+                        </Button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1126,11 +1156,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                     selectedRowKeys: boletasSeleccionadas,
                     onChange: setBoletasSeleccionadas,
                     preserveSelectedRowKeys: true,
-                    getCheckboxProps: (boleta) => ({
-                      disabled: boleta.estado === 'calculada'
-                        ? !puedeAprobar
-                        : !puedeExportarBanco || !['aprobada', 'pagada'].includes(boleta.estado),
-                    }),
+                    getCheckboxProps: (boleta) => {
+                      if (boleta.estado === 'calculada') return { disabled: !puedeAprobar };
+                      if (boleta.estado === 'aprobada') return { disabled: !puedePagar && !puedeExportarBanco };
+                      return { disabled: !puedeExportarBanco || boleta.estado !== 'pagada' };
+                    },
                   } : undefined}
                   pagination={{
                     current: pagination.current,
