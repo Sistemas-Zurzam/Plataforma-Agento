@@ -3,6 +3,7 @@
 namespace App\Modules\Nominas\Services;
 
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaDatosPago;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -12,11 +13,15 @@ use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class CicloRemunerativoService
 {
-    public function __construct(private readonly IncidenciasPendientesNominaService $incidenciasPendientes) {}
+    public function __construct(
+        private readonly IncidenciasPendientesNominaService $incidenciasPendientes,
+        private readonly VerificarConsistenciaAsistenciaCiclo $consistenciaAsistencia,
+    ) {}
 
     /**
      * Lista los ciclos de TODAS las empresas autorizadas del usuario (no
@@ -43,23 +48,36 @@ class CicloRemunerativoService
     }
 
     /**
+     * Fase A.2 (endurecimiento Asistencia-Nómina) — verificarNoSolapa() por
+     * sí sola no evita que dos solicitudes casi simultáneas pasen ambas el
+     * chequeo antes de que cualquiera inserte. Bloquear la fila de la
+     * empresa (lockForUpdate, liberado al terminar la transacción) serializa
+     * toda creación/edición de ciclos de esa empresa: la segunda solicitud
+     * espera a que la primera termine (cree o falle) antes de poder siquiera
+     * evaluar el solapamiento, así que ya lo hace contra el estado real y
+     * final de la base de datos, nunca contra una foto obsoleta.
+     *
      * @throws ValidationException si el rango se solapa con un ciclo existente de la misma empresa
      */
     public function crear(Empresa $empresa, array $datos, int $usuarioId): CicloRemunerativo
     {
-        $this->verificarNoSolapa($empresa, $datos['fecha_inicio'], $datos['fecha_fin']);
+        return DB::transaction(function () use ($empresa, $datos, $usuarioId) {
+            Empresa::query()->lockForUpdate()->findOrFail($empresa->id);
 
-        return CicloRemunerativo::create([
-            'empresa_id' => $empresa->id,
-            'nombre' => $datos['nombre'],
-            'periodicidad' => $datos['periodicidad'] ?? 'mensual',
-            'fecha_inicio' => $datos['fecha_inicio'],
-            'fecha_fin' => $datos['fecha_fin'],
-            'fecha_corte_asistencia' => $datos['fecha_corte_asistencia'],
-            'fecha_pago' => $datos['fecha_pago'],
-            'estado' => 'abierto',
-            'creado_por' => $usuarioId,
-        ]);
+            $this->verificarNoSolapa($empresa, $datos['fecha_inicio'], $datos['fecha_fin']);
+
+            return CicloRemunerativo::create([
+                'empresa_id' => $empresa->id,
+                'nombre' => $datos['nombre'],
+                'periodicidad' => $datos['periodicidad'] ?? 'mensual',
+                'fecha_inicio' => $datos['fecha_inicio'],
+                'fecha_fin' => $datos['fecha_fin'],
+                'fecha_corte_asistencia' => $datos['fecha_corte_asistencia'],
+                'fecha_pago' => $datos['fecha_pago'],
+                'estado' => 'abierto',
+                'creado_por' => $usuarioId,
+            ]);
+        });
     }
 
     /**
@@ -76,17 +94,22 @@ class CicloRemunerativoService
     {
         $this->verificarPertenencia($empresa, $ciclo);
         $this->verificarSinBoletas($ciclo, 'editar');
-        $this->verificarNoSolapa($empresa, $datos['fecha_inicio'], $datos['fecha_fin'], $ciclo->id);
 
-        $ciclo->update([
-            'nombre' => $datos['nombre'],
-            'fecha_inicio' => $datos['fecha_inicio'],
-            'fecha_fin' => $datos['fecha_fin'],
-            'fecha_corte_asistencia' => $datos['fecha_corte_asistencia'],
-            'fecha_pago' => $datos['fecha_pago'],
-        ]);
+        return DB::transaction(function () use ($empresa, $ciclo, $datos) {
+            Empresa::query()->lockForUpdate()->findOrFail($empresa->id);
 
-        return $ciclo;
+            $this->verificarNoSolapa($empresa, $datos['fecha_inicio'], $datos['fecha_fin'], $ciclo->id);
+
+            $ciclo->update([
+                'nombre' => $datos['nombre'],
+                'fecha_inicio' => $datos['fecha_inicio'],
+                'fecha_fin' => $datos['fecha_fin'],
+                'fecha_corte_asistencia' => $datos['fecha_corte_asistencia'],
+                'fecha_pago' => $datos['fecha_pago'],
+            ]);
+
+            return $ciclo;
+        });
     }
 
     /**
@@ -129,6 +152,7 @@ class CicloRemunerativoService
     public function cerrar(Empresa $empresa, CicloRemunerativo $ciclo): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
+        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
 
         $totalVigentes = $ciclo->boletas()->where('es_version_vigente', true)->count();
         if ($totalVigentes === 0) {
@@ -265,24 +289,41 @@ class CicloRemunerativoService
     public function marcarPagado(Empresa $empresa, CicloRemunerativo $ciclo): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
+        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
 
-        if ($ciclo->estado !== 'cerrado') {
-            throw ValidationException::withMessages([
-                'estado' => 'Solo se puede marcar como pagado un período cerrado.',
-            ]);
-        }
+        // Incremento 3 (A.4, "evitar carreras") -- entre este chequeo previo
+        // y el guardado real puede colarse una notificarCambioAsistencia()
+        // que marque requiere_recalculo. lockForUpdate() + re-verificar
+        // DENTRO de la misma transacción es lo único que cierra esa ventana
+        // -- volver a leer $ciclo->requiere_recalculo del objeto en memoria
+        // (ya cargado antes del lock) no serviría de nada.
+        return DB::transaction(function () use ($ciclo) {
+            $ciclo = CicloRemunerativo::query()->lockForUpdate()->findOrFail($ciclo->id);
 
-        $sinPagar = $ciclo->boletas()->where('es_version_vigente', true)
-            ->where('estado', '!=', 'pagada')->exists();
-        if ($sinPagar) {
-            throw ValidationException::withMessages([
-                'estado' => 'No se puede marcar el período como pagado: hay boletas aprobadas pendientes de pago.',
-            ]);
-        }
+            if ($ciclo->requiere_recalculo) {
+                throw ValidationException::withMessages([
+                    'estado' => 'La asistencia cambió después del último cálculo de este ciclo. Vuelve a calcular antes de pagar.',
+                ]);
+            }
 
-        $ciclo->update(['estado' => 'pagado']);
+            if ($ciclo->estado !== 'cerrado') {
+                throw ValidationException::withMessages([
+                    'estado' => 'Solo se puede marcar como pagado un período cerrado.',
+                ]);
+            }
 
-        return $ciclo;
+            $sinPagar = $ciclo->boletas()->where('es_version_vigente', true)
+                ->where('estado', '!=', 'pagada')->exists();
+            if ($sinPagar) {
+                throw ValidationException::withMessages([
+                    'estado' => 'No se puede marcar el período como pagado: hay boletas aprobadas pendientes de pago.',
+                ]);
+            }
+
+            $ciclo->update(['estado' => 'pagado']);
+
+            return $ciclo;
+        });
     }
 
     /**

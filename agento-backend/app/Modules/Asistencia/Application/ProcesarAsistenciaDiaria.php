@@ -10,6 +10,7 @@ use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\HorarioDia;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
+use App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use Illuminate\Support\Carbon;
@@ -20,6 +21,7 @@ class ProcesarAsistenciaDiaria
     public function __construct(
         private readonly ResolverJornadaDiaria $resolverJornada,
         private readonly AsistenciaAuditoriaService $auditoria,
+        private readonly NotificarCambioAsistenciaCiclo $notificarCambioAsistencia,
     ) {}
 
     public function procesar(Colaborador $colaborador, Carbon $fecha): AsistenciaResultadoDiario
@@ -110,7 +112,7 @@ class ProcesarAsistenciaDiaria
             ? $this->minutosExtraObservados($jornada['tipo_dia'], $minutosTrabajados, $minutosProgramados, (bool) $colaborador->contabilizar_horas_extra)
             : 0;
 
-        return DB::transaction(function () use (
+        $resultado = DB::transaction(function () use (
             $colaborador, $fecha, $jornada, $estado, $entrada, $salida,
             $minutosProgramados, $minutosTrabajados, $tardanza, $salidaAnticipada,
             $extraObservada, $esDiaDescanso, $marcaciones
@@ -164,6 +166,26 @@ class ProcesarAsistenciaDiaria
 
             return $resultado->load('marcaciones', 'incidencias');
         });
+
+        // Incremento 3 del endurecimiento Asistencia -> Nómina: DB::afterCommit(),
+        // no una llamada directa -- procesar() puede correr DENTRO de la
+        // transacción de un llamador más grande (ej.
+        // AsignarDescansoFlexibleSemanal::persistirSegmento(), que llama a
+        // procesar() varias veces dentro de su propia transacción). La
+        // transacción de ARRIBA solo crea un savepoint en ese caso, no un
+        // commit real -- afterCommit() difiere el aviso hasta que la
+        // transacción realmente más externa confirme (o no se ejecuta nunca
+        // si esa transacción exterior termina en rollback), sin que
+        // procesar() necesite saber si está anidado. Sin transacción activa,
+        // afterCommit() ejecuta de inmediato.
+        DB::afterCommit(function () use ($colaborador, $fecha, $resultado) {
+            $this->notificarCambioAsistencia->notificar(
+                $colaborador->empresa_id, $colaborador->id, $fecha->toDateString(), $fecha->toDateString(),
+                "Se reprocesó la asistencia del {$fecha->toDateString()} (quedó como '{$resultado->estado}').",
+            );
+        });
+
+        return $resultado;
     }
 
     /**

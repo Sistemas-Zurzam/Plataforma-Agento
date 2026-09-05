@@ -71,6 +71,16 @@ class AsistenciaIncidencia extends Model
     // periodos, que se resuelve solo por segmentos sin necesitar esto.
     public const TIPO_SEMANA_ROTATIVA_OMITIDA = 'semana_rotativa_omitida';
 
+    // Endurecimiento Asistencia -> Nómina (v5, incremento 3) — generada por
+    // App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo cuando
+    // algo cambia en Asistencia para una fecha cuyo CicloRemunerativo ya
+    // está 'pagado'. La boleta pagada nunca se modifica ni se recalcula
+    // sola — esta incidencia es la señal para que RR.HH. evalúe una
+    // PlanillaComplementaria. Se ancla al resultado diario más cercano al
+    // rango notificado (no siempre existe un "domingo" natural como en las
+    // incidencias semanales de descanso flexible).
+    public const TIPO_AJUSTE_POST_PAGO_PENDIENTE = 'ajuste_post_pago_pendiente';
+
     // Estados posibles del ciclo de resolución de una incidencia.
     public const ESTADO_PENDIENTE = 'pendiente';
 

@@ -10,6 +10,7 @@ use App\Modules\Asistencia\Models\AsistenciaSolicitudArea;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\AsistenciaMarcacion;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo;
 use App\Modules\Personas\Models\ColaboradorCalendarioDia;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
@@ -23,6 +24,7 @@ class AsistenciaDecisionService
         private readonly \App\Modules\Asistencia\Application\ProcesarAsistenciaDiaria $procesador,
         private readonly AsistenciaPeriodoService $periodos,
         private readonly AsistenciaPermisoService $permisos,
+        private readonly NotificarCambioAsistenciaCiclo $notificarCambioAsistencia,
     ) {}
 
     public function resolverIncidencia(Empresa $empresa, AsistenciaIncidencia $incidencia, array $datos, User $usuario): AsistenciaIncidencia
@@ -374,7 +376,7 @@ class AsistenciaDecisionService
         $this->asegurarEmpresa($empresa, $horaExtra);
         $fecha = $horaExtra->fecha->toDateString();
         $this->periodos->asegurarRangoEditable($empresa->id, $fecha, $fecha);
-        return DB::transaction(function () use ($empresa, $horaExtra, $datos, $usuario) {
+        $resultado = DB::transaction(function () use ($empresa, $horaExtra, $datos, $usuario) {
             $antes = $horaExtra->toArray();
             $aprobados = $datos['accion'] === 'aprobar'
                 ? min($horaExtra->minutos_observados, $datos['minutos_aprobados'] ?? $horaExtra->minutos_observados) : 0;
@@ -396,6 +398,20 @@ class AsistenciaDecisionService
             $this->auditoria->registrar($empresa->id, $usuario->id, 'hora_extra_'.$datos['accion'], $horaExtra, $datos['motivo'], $antes, $horaExtra->fresh()->toArray());
             return $horaExtra->fresh('colaborador');
         });
+
+        // Incremento 3 del endurecimiento Asistencia -> Nómina: afterCommit(),
+        // no una llamada directa -- este método puede correr anidado dentro
+        // de la transacción de trabajoEnDescansoCorrespondePago() (que
+        // envuelve TODO, incluida esta llamada, en su propia transacción
+        // externa). Ver el mismo razonamiento en ProcesarAsistenciaDiaria::procesar().
+        DB::afterCommit(function () use ($empresa, $resultado, $fecha) {
+            $this->notificarCambioAsistencia->notificar(
+                $empresa->id, $resultado->colaborador_id, $fecha, $fecha,
+                "Hora extra ({$resultado->tasa}%) marcada como '{$resultado->estado}'.",
+            );
+        });
+
+        return $resultado;
     }
 
     public function resolverSolicitud(Empresa $empresa, AsistenciaSolicitudArea $solicitud, array $datos, User $usuario, bool $esRrhh): AsistenciaSolicitudArea
