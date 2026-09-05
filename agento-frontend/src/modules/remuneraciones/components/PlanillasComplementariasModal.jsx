@@ -28,6 +28,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
     && d.colaborador.toLocaleLowerCase().includes(busquedaDescuentos.trim().toLocaleLowerCase()));
   const disponiblesFiltrados = descuentosFiltrados.filter((d) => d.reintegrable);
   const colaboradoresSeleccionados = new Set(descuentos.filter((d) => seleccionDescuentos.includes(claveDescuento(d))).map((d) => d.boleta_id)).size;
+  const primerasDeGrupo = new Set(descuentosFiltrados.filter((d, i) => i === 0 || d.boleta_id !== descuentosFiltrados[i - 1].boleta_id).map(claveDescuento));
+  const esPrimeraDeGrupo = (d) => primerasDeGrupo.has(claveDescuento(d));
+  const separadorGrupo = (d, index) => (index > 0 && esPrimeraDeGrupo(d)) ? { className: 'border-t-2 border-gray-200' } : {};
   const cargarDescuentos = async () => {
     setSeleccionDescuentos([]);
     setDescuentos([]);
@@ -207,10 +210,11 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 rowSelection={{ selectedRowKeys: seleccionDescuentos, onChange: setSeleccionDescuentos, preserveSelectedRowKeys: true,
                   getCheckboxProps: (d) => ({ disabled: !d.reintegrable || creando }) }}
                 columns={[
-                  { title: 'Colaborador', dataIndex: 'colaborador' },
-                  { title: 'Descuento', dataIndex: 'nombre', render: (v, d) => <div>{v}{!d.reintegrable && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? 'Este colaborador tiene una complementaria pendiente. Completa su pago o elimina el borrador para generar otra.' : 'Retención o aporte: requiere revisión específica'}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
-                  { title: 'Pendiente de devolver', dataIndex: 'monto', render: soles },
-                  { title: 'Reintegrar', render: (_, d) => d.reintegrable ? <InputNumber min={0.01} max={Number(d.monto)} precision={2} value={montosReintegro[claveDescuento(d)]}
+                  { title: 'Colaborador', dataIndex: 'colaborador', width: 190, onCell: separadorGrupo,
+                    render: (v, d) => esPrimeraDeGrupo(d) ? <span className="font-medium text-gray-800">{v}</span> : null },
+                  { title: 'Descuento', dataIndex: 'nombre', onCell: separadorGrupo, render: (v, d) => <div>{v}{!d.reintegrable && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? 'Este colaborador tiene una complementaria pendiente. Completa su pago o elimina el borrador para generar otra.' : 'Retención o aporte: requiere revisión específica'}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
+                  { title: 'Pendiente de devolver', dataIndex: 'monto', align: 'right', onCell: separadorGrupo, render: soles },
+                  { title: 'Reintegrar', align: 'right', width: 130, onCell: separadorGrupo, render: (_, d) => d.reintegrable ? <InputNumber className="w-full" min={0.01} max={Number(d.monto)} precision={2} value={montosReintegro[claveDescuento(d)]}
                     disabled={creando} onChange={(v) => setMontosReintegro((prev) => ({ ...prev, [claveDescuento(d)]: v }))} /> : '—' },
                 ]} />
               <div className="font-medium text-green-700">{colaboradoresSeleccionados} colaboradores · {seleccionDescuentos.length} descuentos · Reintegro seleccionado: {soles(seleccionDescuentos.reduce((s, key) => s + Number(montosReintegro[key] || 0), 0))}</div>
