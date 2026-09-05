@@ -460,12 +460,10 @@ class BoletaService
     }
 
     /**
-     * "Pagada" nunca es un badge sin respaldo (Sección 65): exige una
-     * referencia de pago real (operación bancaria, constancia, lote). No
-     * genera ningún archivo bancario — eso es Pagos Masivos, fuera de
-     * alcance de este sprint.
+     * Registra el pago manual con usuario y fecha. La referencia bancaria
+     * es opcional mientras Tesorería no la haya proporcionado.
      */
-    public function marcarPagada(Empresa $empresa, Boleta $boleta, int $usuarioId, string $referenciaPago): Boleta
+    public function marcarPagada(Empresa $empresa, Boleta $boleta, int $usuarioId, ?string $referenciaPago = null): Boleta
     {
         $this->verificarPertenenciaBoleta($empresa, $boleta);
 

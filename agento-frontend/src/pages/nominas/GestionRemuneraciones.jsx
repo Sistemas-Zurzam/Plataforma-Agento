@@ -593,32 +593,14 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     });
   };
 
-  const handlePagar = (boleta) => {
-    let referencia = '';
-    modal.confirm({
-      title: 'Marcar boleta como pagada',
-      content: (
-        <div className="mt-2">
-          <p className="mb-2 text-xs text-gray-500">Ingresa una referencia de pago real (N.º de operación, lote bancario, constancia).</p>
-          <Input placeholder="Ej. OP-2026-0819-004" onChange={(e) => { referencia = e.target.value; }} />
-        </div>
-      ),
-      okText: 'Marcar como pagada',
-      cancelText: 'Cancelar',
-      onOk: async () => {
-        if (!referencia.trim()) {
-          message.error('La referencia de pago es obligatoria');
-          return Promise.reject();
-        }
-        try {
-          await pagarBoleta(boleta.id, referencia.trim());
-          message.success('Boleta marcada como pagada');
-          recargar();
-        } catch (err) {
-          message.error('No se pudo marcar la boleta como pagada');
-        }
-      },
-    });
+  const handlePagar = async (boleta) => {
+    try {
+      await pagarBoleta(boleta.id);
+      message.success('Boleta marcada como pagada');
+      recargar();
+    } catch (err) {
+      message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo marcar la boleta como pagada');
+    }
   };
 
   const abrirConfiguracion = (boleta) => setConfiguracionColaborador(boleta.colaborador);

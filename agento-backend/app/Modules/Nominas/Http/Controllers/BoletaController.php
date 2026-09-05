@@ -177,13 +177,13 @@ class BoletaController extends Controller
     public function marcarPagada(Request $request, Boleta $boleta): BoletaResource
     {
         $datos = $request->validate([
-            'referencia_pago' => ['required', 'string', 'max:255'],
+            'referencia_pago' => ['nullable', 'string', 'max:255'],
         ]);
 
         $empresa = $this->empresaAutorizadaDeLaBoleta($request, $boleta);
 
         return new BoletaResource(
-            $this->boletas->marcarPagada($empresa, $boleta, $request->user('api')->id, $datos['referencia_pago'])
+            $this->boletas->marcarPagada($empresa, $boleta, $request->user('api')->id, $datos['referencia_pago'] ?? null)
                 ->load(['colaborador.empresa', 'conceptos.concepto']),
         );
     }
