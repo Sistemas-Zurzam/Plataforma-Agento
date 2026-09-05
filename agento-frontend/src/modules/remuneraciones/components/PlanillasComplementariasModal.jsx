@@ -164,7 +164,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const cuentasBcp = cuentas.filter((c) => c.activo && c.uso === 'haberes' && c.banco?.codigo === 'bcp');
 
   return (
-    <Modal title="Planillas complementarias" open={open} onCancel={onCancel} footer={null} width={980} destroyOnHidden>
+    <Modal title="Planillas complementarias" open={open} onCancel={onCancel} footer={null} width={1440} destroyOnHidden>
       <div className="space-y-4">
         <Descriptions size="small" bordered column={3}>
           <Descriptions.Item label="Empresa">{ciclo?.empresa?.nombre_comercial}</Descriptions.Item>
@@ -172,7 +172,8 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           <Descriptions.Item label="Estado"><Tag color="green">{ciclo?.estado}</Tag></Descriptions.Item>
         </Descriptions>
 
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+        <div className="flex flex-col gap-4 lg:flex-row">
+        <div className="min-w-0 flex-1 rounded-lg border border-blue-200 bg-blue-50 p-3">
           <div className="mb-2 flex flex-wrap items-center gap-2">
             <Select className="w-72" value={tipoRegularizacion} onChange={setTipoRegularizacion} options={[
               { value: 'reintegro_descuentos', label: 'Reintegrar descuentos' },
@@ -247,14 +248,15 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           </div>
         </div>
 
-        <div className="flex gap-2">
-          <Select className="w-56" value={categoria} onChange={setCategoria} options={[{ value: '5', label: '5ta categoría' }, { value: '4', label: '4ta categoría' }]} />
-          <Select className="w-80" allowClear placeholder="Cuenta BCP para Telecrédito" value={cuentaBcp} onChange={setCuentaBcp}
-            options={cuentasBcp.map((c) => ({ value: c.id, label: `${c.banco?.nombre ?? 'BCP'} • ${c.numero_cuenta}` }))} />
-        </div>
+        <div className="w-full shrink-0 space-y-3 lg:w-[440px]">
+          <div className="flex flex-col gap-2">
+            <Select value={categoria} onChange={setCategoria} options={[{ value: '5', label: '5ta categoría' }, { value: '4', label: '4ta categoría' }]} />
+            <Select allowClear placeholder="Cuenta BCP para Telecrédito" value={cuentaBcp} onChange={setCuentaBcp}
+              options={cuentasBcp.map((c) => ({ value: c.id, label: `${c.banco?.nombre ?? 'BCP'} • ${c.numero_cuenta}` }))} />
+          </div>
 
-        <div className="max-h-[55vh] space-y-4 overflow-y-auto pr-1">
-        {items.map((item) => (
+          <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
+          {items.map((item) => (
           <div key={item.id} className="rounded-lg border p-3">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div><strong>{item.nombre}</strong> <Tag>{item.estado}</Tag><div className="text-xs text-gray-500">{item.motivo}</div></div>
@@ -317,7 +319,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
             />
           </div>
         ))}
-        {!items.length && !loading && <div className="py-8 text-center text-gray-400">Aún no hay regularizaciones para este ciclo.</div>}
+          {!items.length && !loading && <div className="py-8 text-center text-gray-400">Aún no hay regularizaciones para este ciclo.</div>}
+          </div>
+        </div>
         </div>
       </div>
 
