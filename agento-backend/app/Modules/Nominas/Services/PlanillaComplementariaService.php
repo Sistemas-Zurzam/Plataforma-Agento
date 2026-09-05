@@ -260,6 +260,107 @@ class PlanillaComplementariaService
         });
     }
 
+    public function descuentosReintegrables(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds): array
+    {
+        $originales = $this->boletasParaReintegro($empresa, $ciclo, $boletaIds);
+        $nombres = ConceptoRemuneracion::pluck('nombre', 'codigo');
+        return $originales->flatMap(function ($boleta) use ($nombres) {
+            $snapshot = $this->baseParaReintegro($boleta);
+            $version = hash('sha256', json_encode($snapshot));
+            return collect($snapshot['egresos'] ?? [])->map(function ($linea, $indice) use ($boleta, $nombres, $version) {
+                return [
+                    'boleta_id' => $boleta->id, 'indice' => $indice, 'version' => $version,
+                    'colaborador' => trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos),
+                    'codigo' => $linea['codigo'], 'nombre' => $nombres[$linea['codigo']] ?? $linea['codigo'],
+                    'monto' => $linea['monto'], 'formula' => $linea['formula_texto'] ?? null,
+                    'reintegrable' => $this->esDescuentoReintegrable($linea['codigo']),
+                ];
+            })->filter(fn ($linea) => (float) $linea['monto'] > 0)->values();
+        })->values()->all();
+    }
+
+    private function esDescuentoReintegrable(?string $codigo): bool
+    {
+        return in_array($codigo, ['DESCUENTO_FALTA', 'DESCUENTO_TARDANZA', 'DESCUENTO_HORAS_INCOMPLETAS',
+            'DESCUENTO_ERROR_OPERATIVO', 'DESCUENTO_COMPRA_MERCADERIA', 'ADELANTO_SUELDO'], true);
+    }
+
+    private function boletasParaReintegro(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds): Collection
+    {
+        $this->verificar($empresa, $ciclo);
+        if ($ciclo->estado !== 'pagado') {
+            throw ValidationException::withMessages(['estado' => 'El reintegro requiere un ciclo pagado.']);
+        }
+        $boletas = $ciclo->boletas()->whereIn('id', $boletaIds)->where('estado', 'pagada')
+            ->where('es_version_vigente', true)->with(['colaborador', 'conceptos.concepto'])->get();
+        if ($boletas->isEmpty() || $boletas->count() !== count(array_unique($boletaIds))) {
+            throw ValidationException::withMessages(['boleta_ids' => 'Selecciona boletas vigentes pagadas de este ciclo.']);
+        }
+        return $boletas;
+    }
+
+    private function baseParaReintegro(Boleta $boleta): array
+    {
+        return PlanillaComplementariaDetalle::where('boleta_original_id', $boleta->id)
+            ->whereHas('complementaria', fn ($q) => $q->where('estado', 'pagada'))
+            ->latest('id')->first()?->calculo_snapshot ?? $this->snapshotDeBoleta($boleta);
+    }
+
+    public function reintegrarDescuentos(Empresa $empresa, CicloRemunerativo $ciclo, array $seleccion, string $motivo, int $usuarioId): PlanillaComplementaria
+    {
+        return DB::transaction(function () use ($empresa, $ciclo, $seleccion, $motivo, $usuarioId) {
+            // Serializa la creación para que dos solicitudes no reserven el mismo descuento.
+            $ciclo = CicloRemunerativo::whereKey($ciclo->id)->lockForUpdate()->firstOrFail();
+            $boletas = $this->boletasParaReintegro($empresa, $ciclo, collect($seleccion)->pluck('boleta_id')->unique()->all());
+            if (PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
+                ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada']))->exists()) {
+                throw ValidationException::withMessages(['descuentos' => 'Ya existe una complementaria pendiente para estas boletas. Elimina la calculada si fue un error, o completa su pago antes de generar otro reintegro.']);
+            }
+            $item = PlanillaComplementaria::create([
+                'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+                'nombre' => 'Reintegro de descuentos '.$ciclo->nombre.' '.now()->format('Ymd-His'),
+                'motivo' => $motivo, 'estado' => 'calculada', 'creado_por' => $usuarioId,
+            ]);
+            foreach ($boletas as $boleta) {
+                $base = $this->baseParaReintegro($boleta);
+                $snapshot = $base;
+                $snapshot['reintegros_descuentos'] = [];
+                $total = '0.00';
+                $indices = [];
+                foreach (collect($seleccion)->where('boleta_id', $boleta->id) as $elegido) {
+                    $indice = $elegido['indice'];
+                    $linea = $base['egresos'][$indice] ?? null;
+                    $monto = (string) $elegido['monto'];
+                    if (isset($indices[$indice]) || ! $linea || ! $this->esDescuentoReintegrable($linea['codigo'])
+                        || $elegido['version'] !== hash('sha256', json_encode($base))
+                        || bccomp($monto, '0', 2) <= 0 || bccomp($monto, (string) $linea['monto'], 2) > 0) {
+                        throw ValidationException::withMessages(['descuentos' => 'El descuento cambió o el importe no es válido. Actualiza los descuentos y selecciona un monto pendiente de reintegro.']);
+                    }
+                    $indices[$indice] = true;
+                    $snapshot['egresos'][$indice]['monto'] = (float) bcsub((string) $linea['monto'], $monto, 2);
+                    $snapshot['reintegros_descuentos'][] = [
+                        'codigo' => $linea['codigo'], 'monto' => $monto, 'monto_anterior' => $linea['monto'],
+                        'motivo' => $motivo, 'registrado_por' => $usuarioId, 'registrado_en' => now()->toDateTimeString(),
+                    ];
+                    $total = bcadd($total, $monto, 2);
+                }
+                $snapshot['total_egresos'] = (float) bcsub((string) $base['total_egresos'], $total, 2);
+                $snapshot['neto_a_pagar'] = (float) bcadd((string) $base['neto_a_pagar'], $total, 2);
+                $colaborador = $boleta->colaborador;
+                PlanillaComplementariaDetalle::create([
+                    'planilla_complementaria_id' => $item->id, 'boleta_original_id' => $boleta->id,
+                    'colaborador_id' => $boleta->colaborador_id, 'banco_id' => $colaborador->banco_id,
+                    'tipo_cuenta_snapshot' => $colaborador->tipo_cuenta, 'moneda_snapshot' => $colaborador->moneda_cuenta,
+                    'numero_cuenta_snapshot' => $colaborador->numero_cuenta, 'cci_snapshot' => $colaborador->cci,
+                    'neto_original' => $base['neto_a_pagar'], 'neto_recalculado' => $snapshot['neto_a_pagar'],
+                    'diferencia_ingresos' => 0, 'diferencia_egresos' => bcsub('0', $total, 2),
+                    'diferencia_aportaciones' => 0, 'diferencia_neta' => $total, 'calculo_snapshot' => $snapshot,
+                ]);
+            }
+            return $this->cargar($item);
+        });
+    }
+
     private function snapshotDeBoleta(Boleta $boleta): array
     {
         $bloques = ['ingreso' => [], 'egreso' => [], 'aportacion' => []];

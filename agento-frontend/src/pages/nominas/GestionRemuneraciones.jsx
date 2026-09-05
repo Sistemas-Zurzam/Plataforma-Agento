@@ -226,7 +226,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     exportarPlanillaPagadaExcel,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
-    fetchComplementarias, crearComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, agregarConceptoComplementaria, eliminarConceptoComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria,
+    fetchComplementarias, crearComplementaria, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, agregarConceptoComplementaria, eliminarConceptoComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria,
   } = useRemuneraciones();
 
   const [cicloId, setCicloId] = useState(null);
@@ -1295,7 +1295,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setComplementariasModalOpen(false)}
         ciclo={cicloActivo}
         boletaIds={boletasSeleccionadas}
-        api={{ fetchComplementarias, crearComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, agregarConceptoComplementaria, eliminarConceptoComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria }}
+        api={{ fetchComplementarias, crearComplementaria, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, agregarConceptoComplementaria, eliminarConceptoComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria }}
         permisos={{ calcular: puedeCalcular, aprobar: puedeAprobar, pagar: puedePagar, telecredito: puedeExportarTelecredito, bbva: puedeExportarBbvaNetCash }}
         catalogoConceptos={catalogoConceptos}
       />

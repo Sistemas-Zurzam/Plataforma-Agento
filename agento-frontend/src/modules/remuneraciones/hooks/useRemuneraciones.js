@@ -136,6 +136,16 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchDescuentosComplementaria = useCallback(async (cicloId, boletaIds) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/descuentos`, { params: { boleta_ids: boletaIds } });
+    return data.data;
+  }, []);
+
+  const reintegrarDescuentosComplementaria = useCallback(async (cicloId, descuentos, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/reintegrar-descuentos`, { descuentos, motivo });
+    return data.data;
+  }, []);
+
   const fetchFeriadosHistoricos = useCallback(async (cicloId) => {
     const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/feriados-historicos`);
     return data.data;
@@ -531,6 +541,8 @@ export function useRemuneraciones() {
     aprobarBoletasMasivo,
     fetchIncidenciasPendientesAprobarMasivo,
     pagarBoleta,
+    fetchDescuentosComplementaria,
+    reintegrarDescuentosComplementaria,
     guardarComprobanteRh,
     afps,
     fetchAfps,

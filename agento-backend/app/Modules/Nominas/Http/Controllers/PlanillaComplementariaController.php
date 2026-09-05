@@ -26,6 +26,26 @@ class PlanillaComplementariaController extends Controller
         return response()->json(['data' => $this->service->listar($empresa, $ciclo)->map(fn ($i) => $this->presentar($i))]);
     }
 
+    public function descuentos(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate(['boleta_ids' => ['required', 'array', 'min:1'], 'boleta_ids.*' => ['required', 'integer', 'distinct']]);
+        return response()->json(['data' => $this->service->descuentosReintegrables($this->empresa($request, $ciclo), $ciclo, $datos['boleta_ids'])]);
+    }
+
+    public function reintegrarDescuentos(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate([
+            'motivo' => ['required', 'string', 'max:1000'],
+            'descuentos' => ['required', 'array', 'min:1'],
+            'descuentos.*.boleta_id' => ['required', 'integer'],
+            'descuentos.*.indice' => ['required', 'integer', 'min:0'],
+            'descuentos.*.version' => ['required', 'string', 'size:64'],
+            'descuentos.*.monto' => ['required', 'numeric', 'decimal:0,2', 'min:0.01'],
+        ]);
+        $item = $this->service->reintegrarDescuentos($this->empresa($request, $ciclo), $ciclo, $datos['descuentos'], $datos['motivo'], $request->user('api')->id);
+        return response()->json(['data' => $this->presentar($item)], 201);
+    }
+
     public function feriadosDisponibles(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
         $empresa = $this->empresa($request, $ciclo);
@@ -165,6 +185,7 @@ class PlanillaComplementariaController extends Controller
                 'diferencia_ingresos' => $d->diferencia_ingresos, 'diferencia_egresos' => $d->diferencia_egresos,
                 'diferencia_aportaciones' => $d->diferencia_aportaciones, 'diferencia_neta' => $d->diferencia_neta,
                 'conceptos_manuales' => $this->conceptosManuales($d),
+                'reintegros_descuentos' => $d->calculo_snapshot['reintegros_descuentos'] ?? [],
             ])->values(),
             'aprobado_at' => $item->aprobado_at?->toDateTimeString(), 'pagado_at' => $item->pagado_at?->toDateTimeString(),
             'referencia_pago' => $item->referencia_pago,
