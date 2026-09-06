@@ -18,7 +18,27 @@ use Symfony\Component\HttpFoundation\Response;
 
 class PlanillaComplementariaController extends Controller
 {
-    public function __construct(private readonly PlanillaComplementariaService $service) {}
+    public function __construct(private readonly PlanillaComplementariaService $service,
+        private readonly \App\Modules\Nominas\Services\DescansoSemanalComplementariaService $descansos) {}
+
+    public function descansosSemanales(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate(['boleta_ids' => ['required', 'array', 'min:1'], 'boleta_ids.*' => ['required', 'integer', 'distinct']]);
+        return response()->json(['data' => $this->descansos->semanas($this->empresa($request, $ciclo), $ciclo, $datos['boleta_ids'])]);
+    }
+
+    public function reintegrarDescansosSemanales(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate([
+            'semanas' => ['required', 'array', 'min:1'],
+            'semanas.*.boleta_id' => ['required', 'integer'],
+            'semanas.*.semana_inicio' => ['required', 'date_format:Y-m-d'],
+            'motivo' => ['required', 'string', 'max:1000'],
+            'sin_descanso_sustitutorio' => ['accepted'], 'sin_pago_previo' => ['accepted'],
+        ]);
+        $item = $this->descansos->crear($this->empresa($request, $ciclo), $ciclo, $datos['semanas'], $datos['motivo'], $request->user('api')->id);
+        return response()->json(['data' => $this->presentar($item)], 201);
+    }
 
     public function index(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
@@ -186,6 +206,7 @@ class PlanillaComplementariaController extends Controller
                 'diferencia_aportaciones' => $d->diferencia_aportaciones, 'diferencia_neta' => $d->diferencia_neta,
                 'conceptos_manuales' => $this->conceptosManuales($d),
                 'reintegros_descuentos' => $d->calculo_snapshot['reintegros_descuentos'] ?? [],
+                'descansos_semanales' => $d->calculo_snapshot['descansos_semanales'] ?? [],
             ])->values(),
             'aprobado_at' => $item->aprobado_at?->toDateTimeString(), 'pagado_at' => $item->pagado_at?->toDateTimeString(),
             'referencia_pago' => $item->referencia_pago,

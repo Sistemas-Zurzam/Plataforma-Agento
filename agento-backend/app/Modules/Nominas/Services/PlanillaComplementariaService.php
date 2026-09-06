@@ -294,7 +294,7 @@ class PlanillaComplementariaService
             'DESCUENTO_ERROR_OPERATIVO', 'DESCUENTO_COMPRA_MERCADERIA', 'ADELANTO_SUELDO'], true);
     }
 
-    private function boletasParaReintegro(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds): Collection
+    public function boletasParaReintegro(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds): Collection
     {
         $this->verificar($empresa, $ciclo);
         if ($ciclo->estado !== 'pagado') {
@@ -308,7 +308,7 @@ class PlanillaComplementariaService
         return $boletas;
     }
 
-    private function baseParaReintegro(Boleta $boleta): array
+    public function baseParaReintegro(Boleta $boleta): array
     {
         return PlanillaComplementariaDetalle::where('boleta_original_id', $boleta->id)
             ->whereHas('complementaria', fn ($q) => $q->where('estado', 'pagada'))
@@ -418,6 +418,9 @@ class PlanillaComplementariaService
      */
     public function agregarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, int $conceptoId, ?int $conceptoDefinicionId, float $monto, ?string $motivo, int $usuarioId): PlanillaComplementaria
     {
+        if (! empty($detalle->calculo_snapshot['descansos_semanales'])) {
+            throw ValidationException::withMessages(['detalle' => 'Para corregir las semanas, elimina el borrador y vuelve a generar el reintegro.']);
+        }
         $item = $detalle->complementaria;
         $this->verificarItem($empresa, $item);
 
@@ -496,6 +499,9 @@ class PlanillaComplementariaService
      */
     public function eliminarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, string $lineaId): PlanillaComplementaria
     {
+        if (! empty($detalle->calculo_snapshot['descansos_semanales'])) {
+            throw ValidationException::withMessages(['detalle' => 'Para corregir las semanas, elimina el borrador y vuelve a generar el reintegro.']);
+        }
         $item = $detalle->complementaria;
         $this->verificarItem($empresa, $item);
 

@@ -16,6 +16,23 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [creando, setCreando] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [tipoRegularizacion, setTipoRegularizacion] = useState('reintegro_descuentos');
+  const [semanasDescanso, setSemanasDescanso] = useState([]);
+  const [semanasSeleccionadas, setSemanasSeleccionadas] = useState([]);
+  const [cargandoSemanas, setCargandoSemanas] = useState(false);
+  const [confirmarDescansos, setConfirmarDescansos] = useState(false);
+  const [busquedaSemanas, setBusquedaSemanas] = useState('');
+  const claveSemana = (s) => `${s.boleta_id}/${s.semana_inicio}`;
+  const semanasFiltradas = semanasDescanso.filter((s) => s.colaborador.toLocaleLowerCase().includes(busquedaSemanas.trim().toLocaleLowerCase()));
+  const cargarSemanas = async () => {
+    setSemanasSeleccionadas([]);
+    setSemanasDescanso([]);
+    setConfirmarDescansos(false);
+    if (!ciclo || !boletaIds.length) return;
+    setCargandoSemanas(true);
+    try { setSemanasDescanso(await api.fetchDescansosSemanales(ciclo.id, boletaIds)); }
+    catch (e) { message.error(e.response?.data?.message ?? 'No se pudieron cargar las semanas.'); }
+    finally { setCargandoSemanas(false); }
+  };
   const [descuentos, setDescuentos] = useState([]);
   const [seleccionDescuentos, setSeleccionDescuentos] = useState([]);
   const [montosReintegro, setMontosReintegro] = useState({});
@@ -69,6 +86,10 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       setBusquedaDescuentos('');
       setFiltroDescuento(null);
       setTipoRegularizacion('reintegro_descuentos');
+      setSemanasDescanso([]);
+      setSemanasSeleccionadas([]);
+      setConfirmarDescansos(false);
+      setBusquedaSemanas('');
       cargarDescuentos();
       setFechaFeriado(null);
       setFeriadosDisponibles([]);
@@ -81,7 +102,10 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const ejecutar = async (accion, exito, actualizarDescuentos = false) => {
     try {
       await accion(); message.success(exito); await cargar();
-      if (actualizarDescuentos) await cargarDescuentos();
+      if (actualizarDescuentos) {
+        await cargarDescuentos();
+        if (tipoRegularizacion === 'descanso_semanal') await cargarSemanas();
+      }
     } catch (e) { message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudo completar la operación'); }
   };
 
@@ -92,6 +116,19 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
     if (tipoRegularizacion === 'feriado_historico' && !sinDescansoSustitutorio) return message.warning('Confirma que no se otorgó descanso sustitutorio.');
     setCreando(true);
     try {
+      if (tipoRegularizacion === 'descanso_semanal') {
+        if (!confirmarDescansos) return message.warning('Confirma que no hubo descanso sustitutorio ni pago previo.');
+        const seleccion = semanasDescanso.filter((s) => semanasSeleccionadas.includes(claveSemana(s)))
+          .map((s) => ({ boleta_id: s.boleta_id, semana_inicio: s.semana_inicio }));
+        if (!seleccion.length) return message.warning('Selecciona al menos una semana disponible.');
+        await api.reintegrarDescansosSemanales(ciclo.id, seleccion, motivo.trim());
+        setMotivo('');
+        message.success('Reintegro generado. Revisa el neto y aprueba para descargar el TXT.');
+        await cargar();
+        await cargarSemanas();
+        await cargarDescuentos();
+        return;
+      }
       if (tipoRegularizacion === 'reintegro_descuentos') {
         const elegidos = descuentos.filter((d) => seleccionDescuentos.includes(claveDescuento(d)))
           .map((d) => ({ boleta_id: d.boleta_id, indice: d.indice, version: d.version, monto: montosReintegro[claveDescuento(d)] }));
@@ -151,7 +188,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       title: '',
       key: 'acciones',
       width: 40,
-      render: (_, detalle) => (
+      render: (_, detalle) => detalle.descansos_semanales?.length ? null : (
         <Button
           size="small"
           type="text"
@@ -177,7 +214,8 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         <div className="flex flex-col gap-4 lg:flex-row">
         <div className="min-w-0 flex-1 rounded-lg border border-blue-200 bg-blue-50 p-3 lg:max-w-[760px]">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Select className="w-72" value={tipoRegularizacion} onChange={setTipoRegularizacion} options={[
+            <Select className="w-80" value={tipoRegularizacion} onChange={(v) => { setTipoRegularizacion(v); if (v === 'descanso_semanal') cargarSemanas(); }} options={[
+              { value: 'descanso_semanal', label: 'Reintegro por descanso semanal trabajado' },
               { value: 'reintegro_descuentos', label: 'Reintegrar descuentos' },
               { value: 'diferencia_ciclo', label: 'Diferencia del ciclo pagado' },
               { value: 'feriado_historico', label: 'Feriado histórico no pagado' },
@@ -189,12 +227,37 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
             )}
           </div>
           <div className="mb-2 text-sm">
-            {tipoRegularizacion === 'reintegro_descuentos'
+            {tipoRegularizacion === 'descanso_semanal'
+              ? <>Semanas completas con siete días trabajados y un descanso rotativo semanal. Importe adicional bruto: sueldo mensual histórico / 30 × 2 por semana seleccionada. El neto se calcula al generar la complementaria.</>
+              : tipoRegularizacion === 'reintegro_descuentos'
               ? <>Boletas seleccionadas: <strong>{boletaIds.length}</strong>. Puedes generar un solo lote para todos los colaboradores. Filtra los descuentos y selecciona los que corresponde devolver.</>
               : tipoRegularizacion === 'feriado_historico'
               ? <>Se usará el sueldo vigente en el feriado y se calculará automáticamente <strong>sueldo / 30 × 2</strong> para las <strong>{boletaIds.length}</strong> personas seleccionadas.</>
               : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
           </div>
+          {tipoRegularizacion === 'descanso_semanal' && (
+            <div className="mb-3 space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={cargarSemanas} loading={cargandoSemanas}>Actualizar semanas</Button>
+                <Input.Search placeholder="Buscar colaborador" allowClear value={busquedaSemanas} onChange={(e) => setBusquedaSemanas(e.target.value)} />
+                <Button disabled={creando || cargandoSemanas} onClick={() => setSemanasSeleccionadas((prev) => [...new Set([...prev, ...semanasFiltradas.filter((s) => s.disponible).map(claveSemana)])])}>Seleccionar todas las disponibles del filtro</Button>
+                <Button onClick={() => setSemanasSeleccionadas([])}>Limpiar selección</Button>
+              </div>
+              <Table rowKey={claveSemana} size="small" loading={cargandoSemanas} dataSource={semanasFiltradas}
+                pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100] }}
+                rowSelection={{ selectedRowKeys: semanasSeleccionadas, onChange: setSemanasSeleccionadas, preserveSelectedRowKeys: true, getCheckboxProps: (s) => ({ disabled: !s.disponible || creando }) }}
+                locale={{ emptyText: 'No hay semanas completas pendientes para las boletas seleccionadas.' }}
+                columns={[
+                  { title: 'Colaborador', dataIndex: 'colaborador' },
+                  { title: 'Semana', render: (_, s) => `${dayjs(s.semana_inicio).format('DD/MM')} – ${dayjs(s.semana_fin).format('DD/MM/YYYY')}` },
+                  { title: 'Bruto adicional', dataIndex: 'importe_bruto', render: soles },
+                  { title: 'Estado', render: (_, s) => s.observacion ?? '7 días trabajados · 1 descanso por revisar' },
+                ]} />
+              <p className="font-medium text-green-700">{semanasSeleccionadas.length} semanas · Bruto seleccionado: {soles(semanasDescanso.filter((s) => semanasSeleccionadas.includes(claveSemana(s))).reduce((total, s) => total + Number(s.importe_bruto), 0))}</p>
+              <Checkbox checked={confirmarDescansos} onChange={(e) => setConfirmarDescansos(e.target.checked)}>Confirmo que no se otorgó descanso sustitutorio ni se pagaron previamente los descansos seleccionados.</Checkbox>
+              <p className="text-xs text-gray-500">Las semanas se evalúan de lunes a domingo. Una semana que termina en el mes siguiente se revisa en ese siguiente ciclo. Las semanas ya incluidas se ocultan; eliminar el borrador las libera.</p>
+            </div>
+          )}
           {tipoRegularizacion === 'reintegro_descuentos' && (
             <div className="mb-3 space-y-2">
               <Button size="small" onClick={cargarDescuentos} loading={cargandoDescuentos}>Actualizar descuentos</Button>
@@ -260,7 +323,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
             <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>
-              {tipoRegularizacion === 'reintegro_descuentos' ? 'Generar reintegro' : tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
+              {['reintegro_descuentos', 'descanso_semanal'].includes(tipoRegularizacion) ? 'Generar reintegro' : tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
             </Button>
           </div>
         </div>
@@ -309,9 +372,10 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               columns={columnasDetalle(item)}
               dataSource={item.detalles}
               expandable={{
-                rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0 || detalle.reintegros_descuentos?.length > 0,
+                rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0 || detalle.reintegros_descuentos?.length > 0 || detalle.descansos_semanales?.length > 0,
                 expandedRowRender: (detalle) => (
                   <div className="space-y-1.5 py-1">
+                    {detalle.descansos_semanales?.map((s) => <p key={s.semana_inicio} className="text-sm text-green-700">Descanso semanal {s.semana_inicio} – {s.semana_fin}: {soles(s.sueldo)} / 30 × 2 = {soles(s.importe_bruto)} bruto.</p>)}
                     {detalle.reintegros_descuentos?.length > 0 && <>
                       <p className="text-xs font-semibold text-gray-500">Descuentos subsanados</p>
                       {detalle.reintegros_descuentos.map((r, i) => <div key={i} className="text-sm text-green-700">{catalogoConceptos.find((c) => c.codigo === r.codigo)?.nombre ?? nombreConcepto(r.codigo)}: {soles(r.monto)} <span className="text-gray-500">— {r.motivo}</span></div>)}
@@ -324,7 +388,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                           <span className="font-medium">{soles(c.monto)}</span>
                           {c.motivo && <span className="ml-1 text-gray-500">— {c.motivo}</span>}
                         </div>
-                        {item.estado === 'calculada' && permisos.calcular && (
+                        {item.estado === 'calculada' && permisos.calcular && !detalle.descansos_semanales?.length && (
                           c.id ? (
                             <Popconfirm title="¿Eliminar este concepto?" onConfirm={() => eliminarConcepto(detalle.id, c.id)}>
                               <Button size="small" type="text" danger icon={<DeleteOutlined />} />

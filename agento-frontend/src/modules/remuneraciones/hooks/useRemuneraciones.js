@@ -131,6 +131,17 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchDescansosSemanales = useCallback(async (cicloId, boletaIds) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/descansos-semanales`, { params: { boleta_ids: boletaIds } });
+    return data.data;
+  }, []);
+  const reintegrarDescansosSemanales = useCallback(async (cicloId, semanas, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/descansos-semanales`, {
+      semanas, motivo, sin_descanso_sustitutorio: true, sin_pago_previo: true,
+    });
+    return data.data;
+  }, []);
+
   const crearComplementaria = useCallback(async (cicloId, boletaIds, motivo) => {
     const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias`, { boleta_ids: boletaIds, motivo });
     return data.data;
@@ -548,6 +559,8 @@ export function useRemuneraciones() {
     pagarBoleta,
     pagarBoletasMasivo,
     fetchDescuentosComplementaria,
+    fetchDescansosSemanales,
+    reintegrarDescansosSemanales,
     reintegrarDescuentosComplementaria,
     guardarComprobanteRh,
     afps,
