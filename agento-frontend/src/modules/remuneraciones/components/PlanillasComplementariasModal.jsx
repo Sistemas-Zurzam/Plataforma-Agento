@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import { useCuentasBancariasEmpresa } from '../../configuracion/hooks/useCuentasBancariasEmpresa';
 import AgregarConceptoComplementariaModal, { CONCEPTOS_REGISTRABLES } from './AgregarConceptoComplementariaModal';
+import AgregarColaboradoresComplementariaModal from './AgregarColaboradoresComplementariaModal';
 
 const soles = (valor) => `S/ ${Number(valor || 0).toFixed(2)}`;
 const nombreConcepto = (codigo) => codigo === 'DESCUENTO_FALTA_BASICO' ? 'Faltas descontadas de la remuneración básica' : CONCEPTOS_REGISTRABLES.find((c) => c.codigo === codigo)?.nombre ?? codigo;
@@ -14,6 +15,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [creando, setCreando] = useState(false);
+  const [itemParaColaboradores, setItemParaColaboradores] = useState(null);
   const [motivo, setMotivo] = useState('');
   const [tipoRegularizacion, setTipoRegularizacion] = useState('reintegro_descuentos');
   const [semanasDescanso, setSemanasDescanso] = useState([]);
@@ -342,6 +344,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 <span className="self-center text-sm text-green-700">A pagar: {soles(item.total_a_pagar)}</span>
                 {Number(item.saldo_a_descontar) > 0 && <span className="self-center text-sm text-red-600">A descontar: {soles(item.saldo_a_descontar)}</span>}
                 {item.estado === 'calculada' && permisos.calcular && (
+                  <Button icon={<PlusOutlined />} onClick={() => setItemParaColaboradores(item)}>Agregar colaboradores</Button>
+                )}
+                {item.estado === 'calculada' && permisos.calcular && (
                   <Popconfirm
                     title="¿Eliminar esta complementaria?"
                     description="Se borra por completo, incluyendo los conceptos que hayas agregado. La boleta original no se ve afectada."
@@ -423,6 +428,16 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         loading={agregandoConcepto}
         detalle={detalleParaConcepto}
         catalogo={catalogoConceptos}
+      />
+      <AgregarColaboradoresComplementariaModal
+        open={Boolean(itemParaColaboradores)}
+        item={itemParaColaboradores}
+        api={api}
+        onCancel={() => setItemParaColaboradores(null)}
+        onAdded={async () => {
+          setItemParaColaboradores(null);
+          await cargar();
+        }}
       />
     </Modal>
   );

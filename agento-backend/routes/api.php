@@ -223,6 +223,8 @@ Route::middleware('jwt')->group(function () {
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/regularizacion-feriado-historico', [PlanillaComplementariaController::class, 'regularizarFeriadoHistorico'])->middleware('permiso:nominas.calcular');
     Route::post('/planillas-complementarias-detalles/{detalle}/conceptos', [PlanillaComplementariaController::class, 'agregarConcepto'])->middleware('permiso:nominas.calcular');
     Route::delete('/planillas-complementarias-detalles/{detalle}/conceptos/{lineaId}', [PlanillaComplementariaController::class, 'eliminarConcepto'])->middleware('permiso:nominas.calcular');
+    Route::get('/planillas-complementarias/{complementaria}/colaboradores-disponibles', [PlanillaComplementariaController::class, 'colaboradoresDisponibles'])->middleware('permiso:nominas.calcular');
+    Route::post('/planillas-complementarias/{complementaria}/colaboradores', [PlanillaComplementariaController::class, 'agregarColaboradores'])->middleware('permiso:nominas.calcular');
     Route::delete('/planillas-complementarias/{complementaria}', [PlanillaComplementariaController::class, 'eliminar'])->middleware('permiso:nominas.calcular');
     Route::patch('/planillas-complementarias/{complementaria}/aprobar', [PlanillaComplementariaController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/planillas-complementarias/{complementaria}/pagar', [PlanillaComplementariaController::class, 'pagar'])->middleware('permiso:nominas.pagar');

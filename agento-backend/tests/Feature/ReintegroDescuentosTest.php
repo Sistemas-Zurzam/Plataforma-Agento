@@ -254,4 +254,37 @@ class ReintegroDescuentosTest extends TestCase
         $this->assertSame('000041', substr($lineas[0], 1, 6));
         $this->assertSame('00000000001913.47', substr($lineas[0], 41, 17));
     }
+
+    public function test_agrega_colaboradores_sin_diferencias_al_mismo_borrador_para_cargar_bonificaciones(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
+        $falta = collect($service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]))
+            ->firstWhere('codigo', 'DESCUENTO_FALTA');
+        $borrador = $service->reintegrarDescuentos($empresa, $ciclo, [$falta], 'Lote único', $usuarioId);
+
+        $colaborador = $this->crearColaborador($empresa, ['numero_documento' => '71234567']);
+        $segundaBoleta = $boleta->replicate();
+        $segundaBoleta->colaborador_id = $colaborador->id;
+        $segundaBoleta->regimen_laboral_snapshot = 'General';
+        $segundaBoleta->save();
+        foreach ($boleta->conceptos as $concepto) {
+            $linea = $concepto->replicate();
+            $linea->boleta_id = $segundaBoleta->id;
+            $linea->save();
+        }
+
+        $disponibles = $service->colaboradoresDisponibles($empresa, $borrador);
+        $this->assertSame([$segundaBoleta->id], $disponibles->pluck('boleta_id')->all());
+
+        $actualizado = $service->agregarColaboradores($empresa, $borrador, [$segundaBoleta->id]);
+        $nuevoDetalle = $actualizado->detalles->firstWhere('boleta_original_id', $segundaBoleta->id);
+
+        $this->assertCount(2, $actualizado->detalles);
+        $this->assertSame('0.00', $nuevoDetalle->diferencia_neta);
+        $this->assertSame($segundaBoleta->neto_a_pagar, $nuevoDetalle->neto_original);
+        $this->assertTrue($service->colaboradoresDisponibles($empresa, $borrador)->isEmpty());
+
+        $this->expectException(ValidationException::class);
+        $service->agregarColaboradores($empresa, $borrador, [$segundaBoleta->id]);
+    }
 }

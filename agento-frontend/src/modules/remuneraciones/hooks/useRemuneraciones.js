@@ -177,6 +177,18 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchColaboradoresDisponiblesComplementaria = useCallback(async (id, busqueda = null) => {
+    const { data } = await api.get(`/planillas-complementarias/${id}/colaboradores-disponibles`, {
+      params: { busqueda: busqueda || undefined },
+    });
+    return data.data;
+  }, []);
+
+  const agregarColaboradoresComplementaria = useCallback(async (id, boletaIds) => {
+    const { data } = await api.post(`/planillas-complementarias/${id}/colaboradores`, { boleta_ids: boletaIds });
+    return data.data;
+  }, []);
+
   const eliminarComplementaria = useCallback(async (id) => {
     await api.delete(`/planillas-complementarias/${id}`);
   }, []);
@@ -562,6 +574,8 @@ export function useRemuneraciones() {
     crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,
     eliminarConceptoComplementaria,
+    fetchColaboradoresDisponiblesComplementaria,
+    agregarColaboradoresComplementaria,
     eliminarComplementaria,
     aprobarComplementaria,
     pagarComplementaria,

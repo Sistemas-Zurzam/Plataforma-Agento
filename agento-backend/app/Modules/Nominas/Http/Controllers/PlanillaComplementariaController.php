@@ -141,6 +141,33 @@ class PlanillaComplementariaController extends Controller
         return response()->json(['data' => $this->presentar($item)]);
     }
 
+    public function colaboradoresDisponibles(Request $request, PlanillaComplementaria $complementaria): JsonResponse
+    {
+        $datos = $request->validate(['busqueda' => ['nullable', 'string', 'max:100']]);
+
+        return response()->json(['data' => $this->service->colaboradoresDisponibles(
+            $this->empresaItem($request, $complementaria),
+            $complementaria,
+            $datos['busqueda'] ?? null,
+        )]);
+    }
+
+    public function agregarColaboradores(Request $request, PlanillaComplementaria $complementaria): JsonResponse
+    {
+        $datos = $request->validate([
+            'boleta_ids' => ['required', 'array', 'min:1'],
+            'boleta_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $item = $this->service->agregarColaboradores(
+            $this->empresaItem($request, $complementaria),
+            $complementaria,
+            $datos['boleta_ids'],
+        );
+
+        return response()->json(['data' => $this->presentar($item)]);
+    }
+
     public function eliminarConcepto(Request $request, PlanillaComplementariaDetalle $detalle, string $lineaId): JsonResponse
     {
         $item = $this->service->eliminarConcepto($this->empresaDetalle($request, $detalle), $detalle, $lineaId);

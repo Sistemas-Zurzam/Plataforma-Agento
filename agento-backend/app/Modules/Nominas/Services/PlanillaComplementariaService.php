@@ -42,6 +42,106 @@ class PlanillaComplementariaService
             ->latest()->get();
     }
 
+    public function colaboradoresDisponibles(Empresa $empresa, PlanillaComplementaria $item, ?string $busqueda = null): Collection
+    {
+        $this->verificarItem($empresa, $item);
+
+        if ($item->estado !== 'calculada') {
+            throw ValidationException::withMessages(['estado' => 'Solo se pueden agregar colaboradores a una complementaria calculada.']);
+        }
+
+        $ocupados = PlanillaComplementariaDetalle::whereHas('complementaria', fn ($q) => $q
+            ->where('ciclo_id', $item->ciclo_id)
+            ->whereIn('estado', ['calculada', 'aprobada']))
+            ->pluck('colaborador_id');
+
+        return Boleta::where('ciclo_id', $item->ciclo_id)
+            ->where('estado', 'pagada')
+            ->where('es_version_vigente', true)
+            ->whereNotIn('colaborador_id', $ocupados)
+            ->with('colaborador')
+            ->when(filled($busqueda), function ($query) use ($busqueda) {
+                $termino = '%'.trim($busqueda).'%';
+                $query->whereHas('colaborador', fn ($q) => $q
+                    ->where('nombres', 'like', $termino)
+                    ->orWhere('apellidos', 'like', $termino)
+                    ->orWhere('numero_documento', 'like', $termino));
+            })
+            ->orderBy('colaborador_id')
+            ->get()
+            ->map(fn (Boleta $boleta) => [
+                'boleta_id' => $boleta->id,
+                'colaborador_id' => $boleta->colaborador_id,
+                'colaborador' => trim(($boleta->colaborador?->nombres ?? '').' '.($boleta->colaborador?->apellidos ?? '')),
+                'documento' => $boleta->colaborador?->numero_documento,
+                'regimen_laboral' => $boleta->regimen_laboral_snapshot,
+            ])
+            ->values();
+    }
+
+    /** @param array<int, int> $boletaIds */
+    public function agregarColaboradores(Empresa $empresa, PlanillaComplementaria $item, array $boletaIds): PlanillaComplementaria
+    {
+        return DB::transaction(function () use ($empresa, $item, $boletaIds) {
+            $item = PlanillaComplementaria::whereKey($item->id)->lockForUpdate()->firstOrFail();
+            $this->verificarItem($empresa, $item);
+
+            if ($item->estado !== 'calculada') {
+                throw ValidationException::withMessages(['estado' => 'Solo se pueden agregar colaboradores mientras la complementaria esté calculada.']);
+            }
+
+            $ids = array_values(array_unique(array_map('intval', $boletaIds)));
+            $boletas = Boleta::where('ciclo_id', $item->ciclo_id)
+                ->whereIn('id', $ids)
+                ->where('estado', 'pagada')
+                ->where('es_version_vigente', true)
+                ->with(['colaborador', 'conceptos.concepto', 'datosPago'])
+                ->lockForUpdate()
+                ->get();
+
+            if ($boletas->count() !== count($ids)) {
+                throw ValidationException::withMessages(['boleta_ids' => 'Selecciona boletas vigentes y pagadas del ciclo original.']);
+            }
+
+            $ocupados = PlanillaComplementariaDetalle::whereIn('colaborador_id', $boletas->pluck('colaborador_id'))
+                ->whereHas('complementaria', fn ($q) => $q
+                    ->where('ciclo_id', $item->ciclo_id)
+                    ->whereIn('estado', ['calculada', 'aprobada']))
+                ->lockForUpdate()
+                ->exists();
+
+            if ($ocupados) {
+                throw ValidationException::withMessages(['boleta_ids' => 'Uno de los colaboradores ya pertenece a una complementaria pendiente. Actualiza la lista e inténtalo nuevamente.']);
+            }
+
+            foreach ($boletas as $boleta) {
+                $base = $this->baseParaReintegro($boleta);
+                $pago = $boleta->datosPago;
+                $colaborador = $boleta->colaborador;
+
+                PlanillaComplementariaDetalle::create([
+                    'planilla_complementaria_id' => $item->id,
+                    'boleta_original_id' => $boleta->id,
+                    'colaborador_id' => $boleta->colaborador_id,
+                    'banco_id' => $pago?->banco_id ?? $colaborador?->banco_id,
+                    'tipo_cuenta_snapshot' => $pago?->tipo_cuenta_snapshot ?? $colaborador?->tipo_cuenta,
+                    'moneda_snapshot' => $pago?->moneda_snapshot ?? $colaborador?->moneda_cuenta,
+                    'numero_cuenta_snapshot' => $pago?->numero_cuenta_snapshot ?? $colaborador?->numero_cuenta,
+                    'cci_snapshot' => $pago?->cci_snapshot ?? $colaborador?->cci,
+                    'neto_original' => $base['neto_a_pagar'],
+                    'neto_recalculado' => $base['neto_a_pagar'],
+                    'diferencia_ingresos' => 0,
+                    'diferencia_egresos' => 0,
+                    'diferencia_aportaciones' => 0,
+                    'diferencia_neta' => 0,
+                    'calculo_snapshot' => $base,
+                ]);
+            }
+
+            return $this->cargar($item);
+        });
+    }
+
     /** @param array<int, int> $boletaIds */
     public function crear(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds, string $motivo, int $usuarioId): PlanillaComplementaria
     {
