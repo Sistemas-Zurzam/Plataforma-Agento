@@ -45,6 +45,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
     && d.colaborador.toLocaleLowerCase().includes(busquedaDescuentos.trim().toLocaleLowerCase()));
   const disponiblesFiltrados = descuentosFiltrados.filter((d) => d.reintegrable);
   const colaboradoresSeleccionados = new Set(descuentos.filter((d) => seleccionDescuentos.includes(claveDescuento(d))).map((d) => d.boleta_id)).size;
+  const agregaABorrador = descuentos.some((d) => seleccionDescuentos.includes(claveDescuento(d)) && d.complementaria_pendiente_estado === 'calculada');
   const filasColaborador = Array.from(descuentosFiltrados.reduce((mapa, d) => {
     if (!mapa.has(d.boleta_id)) mapa.set(d.boleta_id, { boleta_id: d.boleta_id, colaborador: d.colaborador, descuentos: [] });
     mapa.get(d.boleta_id).descuentos.push(d);
@@ -136,7 +137,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         if (elegidos.some((d) => !d.monto || d.monto <= 0)) return message.warning('Ingresa un importe de reintegro mayor a cero.');
         await api.reintegrarDescuentosComplementaria(ciclo.id, elegidos, motivo.trim());
         setMotivo('');
-        message.success('Reintegro generado. Revisa el detalle y aprueba para descargar el TXT.');
+        message.success(agregaABorrador ? 'Descuentos agregados al borrador existente.' : 'Reintegro generado. Revisa el detalle y aprueba para descargar el TXT.');
         await cargar();
         await cargarDescuentos();
         return;
@@ -283,7 +284,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                         getCheckboxProps: (d) => ({ disabled: !d.reintegrable || creando }),
                       }}
                       columns={[
-                        { title: 'Descuento', dataIndex: 'nombre', render: (v, d) => <div>{v}{(!d.reintegrable || d.observacion_reintegro) && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? 'Este colaborador tiene una complementaria pendiente. Completa su pago o elimina el borrador para generar otra.' : d.observacion_reintegro ?? 'Retención o aporte: requiere revisión específica'}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
+                        { title: 'Descuento', dataIndex: 'nombre', render: (v, d) => <div>{v}{(d.complementaria_pendiente_id || d.observacion_reintegro) && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? (d.complementaria_pendiente_estado === 'calculada' ? 'Se agregará al borrador existente de este colaborador.' : 'La complementaria está aprobada y ya no puede modificarse; completa su pago antes de generar otra.') : d.observacion_reintegro}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
                         { title: 'Pendiente', dataIndex: 'monto', align: 'right', width: 110, render: soles },
                         { title: 'A reintegrar', align: 'right', width: 130, render: (_, d) => d.reintegrable ? <InputNumber className="w-full" min={0.01} max={Number(d.monto)} precision={2} value={montosReintegro[claveDescuento(d)]}
                           disabled={creando} onChange={(v) => setMontosReintegro((prev) => ({ ...prev, [claveDescuento(d)]: v }))} /> : '—' },
@@ -313,7 +314,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 ]} />
               <div className="font-medium text-green-700">{colaboradoresSeleccionados} colaboradores · {seleccionDescuentos.length} descuentos · Reintegro seleccionado: {soles(seleccionDescuentos.reduce((s, key) => s + Number(montosReintegro[key] || 0), 0))}</div>
               {descuentos.some((d) => d.aplicado_en_basico) && <p className="text-xs text-gray-600">Las faltas descontadas del básico se muestran por su importe bruto. Al subsanarlas se recalculan los aportes y se muestra el neto a pagar en la complementaria.</p>}
-              <p className="text-xs text-gray-500">Los descuentos incluidos en una complementaria pendiente ya no aparecen aquí. Si eliminas el borrador, vuelven a estar disponibles.</p>
+              <p className="text-xs text-gray-500">Los descuentos ya incluidos no vuelven a aparecer. Mientras la complementaria siga calculada, puedes agregarle otros descuentos olvidados; después de aprobarla queda bloqueada.</p>
             </div>
           )}
           {tipoRegularizacion === 'feriado_historico' && (
@@ -324,7 +325,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
             <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>
-              {['reintegro_descuentos', 'descanso_semanal'].includes(tipoRegularizacion) ? 'Generar reintegro' : tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
+              {tipoRegularizacion === 'reintegro_descuentos' && agregaABorrador ? 'Agregar al borrador' : ['reintegro_descuentos', 'descanso_semanal'].includes(tipoRegularizacion) ? 'Generar reintegro' : tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
             </Button>
           </div>
         </div>

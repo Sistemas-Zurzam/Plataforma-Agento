@@ -182,7 +182,7 @@ class ReintegroDescuentosTest extends TestCase
         $restantes = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]);
         $this->assertCount(2, $restantes);
         $this->assertNotContains('DESCUENTO_FALTA', array_column($restantes, 'codigo'));
-        $this->assertFalse($restantes[0]['reintegrable']);
+        $this->assertTrue($restantes[0]['reintegrable']);
         $this->assertSame($item->id, $restantes[0]['complementaria_pendiente_id']);
         $service->eliminar($empresa, $item);
         $restaurados = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]);
@@ -191,7 +191,30 @@ class ReintegroDescuentosTest extends TestCase
         $this->assertEquals(46.67, $restaurados[0]['monto']);
         $item = $service->reintegrarDescuentos($empresa, $ciclo, [$restaurados[0]], 'Descanso', $usuarioId);
         $service->aprobar($empresa, $item, $usuarioId);
-        $this->assertCount(2, $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]));
+        $bloqueados = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]);
+        $this->assertCount(2, $bloqueados);
+        $this->assertFalse($bloqueados[0]['reintegrable']);
+    }
+
+    public function test_agrega_un_descuento_olvidado_al_mismo_borrador(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
+        $falta = collect($service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]))
+            ->firstWhere('codigo', 'DESCUENTO_FALTA');
+        $borrador = $service->reintegrarDescuentos($empresa, $ciclo, [$falta], 'Subsanar falta', $usuarioId);
+
+        $adelanto = collect($service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]))
+            ->firstWhere('codigo', 'ADELANTO_SUELDO');
+        $this->assertTrue($adelanto['reintegrable']);
+        $this->assertSame($borrador->id, $adelanto['complementaria_pendiente_id']);
+
+        $actualizado = $service->reintegrarDescuentos($empresa, $ciclo, [$adelanto], 'Adelanto omitido', $usuarioId);
+
+        $this->assertSame($borrador->id, $actualizado->id);
+        $this->assertCount(1, $actualizado->detalles);
+        $this->assertCount(2, $actualizado->detalles->first()->calculo_snapshot['reintegros_descuentos']);
+        $this->assertSame('346.67', $actualizado->detalles->first()->diferencia_neta);
+        $this->assertSame('1735.28', $actualizado->detalles->first()->neto_recalculado);
     }
 
     public function test_genera_un_lote_y_un_txt_para_41_colaboradores(): void

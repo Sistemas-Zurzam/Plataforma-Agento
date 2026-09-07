@@ -337,7 +337,7 @@ class PlanillaComplementariaService
         $nombres = ConceptoRemuneracion::pluck('nombre', 'codigo');
         $pendientes = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $originales->pluck('id'))
             ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada']))
-            ->get()->keyBy('boleta_original_id');
+            ->with('complementaria')->get()->keyBy('boleta_original_id');
         return $originales->flatMap(function ($boleta) use ($nombres, $pendientes) {
             $snapshot = $this->baseParaReintegro($boleta);
             $version = hash('sha256', json_encode($snapshot));
@@ -347,19 +347,21 @@ class PlanillaComplementariaService
                 return $reservados->contains(fn ($r) => isset($r['indice'])
                     ? (int) $r['indice'] === $indice : $r['codigo'] === $linea['codigo']);
             })->map(function ($linea, $indice) use ($boleta, $nombres, $version, $pendiente) {
+                $borradorEditable = ! $pendiente || $pendiente->complementaria?->estado === 'calculada';
                 return [
                     'boleta_id' => $boleta->id, 'indice' => $indice, 'version' => $version,
                     'colaborador' => trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos),
                     'codigo' => $linea['codigo'], 'nombre' => $linea['nombre'] ?? $nombres[$linea['codigo']] ?? $linea['codigo'],
                     'monto' => $linea['monto'], 'formula' => $linea['formula_texto'] ?? null,
                     'aplicado_en_basico' => $linea['aplicado_en_basico'] ?? false,
-                    'reintegrable' => ! $pendiente && $this->esDescuentoReintegrable($linea['codigo'], $boleta),
+                    'reintegrable' => $borradorEditable && $this->esDescuentoReintegrable($linea['codigo'], $boleta),
                     'observacion_reintegro' => $linea['codigo'] === 'RETENCION_RENTA_4TA'
                         ? ($this->esDescuentoReintegrable($linea['codigo'], $boleta)
                             ? 'Constancia de suspensión registrada. Disponible para subsanar la retención descontada.'
                             : 'Guarda la constancia de suspensión de cuarta categoría en la configuración de planilla y actualiza los descuentos.')
                         : null,
                     'complementaria_pendiente_id' => $pendiente?->planilla_complementaria_id,
+                    'complementaria_pendiente_estado' => $pendiente?->complementaria?->estado,
                 ];
             })->filter(fn ($linea) => (float) $linea['monto'] > 0)->values();
         })->values()->all();
@@ -435,29 +437,53 @@ class PlanillaComplementariaService
             // Serializa la creación para que dos solicitudes no reserven el mismo descuento.
             $ciclo = CicloRemunerativo::whereKey($ciclo->id)->lockForUpdate()->firstOrFail();
             $boletas = $this->boletasParaReintegro($empresa, $ciclo, collect($seleccion)->pluck('boleta_id')->unique()->all());
-            if (PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
-                ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada']))->exists()) {
-                throw ValidationException::withMessages(['descuentos' => 'Ya existe una complementaria pendiente para estas boletas. Elimina la calculada si fue un error, o completa su pago antes de generar otro reintegro.']);
+            $detallesPendientes = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
+                ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada']))
+                ->with('complementaria')->lockForUpdate()->get()->keyBy('boleta_original_id');
+            if ($detallesPendientes->contains(fn ($detalle) => $detalle->complementaria?->estado !== 'calculada')) {
+                throw ValidationException::withMessages(['descuentos' => 'Una complementaria aprobada ya no puede modificarse. Completa su pago antes de generar otro reintegro.']);
             }
-            $item = PlanillaComplementaria::create([
-                'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
-                'nombre' => 'Reintegro de descuentos '.$ciclo->nombre.' '.now()->format('Ymd-His'),
-                'motivo' => $motivo, 'estado' => 'calculada', 'creado_por' => $usuarioId,
-            ]);
+            $borradores = $detallesPendientes->pluck('planilla_complementaria_id')->unique();
+            if ($borradores->count() > 1) {
+                throw ValidationException::withMessages(['descuentos' => 'La selección pertenece a más de un borrador. Agrega los descuentos a cada complementaria por separado.']);
+            }
+            $item = $borradores->isNotEmpty()
+                ? PlanillaComplementaria::whereKey($borradores->first())->lockForUpdate()->firstOrFail()
+                : PlanillaComplementaria::create([
+                    'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+                    'nombre' => 'Reintegro de descuentos '.$ciclo->nombre.' '.now()->format('Ymd-His'),
+                    'motivo' => $motivo, 'estado' => 'calculada', 'creado_por' => $usuarioId,
+                ]);
             foreach ($boletas as $boleta) {
                 $base = $this->baseParaReintegro($boleta);
-                $snapshot = $base;
-                unset($snapshot['descansos_semanales'], $snapshot['feriado_regularizado']);
-                $snapshot['reintegros_descuentos'] = [];
+                $detalle = $detallesPendientes->get($boleta->id);
+                $snapshot = $detalle?->calculo_snapshot ?? $base;
+                if (! $detalle) {
+                    unset($snapshot['descansos_semanales'], $snapshot['feriado_regularizado']);
+                    $snapshot['reintegros_descuentos'] = [];
+                    $colaborador = $boleta->colaborador;
+                    $detalle = PlanillaComplementariaDetalle::create([
+                        'planilla_complementaria_id' => $item->id, 'boleta_original_id' => $boleta->id,
+                        'colaborador_id' => $boleta->colaborador_id, 'banco_id' => $colaborador->banco_id,
+                        'tipo_cuenta_snapshot' => $colaborador->tipo_cuenta, 'moneda_snapshot' => $colaborador->moneda_cuenta,
+                        'numero_cuenta_snapshot' => $colaborador->numero_cuenta, 'cci_snapshot' => $colaborador->cci,
+                        'neto_original' => $base['neto_a_pagar'], 'neto_recalculado' => $base['neto_a_pagar'],
+                        'diferencia_ingresos' => 0, 'diferencia_egresos' => 0,
+                        'diferencia_aportaciones' => 0, 'diferencia_neta' => 0, 'calculo_snapshot' => $snapshot,
+                    ]);
+                }
                 $total = '0.00';
                 $reintegroBasico = '0.00';
                 $lineasDisponibles = $this->lineasDescuentoParaReintegro($boleta, $base);
                 $indices = [];
+                $reservados = collect($snapshot['reintegros_descuentos'] ?? []);
                 foreach (collect($seleccion)->where('boleta_id', $boleta->id) as $elegido) {
                     $indice = (int) $elegido['indice'];
                     $linea = $lineasDisponibles[$indice] ?? null;
                     $monto = (string) $elegido['monto'];
-                    if (isset($indices[$indice]) || ! $linea || ! $this->esDescuentoReintegrable($linea['codigo'], $boleta)
+                    $yaReservado = $reservados->contains(fn ($r) => isset($r['indice'])
+                        ? (int) $r['indice'] === $indice : ($r['codigo'] ?? null) === ($linea['codigo'] ?? null));
+                    if ($yaReservado || isset($indices[$indice]) || ! $linea || ! $this->esDescuentoReintegrable($linea['codigo'], $boleta)
                         || $elegido['version'] !== hash('sha256', json_encode($base))
                         || bccomp($monto, '0', 2) <= 0 || bccomp($monto, (string) $linea['monto'], 2) > 0) {
                         throw ValidationException::withMessages(['descuentos' => 'El descuento cambió o el importe no es válido. Actualiza los descuentos y selecciona un monto pendiente de reintegro.']);
@@ -485,18 +511,6 @@ class PlanillaComplementariaService
                         ...($linea['codigo'] === 'RETENCION_RENTA_4TA' ? ['suspension_renta_4ta_registrada' => true] : []),
                     ];
                 }
-                $snapshot['total_egresos'] = (float) bcsub((string) $base['total_egresos'], $total, 2);
-                $snapshot['neto_a_pagar'] = (float) bcadd((string) $base['neto_a_pagar'], $total, 2);
-                $colaborador = $boleta->colaborador;
-                $detalle = PlanillaComplementariaDetalle::create([
-                    'planilla_complementaria_id' => $item->id, 'boleta_original_id' => $boleta->id,
-                    'colaborador_id' => $boleta->colaborador_id, 'banco_id' => $colaborador->banco_id,
-                    'tipo_cuenta_snapshot' => $colaborador->tipo_cuenta, 'moneda_snapshot' => $colaborador->moneda_cuenta,
-                    'numero_cuenta_snapshot' => $colaborador->numero_cuenta, 'cci_snapshot' => $colaborador->cci,
-                    'neto_original' => $base['neto_a_pagar'], 'neto_recalculado' => $snapshot['neto_a_pagar'],
-                    'diferencia_ingresos' => 0, 'diferencia_egresos' => bcsub('0', $total, 2),
-                    'diferencia_aportaciones' => 0, 'diferencia_neta' => $total, 'calculo_snapshot' => $snapshot,
-                ]);
                 if (bccomp($reintegroBasico, '0', 2) > 0) {
                     if (! collect($snapshot['egresos'])->contains('codigo', 'RENTA_5TA')) {
                         $snapshot['egresos'][] = ['codigo' => 'RENTA_5TA', 'monto' => 0, 'base_utilizada' => $base['total_ingresos']];
@@ -505,6 +519,20 @@ class PlanillaComplementariaService
                     $this->recalcularRentaQuinta($detalle, $snapshot, (float) $reintegroBasico);
                     $this->recalcularProvisiones($detalle, $snapshot, (float) $reintegroBasico);
                     $this->guardarSnapshotYDiferencias($detalle, $snapshot);
+                } else {
+                    // Algunos snapshots históricos conservan los totales
+                    // pero no todas las líneas de ingreso. En un reintegro
+                    // puramente de egresos no se reconstruyen esos totales
+                    // sumando líneas: se acumula el delta sobre el snapshot
+                    // ya auditado, igual que hacía la creación original.
+                    $snapshot['total_egresos'] = (float) bcsub((string) $snapshot['total_egresos'], $total, 2);
+                    $snapshot['neto_a_pagar'] = (float) bcadd((string) $snapshot['neto_a_pagar'], $total, 2);
+                    $detalle->update([
+                        'calculo_snapshot' => $snapshot,
+                        'neto_recalculado' => $snapshot['neto_a_pagar'],
+                        'diferencia_egresos' => bcsub((string) $detalle->diferencia_egresos, $total, 2),
+                        'diferencia_neta' => bcadd((string) $detalle->diferencia_neta, $total, 2),
+                    ]);
                 }
             }
             return $this->cargar($item);
