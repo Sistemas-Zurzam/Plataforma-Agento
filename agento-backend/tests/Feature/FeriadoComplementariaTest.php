@@ -79,6 +79,34 @@ class FeriadoComplementariaTest extends TestCase
         $service->crearRegularizacionFeriadoHistorico($empresa, $ciclo, [$boleta->id], '2026-08-06', 'Duplicado', $usuario->id);
     }
 
+    public function test_usa_condicion_historica_de_honorarios_aunque_el_ciclo_receptor_tenga_snapshot_de_planilla(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $colaborador = $boleta->colaborador;
+        $colaborador->remuneraciones()->update(['salario' => 2500]);
+        $colaborador->condicionesLaborales()->create([
+            'regimen_laboral' => 'Locacion de Servicios',
+            'tipo_contrato' => 'locacion_servicios',
+            'vigencia_desde' => '2026-01-01',
+        ]);
+        $boleta->update(['regimen_laboral_snapshot' => 'Micro Empresa']);
+
+        $item = $service->crearRegularizacionFeriadoHistorico(
+            $empresa,
+            $ciclo,
+            [$boleta->id],
+            '2026-07-29',
+            'Honorario histórico',
+            $usuario->id,
+        );
+
+        $detalle = $item->detalles->first();
+        $this->assertSame('83.33', $detalle->diferencia_ingresos);
+        $this->assertSame('83.33', $detalle->diferencia_neta);
+        $this->assertSame('honorarios', $detalle->calculo_snapshot['feriado_regularizado']['tipo_pago']);
+        $this->assertSame(1, $detalle->calculo_snapshot['feriado_regularizado']['multiplicador']);
+    }
+
     public function test_otra_fecha_parte_del_ultimo_neto_pagado(): void
     {
         [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();

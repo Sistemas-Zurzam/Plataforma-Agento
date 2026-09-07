@@ -15,6 +15,7 @@ use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\PlanillaComplementaria;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
+use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use App\Modules\Personas\Support\FeriadosPeru;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -247,7 +248,17 @@ class PlanillaComplementariaService
                     && $original->conceptos->contains(fn ($l) => $l->concepto?->codigo === 'HE_100' && (float) $l->monto > 0)) {
                     throw ValidationException::withMessages(['fecha_feriado' => "La boleta de {$colaborador->nombres} ya incluye horas al 100%. Revisa las fechas pagadas antes de regularizar este feriado."]);
                 }
-                $esHonorarios = $original->regimen_laboral_snapshot === 'Locacion de Servicios';
+                // El feriado puede ser anterior al ciclo usado para pagar el
+                // reintegro. Por ello la naturaleza del vínculo debe salir
+                // de la condición laboral vigente EN ESE DÍA, no del
+                // snapshot del ciclo receptor. El snapshot queda como
+                // respaldo para instalaciones cuyo historial aún no tenga
+                // una fila aplicable a la fecha histórica.
+                $condicionHistorica = ColaboradorCondicionLaboral::vigenteEn($colaborador->id, $fechaFeriado);
+                $esHonorarios = $condicionHistorica
+                    ? ($condicionHistorica->tipo_contrato === 'locacion_servicios'
+                        || $condicionHistorica->regimen_laboral === 'Locacion de Servicios')
+                    : $original->regimen_laboral_snapshot === 'Locacion de Servicios';
                 unset($base['descansos_semanales'], $base['reintegros_descuentos'], $base['feriado_regularizado']);
                 if (! $esHonorarios && ! collect($base['egresos'] ?? [])->contains('codigo', 'RENTA_5TA')) {
                     $base['egresos'][] = ['codigo' => 'RENTA_5TA', 'monto' => 0, 'base_utilizada' => $base['total_ingresos']];
@@ -305,6 +316,8 @@ class PlanillaComplementariaService
                 $snapshot = $detalle->fresh()->calculo_snapshot;
                 $snapshot['feriado_regularizado'] = ['fecha' => $fechaFeriado, 'importe_bruto' => $monto,
                     'sueldo_historico' => $remuneracion->salario, 'confirmado_por' => $usuarioId,
+                    'tipo_pago' => $esHonorarios ? 'honorarios' : 'planilla',
+                    'multiplicador' => $esHonorarios ? 1 : 2,
                     'sin_descanso_sustitutorio' => true, 'sin_pago_previo' => true, 'confirmado_at' => now()->toDateTimeString()];
                 $detalle->update(['calculo_snapshot' => $snapshot]);
             }

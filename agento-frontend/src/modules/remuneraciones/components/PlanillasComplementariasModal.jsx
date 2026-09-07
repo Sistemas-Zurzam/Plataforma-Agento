@@ -232,7 +232,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               : tipoRegularizacion === 'reintegro_descuentos'
               ? <>Boletas seleccionadas: <strong>{boletaIds.length}</strong>. Puedes generar un solo lote para todos los colaboradores. Filtra los descuentos y selecciona los que corresponde devolver.</>
               : tipoRegularizacion === 'feriado_historico'
-              ? <>Se usará el sueldo vigente en el feriado y se calculará automáticamente <strong>sueldo / 30 × 2</strong> para las <strong>{boletaIds.length}</strong> personas seleccionadas.</>
+              ? <>Se usará el sueldo y la condición contractual vigentes en el feriado: <strong>sueldo / 30 × 1</strong> para honorarios y <strong>× 2</strong> para planilla, sobre las <strong>{boletaIds.length}</strong> personas seleccionadas.</>
               : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
           </div>
           {tipoRegularizacion === 'descanso_semanal' && (
@@ -376,7 +376,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0 || detalle.reintegros_descuentos?.length > 0 || detalle.descansos_semanales?.length > 0,
                 expandedRowRender: (detalle) => (
                   <div className="space-y-1.5 py-1">
-                    {detalle.feriado_regularizado && <p className="text-sm text-green-700">Feriado trabajado {dayjs(detalle.feriado_regularizado.fecha).format('DD/MM/YYYY')}: {soles(detalle.feriado_regularizado.importe_bruto)} bruto adicional.</p>}
+                    {detalle.feriado_regularizado && <p className="text-sm text-green-700">Feriado trabajado {dayjs(detalle.feriado_regularizado.fecha).format('DD/MM/YYYY')}: {soles(detalle.feriado_regularizado.importe_bruto)} bruto adicional ({detalle.feriado_regularizado.tipo_pago === 'honorarios' ? 'honorarios ×1' : 'planilla ×2'}).</p>}
                     {detalle.descansos_semanales?.map((s) => <p key={s.semana_inicio} className="text-sm text-green-700">Descanso semanal {s.semana_inicio} – {s.semana_fin}: {soles(s.sueldo)} / 30 × 2 = {soles(s.importe_bruto)} bruto.</p>)}
                     {detalle.reintegros_descuentos?.length > 0 && <>
                       <p className="text-xs font-semibold text-gray-500">Descuentos subsanados</p>
