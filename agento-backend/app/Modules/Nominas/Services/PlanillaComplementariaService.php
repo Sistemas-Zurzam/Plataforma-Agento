@@ -295,7 +295,12 @@ class PlanillaComplementariaService
                 ]);
 
                 if ($esHonorarios) {
-                    $conceptoHonorarios ??= ConceptoRemuneracion::where('codigo', 'HONORARIO_FERIADO_TRABAJADO')->where('activo', true)->firstOrFail();
+                    $conceptoHonorarios ??= ConceptoRemuneracion::where('codigo', 'HONORARIO_FERIADO_TRABAJADO')->where('activo', true)->first();
+                    if (! $conceptoHonorarios) {
+                        throw ValidationException::withMessages([
+                            'concepto' => 'Falta instalar el concepto HONORARIO_FERIADO_TRABAJADO. Ejecuta las migraciones pendientes antes de calcular el reintegro.',
+                        ]);
+                    }
                     $monto = round(((float) $remuneracion->salario / 30), 2);
                     $this->agregarConcepto(
                         $ciclo->empresa, $detalle, $conceptoHonorarios->id, null, $monto,
