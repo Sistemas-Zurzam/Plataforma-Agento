@@ -25,6 +25,8 @@ use Illuminate\Validation\ValidationException;
 
 class PlanillaComplementariaService
 {
+    // Las faltas de planilla dependiente reducen SUELDO_BASICO, no son un egreso.
+    private const INDICE_FALTA_BASICO = -1;
     public function __construct(
         private readonly CalcularBoletaColaborador $calculador,
         private readonly CalcularReciboHonorarios $calculadorHonorarios,
@@ -300,15 +302,16 @@ class PlanillaComplementariaService
             $version = hash('sha256', json_encode($snapshot));
             $pendiente = $pendientes->get($boleta->id);
             $reservados = collect($pendiente?->calculo_snapshot['reintegros_descuentos'] ?? []);
-            return collect($snapshot['egresos'] ?? [])->reject(function ($linea, $indice) use ($reservados) {
+            return collect($this->lineasDescuentoParaReintegro($boleta, $snapshot))->reject(function ($linea, $indice) use ($reservados) {
                 return $reservados->contains(fn ($r) => isset($r['indice'])
                     ? (int) $r['indice'] === $indice : $r['codigo'] === $linea['codigo']);
             })->map(function ($linea, $indice) use ($boleta, $nombres, $version, $pendiente) {
                 return [
                     'boleta_id' => $boleta->id, 'indice' => $indice, 'version' => $version,
                     'colaborador' => trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos),
-                    'codigo' => $linea['codigo'], 'nombre' => $nombres[$linea['codigo']] ?? $linea['codigo'],
+                    'codigo' => $linea['codigo'], 'nombre' => $linea['nombre'] ?? $nombres[$linea['codigo']] ?? $linea['codigo'],
                     'monto' => $linea['monto'], 'formula' => $linea['formula_texto'] ?? null,
+                    'aplicado_en_basico' => $linea['aplicado_en_basico'] ?? false,
                     'reintegrable' => ! $pendiente && $this->esDescuentoReintegrable($linea['codigo'], $boleta),
                     'observacion_reintegro' => $linea['codigo'] === 'RETENCION_RENTA_4TA'
                         ? ($this->esDescuentoReintegrable($linea['codigo'], $boleta)
@@ -323,12 +326,45 @@ class PlanillaComplementariaService
 
     private function esDescuentoReintegrable(?string $codigo, Boleta $boleta): bool
     {
+        if ($codigo === 'DESCUENTO_FALTA_BASICO') {
+            return $boleta->regimen_laboral_snapshot !== 'Locacion de Servicios';
+        }
         if ($codigo === 'RETENCION_RENTA_4TA') {
             return $boleta->regimen_laboral_snapshot === 'Locacion de Servicios'
                 && $boleta->colaborador->tiene_suspension_renta_4ta;
         }
         return in_array($codigo, ['DESCUENTO_FALTA', 'DESCUENTO_TARDANZA', 'DESCUENTO_HORAS_INCOMPLETAS',
             'DESCUENTO_ERROR_OPERATIVO', 'DESCUENTO_COMPRA_MERCADERIA', 'ADELANTO_SUELDO'], true);
+    }
+
+    private function lineasDescuentoParaReintegro(Boleta $boleta, array $snapshot): array
+    {
+        $lineas = $snapshot['egresos'] ?? [];
+        if ($boleta->regimen_laboral_snapshot === 'Locacion de Servicios' || (float) $boleta->dias_falta <= 0) {
+            return $lineas;
+        }
+        $codigosBasico = ['SUELDO_BASICO', 'REMUNERACION_VACACIONAL'];
+        $original = $boleta->conceptos->filter(fn ($l) => in_array($l->concepto?->codigo, $codigosBasico, true))->sum('monto');
+        $ingresos = collect($snapshot['ingresos'] ?? []);
+        if (! $ingresos->contains('codigo', 'SUELDO_BASICO')) return $lineas;
+
+        // No devuelve prorrateos por ingreso tardío ni vacaciones: el tope
+        // es exclusivamente la falta guardada en la boleta pagada.
+        $descuentoOriginal = min(
+            max(0, (float) $boleta->sueldo_basico_snapshot - $original),
+            round(((float) $boleta->sueldo_basico_snapshot / 30) * min(30, (float) $boleta->dias_falta), 2),
+        );
+        $basicoCubierto = $ingresos->whereIn('codigo', $codigosBasico)->sum('monto');
+        $pendiente = round(max(0, min($descuentoOriginal, $original + $descuentoOriginal - $basicoCubierto)), 2);
+        if ($pendiente > 0) {
+            $lineas[self::INDICE_FALTA_BASICO] = [
+                'codigo' => 'DESCUENTO_FALTA_BASICO', 'nombre' => 'Faltas descontadas de la remuneración básica',
+                'monto' => $pendiente, 'aplicado_en_basico' => true,
+                'formula_texto' => "Boleta pagada: {$boleta->dias_falta} falta(s), S/ ".number_format($descuentoOriginal, 2, '.', '').
+                    ' descontados del básico. Se reintegra el bruto seleccionado y se recalculan los aportes correspondientes.',
+            ];
+        }
+        return $lineas;
     }
 
     public function boletasParaReintegro(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds): Collection
@@ -370,12 +406,15 @@ class PlanillaComplementariaService
             foreach ($boletas as $boleta) {
                 $base = $this->baseParaReintegro($boleta);
                 $snapshot = $base;
+                unset($snapshot['descansos_semanales'], $snapshot['feriado_regularizado']);
                 $snapshot['reintegros_descuentos'] = [];
                 $total = '0.00';
+                $reintegroBasico = '0.00';
+                $lineasDisponibles = $this->lineasDescuentoParaReintegro($boleta, $base);
                 $indices = [];
                 foreach (collect($seleccion)->where('boleta_id', $boleta->id) as $elegido) {
-                    $indice = $elegido['indice'];
-                    $linea = $base['egresos'][$indice] ?? null;
+                    $indice = (int) $elegido['indice'];
+                    $linea = $lineasDisponibles[$indice] ?? null;
                     $monto = (string) $elegido['monto'];
                     if (isset($indices[$indice]) || ! $linea || ! $this->esDescuentoReintegrable($linea['codigo'], $boleta)
                         || $elegido['version'] !== hash('sha256', json_encode($base))
@@ -383,18 +422,32 @@ class PlanillaComplementariaService
                         throw ValidationException::withMessages(['descuentos' => 'El descuento cambió o el importe no es válido. Actualiza los descuentos y selecciona un monto pendiente de reintegro.']);
                     }
                     $indices[$indice] = true;
-                    $snapshot['egresos'][$indice]['monto'] = (float) bcsub((string) $linea['monto'], $monto, 2);
+                    if ($indice === self::INDICE_FALTA_BASICO) {
+                        $reintegroBasico = $monto;
+                        foreach ($snapshot['ingresos'] as &$ingreso) {
+                            if ($ingreso['codigo'] !== 'SUELDO_BASICO') continue;
+                            $ingreso['monto'] = (float) bcadd((string) $ingreso['monto'], $monto, 2);
+                            if (isset($ingreso['cantidad']) && (float) $boleta->sueldo_basico_snapshot > 0) {
+                                $ingreso['cantidad'] = round($ingreso['cantidad'] + (float) $monto * 30 / (float) $boleta->sueldo_basico_snapshot, 2);
+                            }
+                            $ingreso['formula_texto'] = 'Remuneración básica corregida: reintegro de faltas por S/ '.$monto.' — '.$motivo;
+                            break;
+                        }
+                        unset($ingreso);
+                    } else {
+                        $snapshot['egresos'][$indice]['monto'] = (float) bcsub((string) $linea['monto'], $monto, 2);
+                        $total = bcadd($total, $monto, 2);
+                    }
                     $snapshot['reintegros_descuentos'][] = [
                         'indice' => $indice, 'codigo' => $linea['codigo'], 'monto' => $monto, 'monto_anterior' => $linea['monto'],
                         'motivo' => $motivo, 'registrado_por' => $usuarioId, 'registrado_en' => now()->toDateTimeString(),
                         ...($linea['codigo'] === 'RETENCION_RENTA_4TA' ? ['suspension_renta_4ta_registrada' => true] : []),
                     ];
-                    $total = bcadd($total, $monto, 2);
                 }
                 $snapshot['total_egresos'] = (float) bcsub((string) $base['total_egresos'], $total, 2);
                 $snapshot['neto_a_pagar'] = (float) bcadd((string) $base['neto_a_pagar'], $total, 2);
                 $colaborador = $boleta->colaborador;
-                PlanillaComplementariaDetalle::create([
+                $detalle = PlanillaComplementariaDetalle::create([
                     'planilla_complementaria_id' => $item->id, 'boleta_original_id' => $boleta->id,
                     'colaborador_id' => $boleta->colaborador_id, 'banco_id' => $colaborador->banco_id,
                     'tipo_cuenta_snapshot' => $colaborador->tipo_cuenta, 'moneda_snapshot' => $colaborador->moneda_cuenta,
@@ -403,6 +456,15 @@ class PlanillaComplementariaService
                     'diferencia_ingresos' => 0, 'diferencia_egresos' => bcsub('0', $total, 2),
                     'diferencia_aportaciones' => 0, 'diferencia_neta' => $total, 'calculo_snapshot' => $snapshot,
                 ]);
+                if (bccomp($reintegroBasico, '0', 2) > 0) {
+                    if (! collect($snapshot['egresos'])->contains('codigo', 'RENTA_5TA')) {
+                        $snapshot['egresos'][] = ['codigo' => 'RENTA_5TA', 'monto' => 0, 'base_utilizada' => $base['total_ingresos']];
+                    }
+                    $this->recalcularAfpEssalud($detalle, $snapshot, (float) $reintegroBasico);
+                    $this->recalcularRentaQuinta($detalle, $snapshot, (float) $reintegroBasico);
+                    $this->recalcularProvisiones($detalle, $snapshot, (float) $reintegroBasico);
+                    $this->guardarSnapshotYDiferencias($detalle, $snapshot);
+                }
             }
             return $this->cargar($item);
         });

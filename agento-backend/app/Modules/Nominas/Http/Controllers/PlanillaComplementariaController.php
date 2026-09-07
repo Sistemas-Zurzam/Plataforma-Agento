@@ -58,7 +58,7 @@ class PlanillaComplementariaController extends Controller
             'motivo' => ['required', 'string', 'max:1000'],
             'descuentos' => ['required', 'array', 'min:1'],
             'descuentos.*.boleta_id' => ['required', 'integer'],
-            'descuentos.*.indice' => ['required', 'integer', 'min:0'],
+            'descuentos.*.indice' => ['required', 'integer', 'min:-1'],
             'descuentos.*.version' => ['required', 'string', 'size:64'],
             'descuentos.*.monto' => ['required', 'numeric', 'decimal:0,2', 'min:0.01'],
         ]);

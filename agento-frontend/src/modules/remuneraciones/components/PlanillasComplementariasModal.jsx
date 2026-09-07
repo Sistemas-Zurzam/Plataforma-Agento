@@ -6,7 +6,7 @@ import { useCuentasBancariasEmpresa } from '../../configuracion/hooks/useCuentas
 import AgregarConceptoComplementariaModal, { CONCEPTOS_REGISTRABLES } from './AgregarConceptoComplementariaModal';
 
 const soles = (valor) => `S/ ${Number(valor || 0).toFixed(2)}`;
-const nombreConcepto = (codigo) => CONCEPTOS_REGISTRABLES.find((c) => c.codigo === codigo)?.nombre ?? codigo;
+const nombreConcepto = (codigo) => codigo === 'DESCUENTO_FALTA_BASICO' ? 'Faltas descontadas de la remuneración básica' : CONCEPTOS_REGISTRABLES.find((c) => c.codigo === codigo)?.nombre ?? codigo;
 
 export default function PlanillasComplementariasModal({ open, onCancel, ciclo, boletaIds, api, permisos, catalogoConceptos = [] }) {
   const { message } = App.useApp();
@@ -312,6 +312,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                     } },
                 ]} />
               <div className="font-medium text-green-700">{colaboradoresSeleccionados} colaboradores · {seleccionDescuentos.length} descuentos · Reintegro seleccionado: {soles(seleccionDescuentos.reduce((s, key) => s + Number(montosReintegro[key] || 0), 0))}</div>
+              {descuentos.some((d) => d.aplicado_en_basico) && <p className="text-xs text-gray-600">Las faltas descontadas del básico se muestran por su importe bruto. Al subsanarlas se recalculan los aportes y se muestra el neto a pagar en la complementaria.</p>}
               <p className="text-xs text-gray-500">Los descuentos incluidos en una complementaria pendiente ya no aparecen aquí. Si eliminas el borrador, vuelven a estar disponibles.</p>
             </div>
           )}
