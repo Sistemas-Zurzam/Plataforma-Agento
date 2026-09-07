@@ -21,6 +21,9 @@ export function useRemuneraciones() {
   const [previsualizacion, setPrevisualizacion] = useState([]);
   const [previsualizacionLoading, setPrevisualizacionLoading] = useState(false);
 
+  const [aportesPrevisionales, setAportesPrevisionales] = useState(null);
+  const [aportesPrevisionalesLoading, setAportesPrevisionalesLoading] = useState(false);
+
   const fetchCiclos = useCallback(async () => {
     setCiclosLoading(true);
     try {
@@ -345,6 +348,17 @@ export function useRemuneraciones() {
     return { descargado: true };
   }, []);
 
+  const fetchAportesPrevisionales = useCallback(async (cicloId) => {
+    setAportesPrevisionalesLoading(true);
+    try {
+      const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/aportes-previsionales`);
+      setAportesPrevisionales(data);
+      return data;
+    } finally {
+      setAportesPrevisionalesLoading(false);
+    }
+  }, []);
+
   const fetchAfpNetValidacion = useCallback(async (cicloId) => {
     const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/afpnet-validacion`);
     return data;
@@ -581,6 +595,9 @@ export function useRemuneraciones() {
     previsualizacion,
     previsualizacionLoading,
     fetchPrevisualizacion,
+    aportesPrevisionales,
+    aportesPrevisionalesLoading,
+    fetchAportesPrevisionales,
     fetchPlameValidacion,
     exportarPlame,
     fetchAfpNetValidacion,

@@ -9,6 +9,7 @@ use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaComprobanteRh;
 use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Services\AportesPrevisionalesService;
 use App\Modules\Nominas\Services\BoletaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,7 +20,10 @@ use Illuminate\Validation\Rule;
 
 class BoletaController extends Controller
 {
-    public function __construct(private readonly BoletaService $boletas) {}
+    public function __construct(
+        private readonly BoletaService $boletas,
+        private readonly AportesPrevisionalesService $aportesPrevisionales,
+    ) {}
 
     /**
      * Igual que CicloRemunerativoController::empresaAutorizadaDelCiclo(): el
@@ -103,6 +107,13 @@ class BoletaController extends Controller
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
         return response()->json($this->boletas->resumen($empresa, $ciclo, $request->input('tipo'), $request->input('busqueda')));
+    }
+
+    public function aportesPrevisionales(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        return response()->json($this->aportesPrevisionales->porCiclo($empresa, $ciclo));
     }
 
     public function aprobar(Request $request, Boleta $boleta): BoletaResource

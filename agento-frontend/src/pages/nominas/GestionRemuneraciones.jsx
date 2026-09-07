@@ -31,6 +31,7 @@ import ConfiguracionNominaModal from '../../modules/remuneraciones/components/Co
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
 import LiquidacionesCeseTab from '../../modules/remuneraciones/components/LiquidacionesCeseTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
+import AportesPrevisionalesTab from '../../modules/remuneraciones/components/AportesPrevisionalesTab';
 import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCashModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
@@ -221,6 +222,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
     previsualizacion, previsualizacionLoading, fetchPrevisualizacion,
+    aportesPrevisionales, aportesPrevisionalesLoading, fetchAportesPrevisionales,
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
     exportarPlanillaPagadaExcel,
@@ -1194,6 +1196,20 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   locale={{ emptyText: 'Este ciclo todavía no tiene boletas calculadas' }}
                 />
               </div>
+            ) : (
+              <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
+            ),
+          },
+          {
+            key: 'aportes-previsionales',
+            label: 'Aportes previsionales',
+            children: cicloId ? (
+              <AportesPrevisionalesTab
+                cicloId={cicloId}
+                fetchAportesPrevisionales={fetchAportesPrevisionales}
+                resumen={aportesPrevisionales}
+                loading={aportesPrevisionalesLoading}
+              />
             ) : (
               <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
             ),
