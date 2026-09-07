@@ -61,16 +61,19 @@ class FeriadoComplementariaTest extends TestCase
         [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
         $item = $service->crearRegularizacionFeriadoHistorico($empresa, $ciclo, [$boleta->id], '2026-08-06', 'Asistió de 06:00 a 14:00; adicional confirmado', $usuario->id);
         $d = $item->detalles->first();
-        $this->assertSame('333.33', $d->diferencia_ingresos);
-        $this->assertSame('333.33', $d->diferencia_neta);
-        $this->assertSame('4426.04', $d->neto_recalculado);
+        // Locador (Locacion de Servicios): sueldo/30×1, no ×2 — no hay
+        // sobretasa de ley del Art. 8° D.Leg. 713 porque no hay relación
+        // laboral (ver PlanillaComplementariaService::crearFeriadoBloqueado).
+        $this->assertSame('166.67', $d->diferencia_ingresos);
+        $this->assertSame('166.67', $d->diferencia_neta);
+        $this->assertSame('4259.38', $d->neto_recalculado);
         $this->assertSame('4092.71', $boleta->fresh()->neto_a_pagar);
         $this->assertEquals(907.29, $d->calculo_snapshot['total_egresos']);
         $this->assertSame('2026-08-06', $d->calculo_snapshot['feriado_regularizado']['fecha']);
         $service->aprobar($empresa, $item, $usuario->id);
         $cuenta = new EmpresaCuentaBancaria(['tipo_cuenta' => 'corriente', 'moneda' => 'PEN', 'numero_cuenta' => '1912345678901']);
         $lineas = explode("\r\n", trim($service->exportarBcp($empresa, $item, $cuenta, '2026-09-06', '4')));
-        $this->assertSame('00000000000333.33', substr($lineas[1], 177, 17));
+        $this->assertSame('00000000000166.67', substr($lineas[1], 177, 17));
         $service->marcarPagada($empresa, $item, $usuario->id, 'TEST');
         $this->expectException(ValidationException::class);
         $service->crearRegularizacionFeriadoHistorico($empresa, $ciclo, [$boleta->id], '2026-08-06', 'Duplicado', $usuario->id);
@@ -83,9 +86,9 @@ class FeriadoComplementariaTest extends TestCase
         $service->aprobar($empresa, $primera, $usuario->id);
         $service->marcarPagada($empresa, $primera, $usuario->id, 'TEST');
         $segunda = $service->crearRegularizacionFeriadoHistorico($empresa, $ciclo, [$boleta->id], '2026-08-06', 'Actual', $usuario->id);
-        $this->assertSame('4426.04', $segunda->detalles->first()->neto_original);
-        $this->assertSame('4759.37', $segunda->detalles->first()->neto_recalculado);
-        $this->assertSame('333.33', $segunda->detalles->first()->diferencia_neta);
+        $this->assertSame('4259.38', $segunda->detalles->first()->neto_original);
+        $this->assertSame('4426.05', $segunda->detalles->first()->neto_recalculado);
+        $this->assertSame('166.67', $segunda->detalles->first()->diferencia_neta);
     }
 
     public function test_http_exige_confirmacion_y_rechaza_fecha_futura(): void
@@ -96,6 +99,6 @@ class FeriadoComplementariaTest extends TestCase
         $datos = ['boleta_ids' => [$b->id], 'fecha_feriado' => '2026-08-06', 'motivo' => 'Test', 'sin_descanso_sustitutorio' => true];
         $this->postJson($url, $datos)->assertUnprocessable()->assertJsonValidationErrors('sin_pago_previo');
         $this->postJson($url, [...$datos, 'sin_pago_previo' => true, 'fecha_feriado' => '2026-10-08'])->assertUnprocessable();
-        $this->postJson($url, [...$datos, 'sin_pago_previo' => true])->assertCreated()->assertJsonPath('data.total_a_pagar', '333.33');
+        $this->postJson($url, [...$datos, 'sin_pago_previo' => true])->assertCreated()->assertJsonPath('data.total_a_pagar', '166.67');
     }
 }
