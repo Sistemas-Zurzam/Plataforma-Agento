@@ -65,7 +65,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
       moneda_salario: vigente?.moneda_salario ?? 'PEN',
       periodicidad_pago: vigente?.periodicidad_pago ?? 'mensual',
       asignacion_familiar: vigente?.asignacion_familiar ?? 0,
-      vigencia_desde: dayjs(),
+      vigencia_desde: vigente?.vigencia_desde ? dayjs(vigente.vigencia_desde) : dayjs(),
       condicion_vigencia_desde: dayjs().startOf('month'),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -80,14 +80,15 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
     } = values;
 
     // colaborador_remuneraciones se versiona por fecha — solo se crea una
-    // fila nueva ahí si de verdad cambió algo del sueldo, nunca solo porque
+    // fila nueva ahí si de verdad cambió algo del sueldo o su vigencia, nunca solo porque
     // se guardó el formulario (si no, cada "Guardar cambios" ensuciaría el
     // historial aunque la persona solo haya actualizado su dirección).
     const remuneracionCambio =
       Number(salario) !== Number(vigente?.salario ?? 0) ||
       moneda_salario !== (vigente?.moneda_salario ?? 'PEN') ||
       periodicidad_pago !== (vigente?.periodicidad_pago ?? 'mensual') ||
-      Number(asignacion_familiar ?? 0) !== Number(vigente?.asignacion_familiar ?? 0);
+      Number(asignacion_familiar ?? 0) !== Number(vigente?.asignacion_familiar ?? 0) ||
+      (vigencia_desde?.format('YYYY-MM-DD') ?? '') !== (vigente?.vigencia_desde ?? '');
 
     onGuardar(
       {
@@ -296,7 +297,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
       children: (
         <div>
           <p className="mb-3 text-xs text-gray-500">
-            Solo se crea un registro nuevo en el historial si de verdad cambias el sueldo, la moneda, la periodicidad o la asignación familiar.
+            Los cambios de importe crean una nueva fila de historial. Si solo corriges la fecha, se ajusta la vigencia de la remuneración actual.
           </p>
           <div className="grid grid-cols-2 gap-x-3 sm:grid-cols-5">
             <Form.Item label="Salario" required className="sm:col-span-2">
@@ -319,7 +320,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
               label="Vigente desde"
               name="vigencia_desde"
               rules={[{ required: true }]}
-              extra="Solo aplica si cambiaste el sueldo."
+              extra="También puedes corregir la fecha manteniendo el mismo sueldo."
             >
               <DatePicker className="w-full" format="DD/MM/YYYY" />
             </Form.Item>

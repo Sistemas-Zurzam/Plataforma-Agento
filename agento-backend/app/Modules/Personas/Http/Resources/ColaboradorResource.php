@@ -97,6 +97,7 @@ class ColaboradorResource extends JsonResource
                 'moneda_salario' => $remuneracionVigente->moneda_salario,
                 'periodicidad_pago' => $remuneracionVigente->periodicidad_pago,
                 'asignacion_familiar' => $remuneracionVigente->asignacion_familiar,
+                'vigencia_desde' => $remuneracionVigente->vigencia_desde?->toDateString(),
             ] : null,
             'historial_remunerativo' => $this->whenLoaded('remuneraciones', fn () => $this->remuneraciones->map(fn ($remuneracion) => [
                 'id' => $remuneracion->id,
