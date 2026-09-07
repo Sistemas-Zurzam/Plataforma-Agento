@@ -13,6 +13,10 @@ export default function AgregarColaboradoresComplementariaModal({ open, item, ap
     if (!open || !item) return;
     setSeleccion([]);
     setBusqueda('');
+    if (typeof api.fetchColaboradoresDisponiblesComplementaria !== 'function') {
+      message.error('La función para cargar colaboradores no está disponible. Actualiza la aplicación e inténtalo nuevamente.');
+      return;
+    }
     setLoading(true);
     api.fetchColaboradoresDisponiblesComplementaria(item.id)
       .then(setFilas)
@@ -28,6 +32,7 @@ export default function AgregarColaboradoresComplementariaModal({ open, item, ap
 
   const agregar = async () => {
     if (!seleccion.length) return message.warning('Selecciona al menos un colaborador.');
+    if (typeof api.agregarColaboradoresComplementaria !== 'function') return message.error('La función para agregar colaboradores no está disponible.');
     setSaving(true);
     try {
       await api.agregarColaboradoresComplementaria(item.id, seleccion);
