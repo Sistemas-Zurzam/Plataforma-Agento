@@ -133,8 +133,8 @@ class PlanillaComplementariaService
 
     /**
      * Feriados nacionales seleccionables para una regularización histórica:
-     * los mismos que valida crearRegularizacionFeriadoHistorico() (anteriores
-     * al inicio del ciclo), para que el DatePicker del frontend no ofrezca
+     * Incluye los feriados del propio ciclo y de los tres años anteriores,
+     * para que el DatePicker del frontend no ofrezca
      * fechas que igual serían rechazadas al confirmar. Limitado a los 3 años
      * previos al ciclo — rango suficiente para una regularización histórica
      * real sin calcular feriados indefinidamente hacia atrás.
@@ -146,11 +146,11 @@ class PlanillaComplementariaService
         $this->verificar($empresa, $ciclo);
 
         $anioCiclo = (int) $ciclo->fecha_inicio->format('Y');
-        $fechaInicio = $ciclo->fecha_inicio->toDateString();
+        $fechaFin = $ciclo->fecha_fin->toDateString();
 
         return collect(range($anioCiclo - 3, $anioCiclo))
             ->flatMap(fn (int $anio) => FeriadosPeru::paraAnio($anio))
-            ->filter(fn (string $fecha) => $fecha < $fechaInicio)
+            ->filter(fn (string $fecha) => $fecha <= $fechaFin)
             ->sort()
             ->values()
             ->all();
@@ -159,6 +159,17 @@ class PlanillaComplementariaService
     /** @param array<int, int> $boletaIds */
     public function crearRegularizacionFeriadoHistorico(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds, string $fechaFeriado, string $motivo, int $usuarioId): PlanillaComplementaria
     {
+        return DB::transaction(function () use ($empresa, $ciclo, $boletaIds, $fechaFeriado, $motivo, $usuarioId) {
+            $this->verificar($empresa, $ciclo);
+            $ciclo = CicloRemunerativo::whereKey($ciclo->id)->lockForUpdate()->firstOrFail();
+            $colaboradorIds = $ciclo->boletas()->whereIn('id', $boletaIds)->pluck('colaborador_id');
+            \App\Modules\Personas\Models\Colaborador::withoutGlobalScopes()->whereIn('id', $colaboradorIds)->orderBy('id')->lockForUpdate()->get();
+            return $this->crearFeriadoBloqueado($empresa, $ciclo, $boletaIds, $fechaFeriado, $motivo, $usuarioId);
+        });
+    }
+
+    private function crearFeriadoBloqueado(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds, string $fechaFeriado, string $motivo, int $usuarioId): PlanillaComplementaria
+    {
         $this->verificar($empresa, $ciclo);
         if ($ciclo->estado !== 'pagado') {
             throw ValidationException::withMessages(['estado' => 'La regularización histórica solo puede abonarse mediante un ciclo pagado.']);
@@ -166,8 +177,8 @@ class PlanillaComplementariaService
         if (! FeriadosPeru::esFeriado($fechaFeriado)) {
             throw ValidationException::withMessages(['fecha_feriado' => 'La fecha seleccionada no es un feriado nacional registrado.']);
         }
-        if ($fechaFeriado >= $ciclo->fecha_inicio->toDateString()) {
-            throw ValidationException::withMessages(['fecha_feriado' => 'Selecciona un feriado anterior al ciclo que recibirá el pago adicional.']);
+        if (! in_array($fechaFeriado, $this->feriadosDisponibles($empresa, $ciclo), true)) {
+            throw ValidationException::withMessages(['fecha_feriado' => 'Selecciona un feriado del ciclo o de los tres años anteriores, hasta el cierre de este ciclo.']);
         }
 
         $originales = Boleta::where('ciclo_id', $ciclo->id)
@@ -207,15 +218,26 @@ class PlanillaComplementariaService
                 'ciclo_id' => $ciclo->id,
                 'empresa_id' => $ciclo->empresa_id,
                 'nombre' => $nombreRegularizacion,
-                'motivo' => "Feriado histórico {$fechaFeriado} sin descanso sustitutorio — {$motivo}",
+                'motivo' => "Feriado trabajado {$fechaFeriado} sin descanso sustitutorio ni pago previo — {$motivo}",
                 'estado' => 'calculada',
                 'creado_por' => $usuarioId,
             ]);
 
             foreach ($originales as $original) {
                 $colaborador = $original->colaborador;
-                if ($colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios') {
-                    throw ValidationException::withMessages(['colaboradores' => "{$colaborador->nombres} {$colaborador->apellidos} es locador y no corresponde a una regularización laboral de feriado."]);
+                if ($colaborador->fecha_ingreso->toDateString() > $fechaFeriado || ($colaborador->fecha_cese && $colaborador->fecha_cese->toDateString() < $fechaFeriado)) {
+                    throw ValidationException::withMessages(['fecha_feriado' => "El feriado está fuera de las fechas de servicio de {$colaborador->nombres} {$colaborador->apellidos}."]);
+                }
+
+                $base = $this->baseParaReintegro($original);
+                if ($fechaFeriado >= $ciclo->fecha_inicio->toDateString()
+                    && $original->conceptos->contains(fn ($l) => $l->concepto?->codigo === 'HE_100' && (float) $l->monto > 0)) {
+                    throw ValidationException::withMessages(['fecha_feriado' => "La boleta de {$colaborador->nombres} ya incluye horas al 100%. Revisa las fechas pagadas antes de regularizar este feriado."]);
+                }
+                $esHonorarios = $original->regimen_laboral_snapshot === 'Locacion de Servicios';
+                unset($base['descansos_semanales'], $base['reintegros_descuentos'], $base['feriado_regularizado']);
+                if (! $esHonorarios && ! collect($base['egresos'] ?? [])->contains('codigo', 'RENTA_5TA')) {
+                    $base['egresos'][] = ['codigo' => 'RENTA_5TA', 'monto' => 0, 'base_utilizada' => $base['total_ingresos']];
                 }
 
                 $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
@@ -239,13 +261,13 @@ class PlanillaComplementariaService
                     'moneda_snapshot' => $colaborador->moneda_cuenta,
                     'numero_cuenta_snapshot' => $colaborador->numero_cuenta,
                     'cci_snapshot' => $colaborador->cci,
-                    'neto_original' => $original->neto_a_pagar,
-                    'neto_recalculado' => $original->neto_a_pagar,
+                    'neto_original' => $base['neto_a_pagar'],
+                    'neto_recalculado' => $base['neto_a_pagar'],
                     'diferencia_ingresos' => 0,
                     'diferencia_egresos' => 0,
                     'diferencia_aportaciones' => 0,
                     'diferencia_neta' => 0,
-                    'calculo_snapshot' => $this->snapshotDeBoleta($original),
+                    'calculo_snapshot' => $base,
                 ]);
 
                 $monto = round(((float) $remuneracion->salario / 30) * 2, 2);
@@ -253,7 +275,13 @@ class PlanillaComplementariaService
                     $ciclo->empresa, $detalle, $concepto->id, null, $monto,
                     "Cálculo automático: ({$remuneracion->salario} / 30) × 2 por feriado trabajado {$fechaFeriado}, sin descanso sustitutorio",
                     $usuarioId,
+                    true,
                 );
+                $snapshot = $detalle->fresh()->calculo_snapshot;
+                $snapshot['feriado_regularizado'] = ['fecha' => $fechaFeriado, 'importe_bruto' => $monto,
+                    'sueldo_historico' => $remuneracion->salario, 'confirmado_por' => $usuarioId,
+                    'sin_descanso_sustitutorio' => true, 'sin_pago_previo' => true, 'confirmado_at' => now()->toDateTimeString()];
+                $detalle->update(['calculo_snapshot' => $snapshot]);
             }
 
             return $this->cargar($item);
@@ -281,15 +309,24 @@ class PlanillaComplementariaService
                     'colaborador' => trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos),
                     'codigo' => $linea['codigo'], 'nombre' => $nombres[$linea['codigo']] ?? $linea['codigo'],
                     'monto' => $linea['monto'], 'formula' => $linea['formula_texto'] ?? null,
-                    'reintegrable' => ! $pendiente && $this->esDescuentoReintegrable($linea['codigo']),
+                    'reintegrable' => ! $pendiente && $this->esDescuentoReintegrable($linea['codigo'], $boleta),
+                    'observacion_reintegro' => $linea['codigo'] === 'RETENCION_RENTA_4TA'
+                        ? ($this->esDescuentoReintegrable($linea['codigo'], $boleta)
+                            ? 'Constancia de suspensión registrada. Disponible para subsanar la retención descontada.'
+                            : 'Guarda la constancia de suspensión de cuarta categoría en la configuración de planilla y actualiza los descuentos.')
+                        : null,
                     'complementaria_pendiente_id' => $pendiente?->planilla_complementaria_id,
                 ];
             })->filter(fn ($linea) => (float) $linea['monto'] > 0)->values();
         })->values()->all();
     }
 
-    private function esDescuentoReintegrable(?string $codigo): bool
+    private function esDescuentoReintegrable(?string $codigo, Boleta $boleta): bool
     {
+        if ($codigo === 'RETENCION_RENTA_4TA') {
+            return $boleta->regimen_laboral_snapshot === 'Locacion de Servicios'
+                && $boleta->colaborador->tiene_suspension_renta_4ta;
+        }
         return in_array($codigo, ['DESCUENTO_FALTA', 'DESCUENTO_TARDANZA', 'DESCUENTO_HORAS_INCOMPLETAS',
             'DESCUENTO_ERROR_OPERATIVO', 'DESCUENTO_COMPRA_MERCADERIA', 'ADELANTO_SUELDO'], true);
     }
@@ -340,7 +377,7 @@ class PlanillaComplementariaService
                     $indice = $elegido['indice'];
                     $linea = $base['egresos'][$indice] ?? null;
                     $monto = (string) $elegido['monto'];
-                    if (isset($indices[$indice]) || ! $linea || ! $this->esDescuentoReintegrable($linea['codigo'])
+                    if (isset($indices[$indice]) || ! $linea || ! $this->esDescuentoReintegrable($linea['codigo'], $boleta)
                         || $elegido['version'] !== hash('sha256', json_encode($base))
                         || bccomp($monto, '0', 2) <= 0 || bccomp($monto, (string) $linea['monto'], 2) > 0) {
                         throw ValidationException::withMessages(['descuentos' => 'El descuento cambió o el importe no es válido. Actualiza los descuentos y selecciona un monto pendiente de reintegro.']);
@@ -350,6 +387,7 @@ class PlanillaComplementariaService
                     $snapshot['reintegros_descuentos'][] = [
                         'indice' => $indice, 'codigo' => $linea['codigo'], 'monto' => $monto, 'monto_anterior' => $linea['monto'],
                         'motivo' => $motivo, 'registrado_por' => $usuarioId, 'registrado_en' => now()->toDateTimeString(),
+                        ...($linea['codigo'] === 'RETENCION_RENTA_4TA' ? ['suspension_renta_4ta_registrada' => true] : []),
                     ];
                     $total = bcadd($total, $monto, 2);
                 }
@@ -416,9 +454,9 @@ class PlanillaComplementariaService
      * cálculo original, porque legalmente si sube el ingreso computable
      * también sube el aporte previsional (ver recalcularAfpEssalud()).
      */
-    public function agregarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, int $conceptoId, ?int $conceptoDefinicionId, float $monto, ?string $motivo, int $usuarioId): PlanillaComplementaria
+    public function agregarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, int $conceptoId, ?int $conceptoDefinicionId, float $monto, ?string $motivo, int $usuarioId, bool $regularizacionFeriado = false): PlanillaComplementaria
     {
-        if (! empty($detalle->calculo_snapshot['descansos_semanales'])) {
+        if (! empty($detalle->calculo_snapshot['descansos_semanales']) || ! empty($detalle->calculo_snapshot['feriado_regularizado'])) {
             throw ValidationException::withMessages(['detalle' => 'Para corregir las semanas, elimina el borrador y vuelve a generar el reintegro.']);
         }
         $item = $detalle->complementaria;
@@ -436,7 +474,7 @@ class PlanillaComplementariaService
 
         $colaborador = $detalle->colaborador;
         $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
-        if ($esHonorarios && $concepto->tipo !== 'egreso') {
+        if ($esHonorarios && $concepto->tipo !== 'egreso' && ! ($regularizacionFeriado && $concepto->codigo === 'HE_100')) {
             throw ValidationException::withMessages([
                 'concepto_id' => 'Un locador (Recibos por Honorarios) solo admite conceptos de descuento — los ingresos remunerativos son exclusivos de planilla dependiente.',
             ]);
@@ -499,7 +537,7 @@ class PlanillaComplementariaService
      */
     public function eliminarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, string $lineaId): PlanillaComplementaria
     {
-        if (! empty($detalle->calculo_snapshot['descansos_semanales'])) {
+        if (! empty($detalle->calculo_snapshot['descansos_semanales']) || ! empty($detalle->calculo_snapshot['feriado_regularizado'])) {
             throw ValidationException::withMessages(['detalle' => 'Para corregir las semanas, elimina el borrador y vuelve a generar el reintegro.']);
         }
         $item = $detalle->complementaria;

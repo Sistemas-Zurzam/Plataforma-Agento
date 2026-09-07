@@ -395,6 +395,7 @@ export function useRemuneraciones() {
       boleta_ids: boletaIds,
       fecha_feriado: fechaFeriado,
       sin_descanso_sustitutorio: true,
+      sin_pago_previo: true,
       motivo,
     });
     return data.data;

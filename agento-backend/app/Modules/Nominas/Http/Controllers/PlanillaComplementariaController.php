@@ -94,6 +94,7 @@ class PlanillaComplementariaController extends Controller
             'boleta_ids.*' => ['integer', 'distinct'],
             'fecha_feriado' => ['required', 'date'],
             'sin_descanso_sustitutorio' => ['accepted'],
+            'sin_pago_previo' => ['accepted'],
             'motivo' => ['required', 'string', 'max:1000'],
         ]);
 
@@ -207,6 +208,7 @@ class PlanillaComplementariaController extends Controller
                 'conceptos_manuales' => $this->conceptosManuales($d),
                 'reintegros_descuentos' => $d->calculo_snapshot['reintegros_descuentos'] ?? [],
                 'descansos_semanales' => $d->calculo_snapshot['descansos_semanales'] ?? [],
+                'feriado_regularizado' => $d->calculo_snapshot['feriado_regularizado'] ?? null,
             ])->values(),
             'aprobado_at' => $item->aprobado_at?->toDateTimeString(), 'pagado_at' => $item->pagado_at?->toDateTimeString(),
             'referencia_pago' => $item->referencia_pago,

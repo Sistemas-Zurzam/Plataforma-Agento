@@ -112,7 +112,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const crear = async () => {
     if (!motivo.trim()) return message.warning('Ingresa el motivo de la regularización.');
     if (!boletaIds.length) return message.warning('Selecciona las boletas pagadas que deseas regularizar.');
-    if (tipoRegularizacion === 'feriado_historico' && !fechaFeriado) return message.warning('Selecciona la fecha del feriado histórico.');
+    if (tipoRegularizacion === 'feriado_historico' && !fechaFeriado) return message.warning('Selecciona la fecha del feriado trabajado.');
     if (tipoRegularizacion === 'feriado_historico' && !sinDescansoSustitutorio) return message.warning('Confirma que no se otorgó descanso sustitutorio.');
     setCreando(true);
     try {
@@ -144,7 +144,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       const accion = tipoRegularizacion === 'feriado_historico'
         ? () => api.crearRegularizacionFeriadoHistorico(ciclo.id, boletaIds, fechaFeriado.format('YYYY-MM-DD'), motivo.trim())
         : () => api.crearComplementaria(ciclo.id, boletaIds, motivo.trim());
-      await ejecutar(accion, tipoRegularizacion === 'feriado_historico' ? 'Regularización histórica calculada.' : 'Planilla complementaria calculada.');
+      await ejecutar(accion, tipoRegularizacion === 'feriado_historico' ? 'Reintegro de feriado calculado.' : 'Planilla complementaria calculada.');
     } catch (e) {
       message.error(Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? e.response?.data?.message ?? 'No se pudo generar el reintegro.');
     } finally {
@@ -188,7 +188,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       title: '',
       key: 'acciones',
       width: 40,
-      render: (_, detalle) => detalle.descansos_semanales?.length ? null : (
+      render: (_, detalle) => detalle.descansos_semanales?.length || detalle.feriado_regularizado ? null : (
         <Button
           size="small"
           type="text"
@@ -218,12 +218,12 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               { value: 'descanso_semanal', label: 'Reintegro por descanso semanal trabajado' },
               { value: 'reintegro_descuentos', label: 'Reintegrar descuentos' },
               { value: 'diferencia_ciclo', label: 'Diferencia del ciclo pagado' },
-              { value: 'feriado_historico', label: 'Feriado histórico no pagado' },
+              { value: 'feriado_historico', label: 'Feriado trabajado no pagado' },
             ]} />
             {tipoRegularizacion === 'feriado_historico' && (
               <DatePicker value={fechaFeriado} onChange={setFechaFeriado} format="DD/MM/YYYY" placeholder="Fecha del feriado"
                 disabledDate={(fecha) => !feriadosDisponibles.includes(fecha.format('YYYY-MM-DD'))}
-                defaultPickerValue={ciclo?.fecha_inicio ? dayjs(ciclo.fecha_inicio).subtract(1, 'day') : undefined} />
+                defaultPickerValue={ciclo?.fecha_inicio ? dayjs(ciclo.fecha_inicio) : undefined} />
             )}
           </div>
           <div className="mb-2 text-sm">
@@ -283,7 +283,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                         getCheckboxProps: (d) => ({ disabled: !d.reintegrable || creando }),
                       }}
                       columns={[
-                        { title: 'Descuento', dataIndex: 'nombre', render: (v, d) => <div>{v}{!d.reintegrable && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? 'Este colaborador tiene una complementaria pendiente. Completa su pago o elimina el borrador para generar otra.' : 'Retención o aporte: requiere revisión específica'}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
+                        { title: 'Descuento', dataIndex: 'nombre', render: (v, d) => <div>{v}{(!d.reintegrable || d.observacion_reintegro) && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? 'Este colaborador tiene una complementaria pendiente. Completa su pago o elimina el borrador para generar otra.' : d.observacion_reintegro ?? 'Retención o aporte: requiere revisión específica'}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
                         { title: 'Pendiente', dataIndex: 'monto', align: 'right', width: 110, render: soles },
                         { title: 'A reintegrar', align: 'right', width: 130, render: (_, d) => d.reintegrable ? <InputNumber className="w-full" min={0.01} max={Number(d.monto)} precision={2} value={montosReintegro[claveDescuento(d)]}
                           disabled={creando} onChange={(v) => setMontosReintegro((prev) => ({ ...prev, [claveDescuento(d)]: v }))} /> : '—' },
@@ -317,7 +317,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           )}
           {tipoRegularizacion === 'feriado_historico' && (
             <Checkbox className="mb-2" checked={sinDescansoSustitutorio} onChange={(event) => setSinDescansoSustitutorio(event.target.checked)}>
-              Confirmo que trabajaron el feriado y no recibieron descanso sustitutorio
+              Confirmo que trabajaron el feriado, corresponde el adicional y no recibieron descanso sustitutorio ni pago previo por este concepto
             </Checkbox>
           )}
           <div className="flex gap-2">
@@ -375,6 +375,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0 || detalle.reintegros_descuentos?.length > 0 || detalle.descansos_semanales?.length > 0,
                 expandedRowRender: (detalle) => (
                   <div className="space-y-1.5 py-1">
+                    {detalle.feriado_regularizado && <p className="text-sm text-green-700">Feriado trabajado {dayjs(detalle.feriado_regularizado.fecha).format('DD/MM/YYYY')}: {soles(detalle.feriado_regularizado.importe_bruto)} bruto adicional.</p>}
                     {detalle.descansos_semanales?.map((s) => <p key={s.semana_inicio} className="text-sm text-green-700">Descanso semanal {s.semana_inicio} – {s.semana_fin}: {soles(s.sueldo)} / 30 × 2 = {soles(s.importe_bruto)} bruto.</p>)}
                     {detalle.reintegros_descuentos?.length > 0 && <>
                       <p className="text-xs font-semibold text-gray-500">Descuentos subsanados</p>
@@ -388,7 +389,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                           <span className="font-medium">{soles(c.monto)}</span>
                           {c.motivo && <span className="ml-1 text-gray-500">— {c.motivo}</span>}
                         </div>
-                        {item.estado === 'calculada' && permisos.calcular && !detalle.descansos_semanales?.length && (
+                        {item.estado === 'calculada' && permisos.calcular && !detalle.descansos_semanales?.length && !detalle.feriado_regularizado && (
                           c.id ? (
                             <Popconfirm title="¿Eliminar este concepto?" onConfirm={() => eliminarConcepto(detalle.id, c.id)}>
                               <Button size="small" type="text" danger icon={<DeleteOutlined />} />

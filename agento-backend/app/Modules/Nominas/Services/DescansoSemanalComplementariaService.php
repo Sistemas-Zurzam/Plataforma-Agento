@@ -101,7 +101,7 @@ class DescansoSemanalComplementariaService
             $concepto = ConceptoRemuneracion::where('codigo', 'HE_100')->where('activo', true)->firstOrFail();
             foreach ($boletas as $boleta) {
                 $base = $this->complementarias->baseParaReintegro($boleta);
-                unset($base['descansos_semanales'], $base['reintegros_descuentos']);
+                unset($base['descansos_semanales'], $base['reintegros_descuentos'], $base['feriado_regularizado']);
                 if (! collect($base['egresos'] ?? [])->contains('codigo', 'RENTA_5TA')) {
                     $base['egresos'][] = ['codigo' => 'RENTA_5TA', 'monto' => 0, 'base_utilizada' => $base['total_ingresos']];
                 }

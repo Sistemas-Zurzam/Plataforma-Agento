@@ -115,6 +115,51 @@ class ReintegroDescuentosTest extends TestCase
         $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id + 99999]);
     }
 
+    private function agregarRetencionCuarta(Boleta $boleta): void
+    {
+        $boleta->colaborador->update(['tiene_suspension_renta_4ta' => false]);
+        $boleta->conceptos()->create([
+            'concepto_id' => ConceptoRemuneracion::where('codigo', 'RETENCION_RENTA_4TA')->firstOrFail()->id,
+            'tipo' => 'egreso', 'es_remunerativo_laboral' => false, 'afecta_renta_5ta' => false, 'monto' => 400,
+        ]);
+        $boleta->update(['total_egresos' => 799.66, 'neto_a_pagar' => 988.61]);
+    }
+
+    public function test_suspension_registrada_habilita_reintegro_de_cuarta_y_no_se_duplica(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
+        $this->agregarRetencionCuarta($boleta);
+        $leer = fn () => collect($service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]))->firstWhere('codigo', 'RETENCION_RENTA_4TA');
+        $this->assertFalse($leer()['reintegrable']);
+        $boleta->colaborador->update(['tiene_suspension_renta_4ta' => true]);
+        $retencion = $leer();
+        $this->assertTrue($retencion['reintegrable']);
+        $item = $service->reintegrarDescuentos($empresa, $ciclo, [$retencion], 'Constancia entregada y registrada', $usuarioId);
+        $detalle = $item->detalles->first();
+        $this->assertSame('400.00', $detalle->diferencia_neta);
+        $this->assertSame('1388.61', $detalle->neto_recalculado);
+        $this->assertSame('988.61', $boleta->fresh()->neto_a_pagar);
+        $this->assertTrue($detalle->calculo_snapshot['reintegros_descuentos'][0]['suspension_renta_4ta_registrada']);
+        $this->assertNull($leer());
+        $service->aprobar($empresa, $item, $usuarioId);
+        $this->assertSame('400.00', $service->boletasDePago($empresa, $item, '4')->first()->neto_a_pagar);
+        $service->marcarPagada($empresa, $item, $usuarioId, 'TEST');
+        $this->assertNull($leer());
+        $this->expectException(ValidationException::class);
+        $service->reintegrarDescuentos($empresa, $ciclo, [$retencion], 'Duplicado', $usuarioId);
+    }
+
+    public function test_revalida_la_constancia_al_generar_y_no_confia_en_la_seleccion_del_cliente(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
+        $this->agregarRetencionCuarta($boleta);
+        $boleta->colaborador->update(['tiene_suspension_renta_4ta' => true]);
+        $retencion = collect($service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]))->firstWhere('codigo', 'RETENCION_RENTA_4TA');
+        $boleta->colaborador->update(['tiene_suspension_renta_4ta' => false]);
+        $this->expectException(ValidationException::class);
+        $service->reintegrarDescuentos($empresa, $ciclo, [$retencion], 'Constancia retirada', $usuarioId);
+    }
+
     public function test_endpoint_valida_y_genera_reintegro(): void
     {
         [$empresa, $ciclo, $boleta, $usuarioId] = $this->escenario();
