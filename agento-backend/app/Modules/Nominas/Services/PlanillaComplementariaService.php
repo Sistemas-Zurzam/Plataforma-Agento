@@ -213,9 +213,20 @@ class PlanillaComplementariaService
             ]);
         }
 
-        $concepto = ConceptoRemuneracion::where('codigo', 'HE_100')->where('activo', true)->firstOrFail();
+        // Dos conceptos según el régimen de CADA boleta: HE_100 (Tabla 22,
+        // sobretasa del 100% del Art. 8° D.Leg. 713) solo existe para
+        // trabajadores dependientes — un locador no tiene relación laboral,
+        // así que un adicional por feriado trabajado es una liberalidad
+        // contractual (HONORARIO_FERIADO_TRABAJADO, sin Tabla 22, sueldo/30×1
+        // en vez de ×2 — ver ConceptoRemuneracionSeeder). Se resuelven de
+        // forma perezosa dentro del loop (no acá arriba): así, si todavía no
+        // se corrió el seeder en un ambiente, solo falla la rama que
+        // realmente lo necesita — nunca la regularización completa de un
+        // lote que no incluye ningún locador.
+        $conceptoDependiente = null;
+        $conceptoHonorarios = null;
 
-        return DB::transaction(function () use ($ciclo, $originales, $fechaFeriado, $motivo, $usuarioId, $concepto, $nombreRegularizacion) {
+        return DB::transaction(function () use ($ciclo, $originales, $fechaFeriado, $motivo, $usuarioId, &$conceptoDependiente, &$conceptoHonorarios, $nombreRegularizacion) {
             $item = PlanillaComplementaria::create([
                 'ciclo_id' => $ciclo->id,
                 'empresa_id' => $ciclo->empresa_id,
@@ -272,13 +283,25 @@ class PlanillaComplementariaService
                     'calculo_snapshot' => $base,
                 ]);
 
-                $monto = round(((float) $remuneracion->salario / 30) * 2, 2);
-                $this->agregarConcepto(
-                    $ciclo->empresa, $detalle, $concepto->id, null, $monto,
-                    "Cálculo automático: ({$remuneracion->salario} / 30) × 2 por feriado trabajado {$fechaFeriado}, sin descanso sustitutorio",
-                    $usuarioId,
-                    true,
-                );
+                if ($esHonorarios) {
+                    $conceptoHonorarios ??= ConceptoRemuneracion::where('codigo', 'HONORARIO_FERIADO_TRABAJADO')->where('activo', true)->firstOrFail();
+                    $monto = round(((float) $remuneracion->salario / 30), 2);
+                    $this->agregarConcepto(
+                        $ciclo->empresa, $detalle, $conceptoHonorarios->id, null, $monto,
+                        "Cálculo automático: ({$remuneracion->salario} / 30) × 1 por feriado trabajado {$fechaFeriado} — adicional discrecional a un locador (sin relación laboral, no aplica la sobretasa de ley del Art. 8° D.Leg. 713)",
+                        $usuarioId,
+                        true,
+                    );
+                } else {
+                    $conceptoDependiente ??= ConceptoRemuneracion::where('codigo', 'HE_100')->where('activo', true)->firstOrFail();
+                    $monto = round(((float) $remuneracion->salario / 30) * 2, 2);
+                    $this->agregarConcepto(
+                        $ciclo->empresa, $detalle, $conceptoDependiente->id, null, $monto,
+                        "Cálculo automático: ({$remuneracion->salario} / 30) × 2 por feriado trabajado {$fechaFeriado}, sin descanso sustitutorio",
+                        $usuarioId,
+                        true,
+                    );
+                }
                 $snapshot = $detalle->fresh()->calculo_snapshot;
                 $snapshot['feriado_regularizado'] = ['fecha' => $fechaFeriado, 'importe_bruto' => $monto,
                     'sueldo_historico' => $remuneracion->salario, 'confirmado_por' => $usuarioId,
@@ -534,9 +557,21 @@ class PlanillaComplementariaService
             throw ValidationException::withMessages(['concepto_id' => 'Solo se pueden agregar manualmente conceptos de tipo ingreso o egreso.']);
         }
 
-        $colaborador = $detalle->colaborador;
-        $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
-        if ($esHonorarios && $concepto->tipo !== 'egreso' && ! ($regularizacionFeriado && $concepto->codigo === 'HE_100')) {
+        // Régimen de LA BOLETA que se regulariza, nunca el régimen vivo del
+        // colaborador: este último puede haber cambiado desde entonces
+        // (ascenso de honorarios a planilla o viceversa), y lo que importa
+        // acá es bajo qué régimen se pagó ESA boleta específica — mismo
+        // criterio que ya usan PlameCicloDatosLoader, BoletaService,
+        // ResumenContableService, etc. en todo el módulo.
+        $esHonorarios = $detalle->boletaOriginal->regimen_laboral_snapshot === 'Locacion de Servicios';
+        // $regularizacionFeriado solo lo pasa internamente
+        // crearFeriadoBloqueado() para su propio concepto
+        // HONORARIO_FERIADO_TRABAJADO — nunca HE_100 (Tabla 22 es exclusivo
+        // de trabajadores dependientes) — no está expuesto por el endpoint
+        // manual de "+ agregar concepto": la regla general para RR.HH.
+        // agregando conceptos a mano sigue intacta, un locador solo admite
+        // descuentos.
+        if ($esHonorarios && $concepto->tipo !== 'egreso' && ! ($regularizacionFeriado && $concepto->codigo === 'HONORARIO_FERIADO_TRABAJADO')) {
             throw ValidationException::withMessages([
                 'concepto_id' => 'Un locador (Recibos por Honorarios) solo admite conceptos de descuento — los ingresos remunerativos son exclusivos de planilla dependiente.',
             ]);
