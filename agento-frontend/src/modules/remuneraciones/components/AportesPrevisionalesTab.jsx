@@ -1,5 +1,5 @@
 import { BankOutlined, SafetyCertificateOutlined, TeamOutlined, WalletOutlined } from '@ant-design/icons';
-import { Empty, Segmented, Table, Tag } from 'antd';
+import { Empty, Select, Table, Tag } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import { colorForName, initialsForName } from '../../../utils/avatarColor';
 
@@ -56,9 +56,23 @@ export default function AportesPrevisionalesTab({ cicloId, fetchAportesPrevision
     };
   }, [colaboradores]);
 
+  const opcionesFiltro = useMemo(() => {
+    const afpsPresentes = [...new Set(
+      colaboradores.filter((c) => c.sistema_previsional !== 'onp' && c.afp_nombre).map((c) => c.afp_nombre),
+    )].sort();
+
+    return [
+      { label: 'Todos', value: 'todos' },
+      { label: 'Todas las AFP', value: 'afp' },
+      { label: 'ONP', value: 'onp' },
+      ...afpsPresentes.map((nombre) => ({ label: nombre, value: `afp:${nombre}` })),
+    ];
+  }, [colaboradores]);
+
   const dataFiltrada = useMemo(() => {
     if (filtro === 'afp') return colaboradores.filter((c) => c.sistema_previsional !== 'onp');
     if (filtro === 'onp') return colaboradores.filter((c) => c.sistema_previsional === 'onp');
+    if (filtro.startsWith('afp:')) return colaboradores.filter((c) => c.afp_nombre === filtro.slice(4));
     return colaboradores;
   }, [colaboradores, filtro]);
 
@@ -117,15 +131,14 @@ export default function AportesPrevisionalesTab({ cicloId, fetchAportesPrevision
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-3">
-        <Segmented
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-gray-500">Sistema previsional:</span>
+        <Select
+          size="small"
+          className="w-44"
           value={filtro}
           onChange={setFiltro}
-          options={[
-            { label: 'Todos', value: 'todos' },
-            { label: 'AFP', value: 'afp' },
-            { label: 'ONP', value: 'onp' },
-          ]}
+          options={opcionesFiltro}
         />
       </div>
 

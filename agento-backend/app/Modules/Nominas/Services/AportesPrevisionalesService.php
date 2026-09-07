@@ -22,6 +22,10 @@ class AportesPrevisionalesService
     {
         $boletas = Boleta::where('ciclo_id', $ciclo->id)
             ->where('es_version_vigente', true)
+            // Los locadores de Recibos por Honorarios no aportan a AFP/ONP
+            // (no son planilla dependiente) — aparecerían en S/ 0.00 sin
+            // este filtro, ensuciando la tabla y los totales del ciclo.
+            ->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios')
             ->with([
                 'colaborador.afp',
                 'conceptos' => fn ($query) => $query->whereHas(
