@@ -386,11 +386,19 @@ class PlanillaComplementariaController extends Controller
     /** @return array<int, array{telecredito: bool, netcash: bool}> indexado por detalle->id */
     private function elegibilidadBancaria($detalles): array
     {
-        $bancos = \App\Modules\Configuracion\Models\Banco::whereIn('id', $detalles->pluck('banco_id')->filter()->unique())->get()->keyBy('id');
+        $colaboradores = \App\Modules\Personas\Models\Colaborador::withTrashed()
+            ->whereIn('id', $detalles->pluck('colaborador_id')->unique())
+            ->get(['id', 'banco_id', 'cci'])
+            ->keyBy('id');
+        $bancoIds = $detalles->pluck('banco_id')->filter()
+            ->merge($colaboradores->pluck('banco_id')->filter())->unique();
+        $bancos = \App\Modules\Configuracion\Models\Banco::whereIn('id', $bancoIds)->get()->keyBy('id');
 
-        return $detalles->mapWithKeys(function ($d) use ($bancos) {
-            $banco = $bancos->get($d->banco_id);
-            $tieneCci = filled($d->cci_snapshot);
+        return $detalles->mapWithKeys(function ($d) use ($bancos, $colaboradores) {
+            $colaborador = $colaboradores->get($d->colaborador_id);
+            $banco = $bancos->get($d->banco_id ?: $colaborador?->banco_id);
+            $cci = $d->cci_snapshot ?: $colaborador?->cci;
+            $tieneCci = is_string($cci) && preg_match('/^\d{20}$/', $cci) === 1;
             return [$d->id => [
                 'telecredito' => $banco?->codigo === 'bcp' || $tieneCci,
                 'netcash' => $banco?->codigo === 'bbva' || $tieneCci,

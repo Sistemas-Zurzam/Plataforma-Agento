@@ -81,10 +81,12 @@ class ReintegroDescuentosTest extends TestCase
     public function test_exporta_netcash_consolidado_de_cuarta_categoria(): void
     {
         [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
-        $boleta->colaborador->update(['cci' => '00219112345678901234']);
         $descuento = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id])[0];
         $item = $service->reintegrarDescuentos($empresa, $ciclo, [$descuento], 'Devolución', $usuarioId);
         $service->aprobar($empresa, $item, $usuarioId);
+        // Caso real: RR.HH. completa el CCI después de que la
+        // complementaria ya guardó su snapshot bancario vacío.
+        $boleta->colaborador->update(['cci' => '00219112345678901234']);
         $cuenta = new EmpresaCuentaBancaria(['tipo_cuenta' => 'corriente', 'moneda' => 'PEN', 'numero_cuenta' => '191234567890123456']);
 
         $lineas = explode("\n", $service->exportarBbvaMasivo($empresa, [$item->id], $cuenta, '4'));

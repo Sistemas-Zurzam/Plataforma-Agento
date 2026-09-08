@@ -1494,18 +1494,25 @@ class PlanillaComplementariaService
             ->filter(fn ($d) => ($d->boletaOriginal->regimen_laboral_snapshot === 'Locacion de Servicios') === $esCuarta)
             ->map(function ($detalle) {
                 $boleta = $detalle->boletaOriginal->replicate();
+                $colaborador = $detalle->boletaOriginal->colaborador;
+                $bancoId = $detalle->banco_id ?: $colaborador?->banco_id;
                 $boleta->id = $detalle->boleta_original_id;
                 $boleta->neto_a_pagar = $detalle->diferencia_neta;
-                $boleta->setRelation('colaborador', $detalle->boletaOriginal->colaborador);
+                $boleta->setRelation('colaborador', $colaborador);
                 $datosPago = new BoletaDatosPago([
-                    'banco_id' => $detalle->banco_id,
-                    'tipo_cuenta_snapshot' => $detalle->tipo_cuenta_snapshot,
-                    'moneda_snapshot' => $detalle->moneda_snapshot,
-                    'numero_cuenta_snapshot' => $detalle->numero_cuenta_snapshot,
-                    'cci_snapshot' => $detalle->cci_snapshot,
+                    // La complementaria conserva su snapshot original. Solo
+                    // completamos campos que nacieron vacíos con los datos
+                    // bancarios actuales, por ejemplo un CCI corregido luego
+                    // de aprobar el reintegro; nunca reemplazamos un valor que
+                    // ya estaba congelado.
+                    'banco_id' => $bancoId,
+                    'tipo_cuenta_snapshot' => $detalle->tipo_cuenta_snapshot ?: $colaborador?->tipo_cuenta,
+                    'moneda_snapshot' => $detalle->moneda_snapshot ?: $colaborador?->moneda_cuenta,
+                    'numero_cuenta_snapshot' => $detalle->numero_cuenta_snapshot ?: $colaborador?->numero_cuenta,
+                    'cci_snapshot' => $detalle->cci_snapshot ?: $colaborador?->cci,
                     'fecha_snapshot' => $detalle->created_at,
                 ]);
-                $datosPago->setRelation('banco', \App\Modules\Configuracion\Models\Banco::find($detalle->banco_id));
+                $datosPago->setRelation('banco', \App\Modules\Configuracion\Models\Banco::find($bancoId));
                 $boleta->setRelation('datosPago', $datosPago);
                 return $boleta;
             })->values();
