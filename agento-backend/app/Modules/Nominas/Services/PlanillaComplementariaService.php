@@ -452,7 +452,9 @@ class PlanillaComplementariaService
                 $delta = 0.0;
                 foreach ($grupo as $entrada) {
                     $condicion = ColaboradorCondicionLaboral::vigenteEn($boleta->colaborador_id, $entrada['fecha']);
-                    if (($condicion?->es_trabajador_confianza ?? false) || ! ($condicion?->contabilizar_horas_extra ?? $boleta->colaborador->contabilizar_horas_extra)) {
+                    $habilitadaHistoricamente = $condicion?->contabilizar_horas_extra ?? false;
+                    $autorizadaActualmente = (bool) $boleta->colaborador->contabilizar_horas_extra;
+                    if (($condicion?->es_trabajador_confianza ?? false) || (! $habilitadaHistoricamente && ! $autorizadaActualmente)) {
                         throw ValidationException::withMessages(['horas_extra' => "{$nombreColaborador} no tenía habilitado el pago de horas extra en {$entrada['fecha']}."]);
                     }
                     $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $boleta->colaborador_id)->whereDate('vigencia_desde', '<=', $entrada['fecha'])->latest('vigencia_desde')->latest('id')->first();
@@ -497,18 +499,35 @@ class PlanillaComplementariaService
                 throw ValidationException::withMessages(['horas_extra' => 'Selecciona o registra al menos una hora extra pendiente.']);
             }
 
-            $ocupado = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletaIds)
-                ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada']))->exists();
-            if ($ocupado) {
-                throw ValidationException::withMessages(['horas_extra' => 'Uno de los colaboradores ya tiene una complementaria pendiente. Agrégalo al borrador calculado o completa el pago de la complementaria aprobada.']);
+            $borradores = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletaIds)
+                ->whereHas('complementaria', fn ($q) => $q
+                    ->where('ciclo_id', $ciclo->id)
+                    ->where('estado', 'calculada'))
+                ->pluck('planilla_complementaria_id')
+                ->unique()
+                ->values();
+
+            if ($borradores->count() > 1) {
+                throw ValidationException::withMessages(['horas_extra' => 'Los colaboradores seleccionados pertenecen a borradores distintos. Agrégalos por separado a cada regularización.']);
             }
 
-            $item = PlanillaComplementaria::create([
-                'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
-                'nombre' => 'Pago de horas extra '.$ciclo->nombre.' '.now()->format('Ymd-His'),
-                'motivo' => $motivo, 'estado' => 'calculada', 'creado_por' => $usuarioId,
-            ]);
-            $this->agregarColaboradores($empresa, $item, $boletaIds);
+            // Un documento aprobado nunca se modifica, pero tampoco bloquea una
+            // regularización posterior. Si ya existe un borrador calculado para
+            // el colaborador, las horas se incorporan automáticamente en él.
+            $item = $borradores->isNotEmpty()
+                ? PlanillaComplementaria::whereKey($borradores->first())->lockForUpdate()->firstOrFail()
+                : PlanillaComplementaria::create([
+                    'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+                    'nombre' => 'Pago de horas extra '.$ciclo->nombre.' '.now()->format('Ymd-His'),
+                    'motivo' => $motivo, 'estado' => 'calculada', 'creado_por' => $usuarioId,
+                ]);
+
+            $boletasYaIncluidas = $item->detalles()->whereIn('boleta_original_id', $boletaIds)
+                ->pluck('boleta_original_id');
+            $boletasFaltantes = collect($boletaIds)->diff($boletasYaIncluidas)->values()->all();
+            if ($boletasFaltantes !== []) {
+                $this->agregarColaboradores($empresa, $item, $boletasFaltantes);
+            }
 
             return $this->agregarHorasExtra($empresa, $item, $detectadas, $manuales, $usuarioId);
         });

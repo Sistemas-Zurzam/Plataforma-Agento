@@ -138,6 +138,62 @@ class HorasExtraComplementariaTest extends TestCase
         $this->assertSame('Trabajo autorizado sin marcación biométrica', $hora['motivo']);
     }
 
+    public function test_autorizacion_actual_permite_regularizar_horas_historicas(): void
+    {
+        [$empresa, , $boleta, $complementaria, $usuario, $service] = $this->escenario();
+        $colaborador = $boleta->colaborador;
+        $colaborador->condicionesLaborales()->create([
+            'regimen_laboral' => 'General', 'tipo_contrato' => 'indefinido',
+            'contabilizar_horas_extra' => false, 'vigencia_desde' => '2026-08-01',
+        ]);
+        $colaborador->condicionesLaborales()->create([
+            'regimen_laboral' => 'General', 'tipo_contrato' => 'indefinido',
+            'contabilizar_horas_extra' => true, 'vigencia_desde' => '2026-09-01',
+        ]);
+        $colaborador->update(['contabilizar_horas_extra' => true]);
+
+        $item = $service->agregarHorasExtra($empresa, $complementaria, [], [[
+            'boleta_id' => $boleta->id, 'fecha' => '2026-08-19', 'minutos' => 60,
+            'tasa' => '25', 'motivo' => 'Autorización posterior de RR.HH.',
+        ]], $usuario->id);
+
+        $this->assertSame(60, $item->detalles->first()->calculo_snapshot['horas_extra_regularizadas'][0]['minutos']);
+    }
+
+    public function test_crear_horas_extra_reutiliza_el_borrador_donde_ya_esta_el_colaborador(): void
+    {
+        [$empresa, $ciclo, $boleta, $complementaria, $usuario, $service] = $this->escenario();
+
+        $item = $service->crearConHorasExtra($empresa, $ciclo, [], [[
+            'boleta_id' => $boleta->id, 'fecha' => '2026-08-20', 'minutos' => 60,
+            'tasa' => '25', 'motivo' => 'Hora omitida',
+        ]], 'Pago de horas pendientes', $usuario->id);
+
+        $this->assertSame($complementaria->id, $item->id);
+        $this->assertSame(1, PlanillaComplementaria::where('ciclo_id', $ciclo->id)->count());
+        $this->assertSame(60, $item->detalles->first()->calculo_snapshot['horas_extra_regularizadas'][0]['minutos']);
+    }
+
+    public function test_una_complementaria_aprobada_no_bloquea_crear_otra_para_el_mismo_colaborador(): void
+    {
+        [$empresa, $ciclo, $boleta, $complementaria, $usuario, $service] = $this->escenario();
+        $service->agregarHorasExtra($empresa, $complementaria, [], [[
+            'boleta_id' => $boleta->id, 'fecha' => '2026-08-19', 'minutos' => 60,
+            'tasa' => '25', 'motivo' => 'Primera regularización',
+        ]], $usuario->id);
+        $service->aprobar($empresa, $complementaria, $usuario->id);
+
+        $nuevo = $service->crearConHorasExtra($empresa, $ciclo, [], [[
+            'boleta_id' => $boleta->id, 'fecha' => '2026-08-20', 'minutos' => 60,
+            'tasa' => '25', 'motivo' => 'Hora adicional omitida',
+        ]], 'Segundo pago de horas pendientes', $usuario->id);
+
+        $this->assertNotSame($complementaria->id, $nuevo->id);
+        $this->assertSame('aprobada', $complementaria->fresh()->estado);
+        $this->assertSame('calculada', $nuevo->estado);
+        $this->assertSame(2, PlanillaComplementaria::where('ciclo_id', $ciclo->id)->count());
+    }
+
     public function test_no_ofrece_ni_permite_pagar_una_hora_al_100_ya_cubierta_por_feriado_historico(): void
     {
         [$empresa, $ciclo, $boleta, $complementaria, $usuario, $service] = $this->escenario();
