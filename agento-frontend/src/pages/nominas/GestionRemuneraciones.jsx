@@ -14,6 +14,7 @@ import {
   FileTextOutlined,
   LockOutlined,
   PlusOutlined,
+  PrinterOutlined,
   ReloadOutlined,
   SendOutlined,
   SettingOutlined,
@@ -26,6 +27,7 @@ import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import BoletaImprimibleModal from '../../modules/remuneraciones/components/BoletaImprimibleModal';
+import BoletasImprimirMasivoModal from '../../modules/remuneraciones/components/BoletasImprimirMasivoModal';
 import ComprobanteRhModal from '../../modules/remuneraciones/components/ComprobanteRhModal';
 import ConfiguracionNominaModal from '../../modules/remuneraciones/components/ConfiguracionNominaModal';
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
@@ -215,7 +217,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
     resumen, fetchResumen, fetchResumenContable,
-    verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
+    verBoleta, imprimirBoletasMasivo, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
@@ -258,6 +260,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [boletasSeleccionadas, setBoletasSeleccionadas] = useState([]);
   const [seleccionandoTodas, setSeleccionandoTodas] = useState(false);
   const [boletaImprimirId, setBoletaImprimirId] = useState(null);
+  const [imprimirMasivoOpen, setImprimirMasivoOpen] = useState(false);
   const [comprobanteRhBoletaId, setComprobanteRhBoletaId] = useState(null);
   const [guardandoComprobanteRh, setGuardandoComprobanteRh] = useState(false);
   const [plameModalOpen, setPlameModalOpen] = useState(false);
@@ -1161,6 +1164,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                       {boletasSeleccionadas.length > 0 && (
                         <Button size="small" onClick={() => setBoletasSeleccionadas([])}>Limpiar seleccion</Button>
                       )}
+                      {boletasSeleccionadas.length > 0 && (
+                        <Button size="small" icon={<PrinterOutlined />} onClick={() => setImprimirMasivoOpen(true)}>
+                          Imprimir {boletasSeleccionadas.length} boleta(s)
+                        </Button>
+                      )}
                       {puedeAprobar && boletasCalculadasSeleccionadas.length > 0 && (
                         <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={handleAprobarMasivo}>
                           Aprobar {boletasCalculadasSeleccionadas.length} calculada(s)
@@ -1305,6 +1313,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setBoletaImprimirId(null)}
         boletaId={boletaImprimirId}
         verBoleta={verBoleta}
+      />
+      <BoletasImprimirMasivoModal
+        open={imprimirMasivoOpen}
+        onCancel={() => setImprimirMasivoOpen(false)}
+        cicloId={cicloId}
+        boletaIds={boletasSeleccionadas}
+        imprimirBoletasMasivo={imprimirBoletasMasivo}
       />
 
       <ComprobanteRhModal

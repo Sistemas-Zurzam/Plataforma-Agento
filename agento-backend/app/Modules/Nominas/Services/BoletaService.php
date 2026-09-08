@@ -17,6 +17,7 @@ use App\Modules\Nominas\Jobs\CalcularPlanillaJob;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Throwable;
@@ -117,7 +118,39 @@ class BoletaService
     {
         $this->verificarPertenenciaBoleta($empresa, $boleta);
 
-        $boleta->load([
+        $boleta->load($this->relacionesImprimibles());
+        $this->adjuntarDatosImprimibles($boleta);
+
+        return $boleta;
+    }
+
+    /**
+     * Boletas imprimibles del ciclo, para la impresión masiva de "Planilla
+     * mensual" — mismas relaciones y atributos calculados que ver(), sobre
+     * varias boletas a la vez. Scoping por ciclo_id (no solo boleta_id in)
+     * asegura que no se cuele una boleta de otro ciclo/empresa en el lote.
+     *
+     * @param  array<int, int>  $boletaIds
+     * @return \Illuminate\Support\Collection<int, Boleta>
+     */
+    public function verMasivo(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds): Collection
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+
+        $boletas = Boleta::where('ciclo_id', $ciclo->id)
+            ->whereIn('id', $boletaIds)
+            ->with($this->relacionesImprimibles())
+            ->get();
+
+        $boletas->each(fn (Boleta $boleta) => $this->adjuntarDatosImprimibles($boleta));
+
+        return $boletas;
+    }
+
+    /** @return array<string, mixed> */
+    private function relacionesImprimibles(): array
+    {
+        return [
             'colaborador.empresa',
             'colaborador.area' => fn ($query) => $query->withoutGlobalScope(EmpresaScope::class),
             'colaborador.banco',
@@ -125,11 +158,13 @@ class BoletaService
             'ciclo',
             'comprobanteRh',
             'datosPago.banco',
-        ]);
+        ];
+    }
+
+    private function adjuntarDatosImprimibles(Boleta $boleta): void
+    {
         $boleta->setAttribute('ausencias_periodo', $this->resolverAusenciasPeriodo($boleta));
         $boleta->setAttribute('reintegros', $this->resolverReintegros($boleta));
-
-        return $boleta;
     }
 
     /**

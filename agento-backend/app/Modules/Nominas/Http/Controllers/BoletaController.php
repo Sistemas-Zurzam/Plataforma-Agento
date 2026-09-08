@@ -102,6 +102,14 @@ class BoletaController extends Controller
         return new BoletaResource($this->boletas->ver($empresa, $boleta));
     }
 
+    public function imprimirMasivo(Request $request, CicloRemunerativo $ciclo): AnonymousResourceCollection
+    {
+        $datos = $request->validate(['boleta_ids' => ['required', 'array', 'min:1'], 'boleta_ids.*' => ['required', 'integer', 'distinct']]);
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+
+        return BoletaResource::collection($this->boletas->verMasivo($empresa, $ciclo, $datos['boleta_ids']));
+    }
+
     public function resumen(Request $request, CicloRemunerativo $ciclo)
     {
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);

@@ -262,6 +262,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const imprimirBoletasMasivo = useCallback(async (cicloId, boletaIds) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/boletas/imprimir-masivo`, { boleta_ids: boletaIds });
+    return data.data;
+  }, []);
+
   const guardarComprobanteRh = useCallback(async (boletaId, valores) => {
     const { data } = await api.patch(`/boletas/${boletaId}/comprobante-rh`, valores);
     return data.data;
@@ -644,6 +649,7 @@ export function useRemuneraciones() {
     exportarComplementaria,
     exportarComplementariasMasivo,
     verBoleta,
+    imprimirBoletasMasivo,
     aprobarBoleta,
     fetchIncidenciasPendientesAprobar,
     aprobarBoletasMasivo,

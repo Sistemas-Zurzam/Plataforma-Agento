@@ -196,6 +196,9 @@ Route::middleware('jwt')->group(function () {
     Route::get('/planilla/previsualizar', [BoletaController::class, 'previsualizar'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas', [BoletaController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas-exportables/ids', [BoletaController::class, 'idsExportables'])->middleware('permiso:nominas.ver');
+    // POST (no GET) a propósito: una selección grande ("seleccionar todas las
+    // boletas del filtro") puede superar el límite de longitud de una URL.
+    Route::post('/ciclos-remunerativos/{ciclo}/boletas/imprimir-masivo', [BoletaController::class, 'imprimirMasivo'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/resumen', [BoletaController::class, 'resumen'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/aportes-previsionales', [BoletaController::class, 'aportesPrevisionales'])->middleware('permiso:nominas.ver');
     Route::get('/beneficios-sociales/resumen', [BeneficioSocialController::class, 'resumen'])->middleware('permiso:nominas.ver');
