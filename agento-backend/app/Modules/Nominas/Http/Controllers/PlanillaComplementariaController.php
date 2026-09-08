@@ -345,11 +345,25 @@ class PlanillaComplementariaController extends Controller
     private function presentar(PlanillaComplementaria $item): array
     {
         $detalles = $item->detalles;
+        $elegibilidad = $this->elegibilidadBancaria($detalles);
+        $pendientes = $detalles->where('diferencia_neta', '>', 0);
+
         return [
             'id' => $item->id, 'ciclo_id' => $item->ciclo_id, 'nombre' => $item->nombre,
             'motivo' => $item->motivo, 'estado' => $item->estado,
-            'total_a_pagar' => number_format((float) $detalles->where('diferencia_neta', '>', 0)->sum('diferencia_neta'), 2, '.', ''),
+            'total_a_pagar' => number_format((float) $pendientes->sum('diferencia_neta'), 2, '.', ''),
             'saldo_a_descontar' => number_format(abs((float) $detalles->where('diferencia_neta', '<', 0)->sum('diferencia_neta')), 2, '.', ''),
+            // Un reintegro solo es exportable por un canal si TODOS sus
+            // colaboradores con diferencia positiva tienen los datos que
+            // exige ese canal (cuenta propia del banco, o CCI si es de
+            // otro banco) — TelecreditoBcpPagoBuilder/BbvaNetCashDetalleBuilder
+            // lanzan una excepción dura si falta uno solo, y esa excepción
+            // tumba el archivo completo, no solo a esa persona (más grave
+            // aún en la exportación consolidada de varios reintegros).
+            'elegible_telecredito' => $pendientes->isNotEmpty() && $pendientes->every(fn ($d) => $elegibilidad[$d->id]['telecredito']),
+            'elegible_netcash' => $pendientes->isNotEmpty() && $pendientes->every(fn ($d) => $elegibilidad[$d->id]['netcash']),
+            'colaboradores_datos_incompletos' => $pendientes->reject(fn ($d) => $elegibilidad[$d->id]['telecredito'] && $elegibilidad[$d->id]['netcash'])
+                ->map(fn ($d) => trim(($d->colaborador?->nombres ?? '').' '.($d->colaborador?->apellidos ?? '')))->values(),
             'detalles' => $detalles->map(fn ($d) => [
                 'id' => $d->id, 'colaborador_id' => $d->colaborador_id,
                 'colaborador' => trim(($d->colaborador?->nombres ?? '').' '.($d->colaborador?->apellidos ?? '')),
@@ -361,10 +375,27 @@ class PlanillaComplementariaController extends Controller
                 'descansos_semanales' => $d->calculo_snapshot['descansos_semanales'] ?? [],
                 'feriado_regularizado' => $d->calculo_snapshot['feriado_regularizado'] ?? null,
                 'horas_extra_regularizadas' => $d->calculo_snapshot['horas_extra_regularizadas'] ?? [],
+                'elegible_telecredito' => $elegibilidad[$d->id]['telecredito'],
+                'elegible_netcash' => $elegibilidad[$d->id]['netcash'],
             ])->values(),
             'aprobado_at' => $item->aprobado_at?->toDateTimeString(), 'pagado_at' => $item->pagado_at?->toDateTimeString(),
             'referencia_pago' => $item->referencia_pago,
         ];
+    }
+
+    /** @return array<int, array{telecredito: bool, netcash: bool}> indexado por detalle->id */
+    private function elegibilidadBancaria($detalles): array
+    {
+        $bancos = \App\Modules\Configuracion\Models\Banco::whereIn('id', $detalles->pluck('banco_id')->filter()->unique())->get()->keyBy('id');
+
+        return $detalles->mapWithKeys(function ($d) use ($bancos) {
+            $banco = $bancos->get($d->banco_id);
+            $tieneCci = filled($d->cci_snapshot);
+            return [$d->id => [
+                'telecredito' => $banco?->codigo === 'bcp' || $tieneCci,
+                'netcash' => $banco?->codigo === 'bbva' || $tieneCci,
+            ]];
+        })->all();
     }
 
     /**

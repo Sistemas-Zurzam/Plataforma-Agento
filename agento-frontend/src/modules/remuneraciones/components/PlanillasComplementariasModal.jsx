@@ -162,6 +162,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const exportar = async (item, banco) => {
     const esBcp = banco === 'telecredito-bcp';
     if (esBcp && !cuentaBcp) return message.warning('Selecciona una cuenta BCP de cargo.');
+    if (!(esBcp ? item.elegible_telecredito : item.elegible_netcash)) {
+      return message.error(`Falta cuenta ${esBcp ? 'BCP' : 'BBVA'} o CCI para: ${item.colaboradores_datos_incompletos.join(', ')}.`);
+    }
     const parametros = esBcp
       ? { cuenta_cargo_id: cuentaBcp, fecha_proceso: dayjs().format('YYYY-MM-DD'), subtipo: categoria === '4' ? '4' : 'X' }
       : { subtipo: categoria };
@@ -170,10 +173,17 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
 
   const reintegrosAprobados = items.filter((item) => item.estado === 'aprobada');
 
+  const elegibleParaBanco = (item, banco) => banco === 'telecredito-bcp' ? item.elegible_telecredito : item.elegible_netcash;
+
   const exportarMasivo = async (banco) => {
     const esBcp = banco === 'telecredito-bcp';
     if (esBcp && !cuentaBcp) return message.warning('Selecciona una cuenta BCP de cargo.');
     if (!seleccionReintegros.length) return message.warning('Selecciona al menos un reintegro aprobado.');
+    const conDatosIncompletos = items.filter((i) => seleccionReintegros.includes(i.id) && !elegibleParaBanco(i, banco));
+    if (conDatosIncompletos.length) {
+      const nombres = [...new Set(conDatosIncompletos.flatMap((i) => i.colaboradores_datos_incompletos))].join(', ');
+      return message.error(`Quita de la selección los reintegros con colaboradores sin cuenta ${esBcp ? 'BCP' : 'BBVA'} ni CCI: ${nombres}.`);
+    }
     const parametros = esBcp
       ? { cuenta_cargo_id: cuentaBcp, fecha_proceso: dayjs().format('YYYY-MM-DD'), subtipo: categoria === '4' ? '4' : 'X' }
       : { subtipo: categoria };
@@ -377,6 +387,14 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
             <Button size="small" disabled={!reintegrosAprobados.length} onClick={() => setSeleccionReintegros(reintegrosAprobados.map((i) => i.id))}>
               Seleccionar aprobados ({reintegrosAprobados.length})
             </Button>
+            <Button size="small" disabled={!reintegrosAprobados.some((i) => i.elegible_telecredito)}
+              onClick={() => setSeleccionReintegros(reintegrosAprobados.filter((i) => i.elegible_telecredito).map((i) => i.id))}>
+              Elegibles Telecrédito ({reintegrosAprobados.filter((i) => i.elegible_telecredito).length})
+            </Button>
+            <Button size="small" disabled={!reintegrosAprobados.some((i) => i.elegible_netcash)}
+              onClick={() => setSeleccionReintegros(reintegrosAprobados.filter((i) => i.elegible_netcash).map((i) => i.id))}>
+              Elegibles Net Cash ({reintegrosAprobados.filter((i) => i.elegible_netcash).length})
+            </Button>
             <Button size="small" disabled={!seleccionReintegros.length} onClick={() => setSeleccionReintegros([])}>Limpiar selección</Button>
             {permisos.telecredito && (
               <Popconfirm
@@ -413,6 +431,14 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                   <div className="flex flex-wrap items-center gap-2">
                     <strong>{item.nombre}</strong>
                     <Tag>{item.estado}</Tag>
+                    {item.estado === 'aprobada' && !item.elegible_telecredito && !item.elegible_netcash && (
+                      <Tag color="red" title={`Sin cuenta BCP/BBVA ni CCI: ${item.colaboradores_datos_incompletos.join(', ')}`}>Sin datos bancarios: {item.colaboradores_datos_incompletos.join(', ')}</Tag>
+                    )}
+                    {item.estado === 'aprobada' && item.elegible_telecredito !== item.elegible_netcash && (
+                      <Tag color="orange" title={`Falta CCI para ${item.elegible_telecredito ? 'Net Cash' : 'Telecrédito'}: ${item.colaboradores_datos_incompletos.join(', ')}`}>
+                        Solo {item.elegible_telecredito ? 'Telecrédito' : 'Net Cash'}
+                      </Tag>
+                    )}
                   </div>
                   <div className="text-xs text-gray-500">{item.motivo}</div>
                 </div>
