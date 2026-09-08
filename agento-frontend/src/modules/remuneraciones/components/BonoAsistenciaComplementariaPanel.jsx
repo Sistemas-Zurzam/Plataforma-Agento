@@ -1,6 +1,6 @@
 import { CheckCircleOutlined } from '@ant-design/icons';
 import { App, Button, Input, InputNumber, Segmented, Select, Table, Tag } from 'antd';
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useConceptoDefinicionesPlame } from '../../configuracion/hooks/useConceptoDefinicionesPlame';
 import { CONCEPTOS_CON_DEFINICION, CONCEPTOS_REGISTRABLES } from './AgregarConceptoComplementariaModal';
 
@@ -29,17 +29,31 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
   const [buscado, setBuscado] = useState(false);
   const [buscando, setBuscando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
+  const [catalogoLocal, setCatalogoLocal] = useState(catalogo);
+  const [cargandoCatalogo, setCargandoCatalogo] = useState(false);
+
+  useEffect(() => { setCatalogoLocal(catalogo); }, [catalogo]);
+  useEffect(() => {
+    if (catalogo.length || typeof api.fetchCatalogoConceptos !== 'function') return;
+    setCargandoCatalogo(true);
+    api.fetchCatalogoConceptos()
+      .then(setCatalogoLocal)
+      .catch((e) => message.error(e.response?.data?.message ?? 'No se pudo cargar el catálogo de conceptos para el bono.'))
+      .finally(() => setCargandoCatalogo(false));
+  }, [ciclo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mismo catálogo que AgregarConceptoComplementariaModal, restringido a
   // ingresos: un bono siempre suma, nunca descuenta.
-  const opcionesDisponibles = CONCEPTOS_REGISTRABLES.filter((c) => c.tipo === 'ingreso' && catalogo.some((k) => k.codigo === c.codigo));
+  const opcionesDisponibles = useMemo(() => CONCEPTOS_REGISTRABLES.filter(
+    (c) => c.tipo === 'ingreso' && catalogoLocal.some((k) => k.codigo === c.codigo),
+  ), [catalogoLocal]);
   const requiereDefinicionPlame = CONCEPTOS_CON_DEFINICION.includes(codigo);
 
   const handleCambioConcepto = (value) => {
     setCodigo(value);
     setConceptoDefinicionId(undefined);
     if (CONCEPTOS_CON_DEFINICION.includes(value)) {
-      const concepto = catalogo.find((c) => c.codigo === value);
+      const concepto = catalogoLocal.find((c) => c.codigo === value);
       if (concepto) fetchDefiniciones(concepto.id, concepto.codigo);
     }
   };
@@ -48,7 +62,7 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
     if (!ciclo) return;
     if (!dias || dias < 1) return message.warning('Ingresa la cantidad de días asistidos.');
     if (!codigo) return message.warning('Selecciona el concepto del bono.');
-    const concepto = catalogo.find((c) => c.codigo === codigo);
+    const concepto = catalogoLocal.find((c) => c.codigo === codigo);
     if (!concepto) return;
     setBuscando(true);
     try {
@@ -66,7 +80,7 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
     if (requiereDefinicionPlame && !conceptoDefinicionId) return message.warning('Selecciona la clasificación PLAME del bono.');
     if (!monto || monto <= 0) return message.warning('Ingresa un monto mayor a cero.');
     if (!motivo.trim()) return message.warning('Ingresa el motivo del bono.');
-    const concepto = catalogo.find((c) => c.codigo === codigo);
+    const concepto = catalogoLocal.find((c) => c.codigo === codigo);
     setAplicando(true);
     try {
       await api.aplicarBonoPorAsistencia(ciclo.id, {
@@ -102,6 +116,8 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
       <div className="min-w-[220px]">
         <div className="mb-1 text-xs font-medium text-gray-600">Concepto</div>
         <Select className="w-full" placeholder="Selecciona un concepto" value={codigo} onChange={handleCambioConcepto}
+          loading={cargandoCatalogo} disabled={cargandoCatalogo}
+          notFoundContent={cargandoCatalogo ? 'Cargando conceptos...' : 'No hay conceptos de bono activos'}
           options={opcionesDisponibles.map((c) => ({ value: c.codigo, label: c.nombre }))} />
       </div>
       {requiereDefinicionPlame && (
