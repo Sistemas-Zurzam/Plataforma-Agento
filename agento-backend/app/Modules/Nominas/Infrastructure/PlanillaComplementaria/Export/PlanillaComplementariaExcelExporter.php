@@ -26,7 +26,7 @@ final class PlanillaComplementariaExcelExporter
     {
         $filas = $items->flatMap(fn (PlanillaComplementaria $item) => $item->detalles->map(fn ($detalle) => [
             'reintegro' => $item->nombre,
-            'tipo' => self::tipo($detalle->calculo_snapshot ?? []),
+            'tipo' => $detalle->tipoReintegro(),
             'estado' => $item->estado,
             'colaborador' => trim(($detalle->colaborador?->nombres ?? '').' '.($detalle->colaborador?->apellidos ?? '')),
             'documento' => $detalle->colaborador?->numero_documento,
@@ -106,18 +106,5 @@ final class PlanillaComplementariaExcelExporter
         $libro->disconnectWorksheets();
 
         return $contenido === false ? '' : $contenido;
-    }
-
-    /** Infiere el tipo de reintegro desde las claves que ya usa el motor de cálculo (mismo criterio que PlanillasComplementariasModal.jsx). */
-    private static function tipo(array $snapshot): string
-    {
-        return match (true) {
-            isset($snapshot['feriado_regularizado']) => 'Feriado trabajado',
-            ! empty($snapshot['descansos_semanales']) => 'Descanso semanal trabajado',
-            ! empty($snapshot['reintegros_descuentos']) => 'Reintegro de descuentos',
-            ! empty($snapshot['horas_extra_regularizadas']) => 'Horas extra',
-            ! empty($snapshot['bonos_masivos']) => 'Bono por asistencia',
-            default => 'Diferencia de ciclo',
-        };
     }
 }

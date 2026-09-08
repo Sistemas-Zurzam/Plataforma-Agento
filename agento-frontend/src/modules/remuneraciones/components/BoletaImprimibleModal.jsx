@@ -142,6 +142,9 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
   const datosPago = detalle?.datos_pago;
   const ausencias = detalle?.ausencias_periodo;
   const sistemaPrevisional = detalle?.colaborador?.sistema_previsional === 'onp' ? 'ONP' : 'AFP';
+  const reintegros = detalle?.reintegros ?? [];
+  const totalReintegros = reintegros.reduce((suma, r) => suma + Number(r.monto ?? 0), 0);
+  const netoConReintegros = Number(detalle?.neto_a_pagar ?? 0) + totalReintegros;
 
   return (
     <Modal
@@ -246,13 +249,41 @@ export default function BoletaImprimibleModal({ open, onCancel, boletaId, verBol
               </Tarjeta>
             </div>
 
+            {reintegros.length > 0 && (
+              <Tarjeta
+                titulo="Reintegros pagados con posterioridad"
+                icono={<DollarCircleOutlined />}
+                pie={<FilaTotal label="Total reintegros" valor={totalReintegros} />}
+              >
+                <table className="w-full text-[11px]">
+                  <tbody>
+                    {reintegros.map((r, indice) => (
+                      <tr key={indice} className="border-b border-gray-100 last:border-0">
+                        <td className="py-1 pr-2 align-top text-gray-700">
+                          {r.tipo}
+                          <span className="block text-[10px] text-gray-400">
+                            {r.motivo}{r.pagado_at ? ` — pagado el ${dayjs(r.pagado_at).format('DD/MM/YYYY')}` : ''}
+                          </span>
+                        </td>
+                        <td className={`py-1 text-right align-top font-semibold whitespace-nowrap ${Number(r.monto) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          {soles(r.monto)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Tarjeta>
+            )}
+
             <div className="flex overflow-hidden rounded-lg">
               <div className="flex flex-1 flex-col justify-center bg-agento-blue-dark px-4 py-3 text-white">
                 <span className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide"><WalletOutlined /> Neto a pagar</span>
-                <span className="text-[10px] uppercase opacity-80">Abonado en cuenta</span>
+                <span className="text-[10px] uppercase opacity-80">
+                  {reintegros.length > 0 ? `Abonado en cuenta — boleta ${soles(detalle.neto_a_pagar)} + reintegros ${soles(totalReintegros)}` : 'Abonado en cuenta'}
+                </span>
               </div>
               <div className="flex items-center bg-agento-blue-light px-6 text-xl font-extrabold text-agento-blue-dark">
-                {soles(detalle.neto_a_pagar)}
+                {soles(reintegros.length > 0 ? netoConReintegros : detalle.neto_a_pagar)}
               </div>
             </div>
 

@@ -12,6 +12,7 @@ use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoDefinicionPlame;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Jobs\CalcularPlanillaJob;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Auth\Access\AuthorizationException;
@@ -126,8 +127,37 @@ class BoletaService
             'datosPago.banco',
         ]);
         $boleta->setAttribute('ausencias_periodo', $this->resolverAusenciasPeriodo($boleta));
+        $boleta->setAttribute('reintegros', $this->resolverReintegros($boleta));
 
         return $boleta;
+    }
+
+    /**
+     * Reintegros ya PAGADOS de planillas complementarias sobre esta boleta —
+     * la boleta oficial nunca se modifica (ver PlanillaComplementariaService),
+     * pero el colaborador debe poder ver en su documento qué se le pagó de
+     * más/de menos después. Solo 'pagada': mientras el reintegro siga
+     * calculada/aprobada todavía no es dinero que el colaborador haya
+     * recibido, mostrarlo en su boleta sería prematuro.
+     *
+     * @return array<int, array{nombre: string, tipo: string, motivo: ?string, monto: float, pagado_at: ?string, referencia_pago: ?string}>
+     */
+    private function resolverReintegros(Boleta $boleta): array
+    {
+        return PlanillaComplementariaDetalle::where('boleta_original_id', $boleta->id)
+            ->whereHas('complementaria', fn ($q) => $q->where('estado', 'pagada'))
+            ->with('complementaria')
+            ->get()
+            ->map(fn (PlanillaComplementariaDetalle $detalle) => [
+                'nombre' => $detalle->complementaria->nombre,
+                'tipo' => $detalle->tipoReintegro(),
+                'motivo' => $detalle->complementaria->motivo,
+                'monto' => (float) $detalle->diferencia_neta,
+                'pagado_at' => $detalle->complementaria->pagado_at?->toDateTimeString(),
+                'referencia_pago' => $detalle->complementaria->referencia_pago,
+            ])
+            ->values()
+            ->all();
     }
 
     /**

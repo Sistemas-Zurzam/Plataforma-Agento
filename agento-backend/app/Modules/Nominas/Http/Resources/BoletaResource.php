@@ -56,6 +56,11 @@ class BoletaResource extends JsonResource
             'datos_pago' => $this->whenLoaded('datosPago', fn () => $this->resolverDatosPago()),
             // Adjuntado por BoletaService::ver() — no es una relación Eloquent.
             'ausencias_periodo' => $this->ausencias_periodo,
+            // Reintegros de planillas complementarias ya PAGADOS sobre esta
+            // boleta — ver BoletaService::resolverReintegros(). La boleta en
+            // sí no se modifica; esto es solo para que el colaborador vea el
+            // efecto combinado en su documento.
+            'reintegros' => $this->reintegros ?? [],
             'version' => $this->version,
             'regimen_laboral' => $this->regimen_laboral_snapshot,
             'sueldo_basico' => $this->sueldo_basico_snapshot,

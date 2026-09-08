@@ -25,4 +25,23 @@ class PlanillaComplementariaDetalle extends Model
     public function complementaria(): BelongsTo { return $this->belongsTo(PlanillaComplementaria::class, 'planilla_complementaria_id'); }
     public function boletaOriginal(): BelongsTo { return $this->belongsTo(Boleta::class, 'boleta_original_id'); }
     public function colaborador(): BelongsTo { return $this->belongsTo(Colaborador::class)->withTrashed(); }
+
+    /**
+     * Infiere el tipo de reintegro desde las claves que ya usa el motor de
+     * cálculo — mismo criterio en todos los consumidores (Excel de
+     * reintegros, boleta imprimible) para que nunca diverjan.
+     */
+    public function tipoReintegro(): string
+    {
+        $snapshot = $this->calculo_snapshot ?? [];
+
+        return match (true) {
+            isset($snapshot['feriado_regularizado']) => 'Feriado trabajado',
+            ! empty($snapshot['descansos_semanales']) => 'Descanso semanal trabajado',
+            ! empty($snapshot['reintegros_descuentos']) => 'Reintegro de descuentos',
+            ! empty($snapshot['horas_extra_regularizadas']) => 'Horas extra',
+            ! empty($snapshot['bonos_masivos']) => 'Bono por asistencia',
+            default => 'Diferencia de ciclo',
+        };
+    }
 }
