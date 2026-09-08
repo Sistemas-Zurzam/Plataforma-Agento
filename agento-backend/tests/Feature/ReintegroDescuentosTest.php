@@ -78,6 +78,40 @@ class ReintegroDescuentosTest extends TestCase
         $service->reintegrarDescuentos($empresa, $ciclo, [$linea], 'Duplicado', $usuarioId);
     }
 
+    public function test_exporta_netcash_consolidado_de_cuarta_categoria(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
+        $boleta->colaborador->update(['cci' => '00219112345678901234']);
+        $descuento = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id])[0];
+        $item = $service->reintegrarDescuentos($empresa, $ciclo, [$descuento], 'Devolución', $usuarioId);
+        $service->aprobar($empresa, $item, $usuarioId);
+        $cuenta = new EmpresaCuentaBancaria(['tipo_cuenta' => 'corriente', 'moneda' => 'PEN', 'numero_cuenta' => '191234567890123456']);
+
+        $lineas = explode("\n", $service->exportarBbvaMasivo($empresa, [$item->id], $cuenta, '4'));
+
+        $this->assertCount(2, $lineas);
+        $this->assertSame('800', substr($lineas[0], 0, 3));
+        $this->assertSame('002', substr($lineas[1], 0, 3));
+        $this->assertSame(233, strlen($lineas[1]));
+    }
+
+    public function test_netcash_informa_dato_bancario_faltante_sin_error_500(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
+        $descuento = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id])[0];
+        $item = $service->reintegrarDescuentos($empresa, $ciclo, [$descuento], 'Devolución', $usuarioId);
+        $service->aprobar($empresa, $item, $usuarioId);
+        $cuenta = new EmpresaCuentaBancaria(['tipo_cuenta' => 'corriente', 'moneda' => 'PEN', 'numero_cuenta' => '191234567890123456']);
+
+        try {
+            $service->exportarBbvaMasivo($empresa, [$item->id], $cuenta, '4');
+            $this->fail('Debió informar que falta el CCI para el abono interbancario.');
+        } catch (ValidationException $e) {
+            $this->assertArrayHasKey('bbva_netcash', $e->errors());
+            $this->assertStringContainsString('cci_snapshot', $e->errors()['bbva_netcash'][0]);
+        }
+    }
+
     public function test_reintegro_parcial_reserva_el_descuento_y_libera_el_saldo_tras_el_pago(): void
     {
         [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();

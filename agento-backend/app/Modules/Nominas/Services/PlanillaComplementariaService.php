@@ -7,6 +7,7 @@ use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
+use App\Modules\Nominas\Domain\BbvaNetCash\BbvaNetCashExportException;
 use App\Modules\Nominas\Infrastructure\BbvaNetCash\Export\BbvaNetCashTxtExporter;
 use App\Modules\Nominas\Infrastructure\TelecreditoBcp\Export\TelecreditoBcpTxtExporter;
 use App\Modules\Nominas\Domain\RegimenCalculatorFactory;
@@ -1517,7 +1518,11 @@ class PlanillaComplementariaService
 
     public function exportarBbva(Empresa $empresa, PlanillaComplementaria $item, $cuenta, string $subtipo): string
     {
-        return BbvaNetCashTxtExporter::generar($cuenta, $subtipo, 'COMPLEMENTARIA '.$item->id, $this->boletasDePago($empresa, $item, $subtipo));
+        try {
+            return BbvaNetCashTxtExporter::generar($cuenta, $subtipo, 'COMPLEMENTARIA '.$item->id, $this->boletasDePago($empresa, $item, $subtipo));
+        } catch (BbvaNetCashExportException $e) {
+            throw ValidationException::withMessages(['bbva_netcash' => $e->getMessage()]);
+        }
     }
 
     /** @param array<int, int> $itemIds */
@@ -1529,7 +1534,11 @@ class PlanillaComplementariaService
     /** @param array<int, int> $itemIds */
     public function exportarBbvaMasivo(Empresa $empresa, array $itemIds, $cuenta, string $subtipo): string
     {
-        return BbvaNetCashTxtExporter::generar($cuenta, $subtipo, 'REINTEGROS '.now()->format('Ymd-His'), $this->boletasDePagoMasivo($empresa, $itemIds, $subtipo));
+        try {
+            return BbvaNetCashTxtExporter::generar($cuenta, $subtipo, 'REINTEGROS '.now()->format('Ymd-His'), $this->boletasDePagoMasivo($empresa, $itemIds, $subtipo));
+        } catch (BbvaNetCashExportException $e) {
+            throw ValidationException::withMessages(['bbva_netcash' => $e->getMessage()]);
+        }
     }
 
     private function cargar(PlanillaComplementaria $item): PlanillaComplementaria
