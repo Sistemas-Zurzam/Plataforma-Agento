@@ -46,7 +46,7 @@ function sumaCantidad(conceptos, codigo) {
 
 function Dato({ label, value }) {
   return (
-    <div className="flex justify-between gap-3 border-b border-gray-100 py-1 text-[11px] last:border-0">
+    <div className="flex justify-between gap-3 border-b border-gray-100 py-1 text-[11px] last:border-0 print:py-0.5">
       <span className="text-gray-500">{label}</span>
       <span className="text-right font-semibold text-gray-800">{value}</span>
     </div>
@@ -56,29 +56,29 @@ function Dato({ label, value }) {
 function Tarjeta({ titulo, icono, children, pie }) {
   return (
     <div className="overflow-hidden rounded-lg border border-gray-200 print:break-inside-avoid">
-      <div className="flex items-center gap-1.5 bg-agento-blue px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white uppercase">
+      <div className="flex items-center gap-1.5 bg-agento-blue px-3 py-1.5 text-[11px] font-semibold tracking-wide text-white uppercase print:py-0.5">
         {icono}
         {titulo}
       </div>
-      <div className="bg-white px-3 py-2">{children}</div>
+      <div className="bg-white px-3 py-2 print:py-1">{children}</div>
       {pie}
     </div>
   );
 }
 
 function TablaConceptos({ conceptos, vacio }) {
-  if (!conceptos.length) return <p className="py-2 text-[11px] text-gray-400">{vacio}</p>;
+  if (!conceptos.length) return <p className="py-2 text-[11px] text-gray-400 print:py-0.5">{vacio}</p>;
 
   return (
     <table className="w-full text-[11px]">
       <tbody>
         {conceptos.map((c) => (
           <tr key={c.id} className="border-b border-gray-100 last:border-0">
-            <td className="py-1 pr-2 align-top text-gray-700">
+            <td className="py-1 pr-2 align-top text-gray-700 print:py-0.5">
               {c.nombre}
-              {c.formula_texto && <span className="block text-[10px] text-gray-400">{c.formula_texto}</span>}
+              {c.formula_texto && <span className="block text-[10px] leading-tight text-gray-400">{c.formula_texto}</span>}
             </td>
-            <td className="py-1 text-right align-top font-semibold whitespace-nowrap text-gray-900">{soles(c.monto)}</td>
+            <td className="py-1 text-right align-top font-semibold whitespace-nowrap text-gray-900 print:py-0.5">{soles(c.monto)}</td>
           </tr>
         ))}
       </tbody>
@@ -88,7 +88,7 @@ function TablaConceptos({ conceptos, vacio }) {
 
 function FilaTotal({ label, valor }) {
   return (
-    <div className="flex justify-between bg-agento-blue-light px-3 py-1.5 text-xs font-bold text-agento-blue-dark">
+    <div className="flex justify-between bg-agento-blue-light px-3 py-1.5 text-xs font-bold text-agento-blue-dark print:py-0.5">
       <span className="uppercase tracking-wide">{label}</span>
       <span>{soles(valor)}</span>
     </div>
@@ -133,20 +133,20 @@ export default function BoletaDocumento({ detalle }) {
       )}
 
       {/* Header de marca Agento */}
-      <div className="flex items-center justify-between gap-4 bg-gradient-to-br from-agento-blue to-agento-blue-dark px-5 py-4 text-white">
+      <div className="flex items-center justify-between gap-4 bg-gradient-to-br from-agento-blue to-agento-blue-dark px-5 py-4 text-white print:px-4 print:py-2">
         <div>
           <p className="text-xs font-semibold tracking-widest uppercase opacity-80">Agento</p>
           <p className="text-lg leading-tight font-bold">Boleta de Pago</p>
           {periodoLabel && <p className="text-xs tracking-wide uppercase opacity-90">{periodoLabel}</p>}
         </div>
-        <div className="shrink-0 rounded-lg border border-white/30 px-3 py-1.5 text-right">
+        <div className="shrink-0 rounded-lg border border-white/30 px-3 py-1.5 text-right print:py-0.5">
           <p className="text-[9px] tracking-widest uppercase opacity-80">N° Boleta</p>
           <p className="text-sm font-bold">{texto(detalle.numero_boleta)}</p>
         </div>
       </div>
 
       {/* Barra con los datos de la empresa */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 bg-gray-50 px-5 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 bg-gray-50 px-5 py-2.5 print:px-4 print:py-1">
         <div>
           <p className="text-sm font-bold text-gray-900">{empresaTitulo}</p>
           <p className="text-[11px] text-gray-500">RUC: {texto(empresa?.ruc)} · {texto(empresa?.direccion)}</p>
@@ -154,8 +154,8 @@ export default function BoletaDocumento({ detalle }) {
         <Tag className="print:!hidden" color={esOficial ? 'green' : 'orange'}>{esOficial ? 'Oficial' : `Versión ${detalle.version} — no oficial`}</Tag>
       </div>
 
-      <div className="space-y-3 p-4 print:space-y-1.5 print:p-2">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 print:gap-1.5">
+      <div className="space-y-3 p-4 print:space-y-1 print:p-1.5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 print:gap-1">
           <Tarjeta titulo="Datos del trabajador" icono={<UserOutlined />}>
             <Dato label="Apellidos y Nombres" value={detalle.colaborador?.nombre_completo} />
             <Dato label="DNI" value={texto(detalle.colaborador?.numero_documento)} />
@@ -186,7 +186,7 @@ export default function BoletaDocumento({ detalle }) {
           <TablaConceptos conceptos={ingresos} vacio="Sin ingresos registrados" />
         </Tarjeta>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 print:gap-1.5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 print:gap-1">
           <Tarjeta
             titulo="Descuentos"
             icono={<ArrowDownOutlined />}
@@ -221,13 +221,13 @@ export default function BoletaDocumento({ detalle }) {
               <tbody>
                 {reintegros.map((r, indice) => (
                   <tr key={indice} className="border-b border-gray-100 last:border-0">
-                    <td className="py-1 pr-2 align-top text-gray-700">
+                    <td className="py-1 pr-2 align-top text-gray-700 print:py-0.5">
                       {r.tipo}
-                      <span className="block text-[10px] text-gray-400">
+                      <span className="block text-[10px] leading-tight text-gray-400">
                         {r.motivo}{r.pagado_at ? ` — pagado el ${dayjs(r.pagado_at).format('DD/MM/YYYY')}` : ''}
                       </span>
                     </td>
-                    <td className={`py-1 text-right align-top font-semibold whitespace-nowrap ${Number(r.monto) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
+                    <td className={`py-1 text-right align-top font-semibold whitespace-nowrap print:py-0.5 ${Number(r.monto) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                       {soles(r.monto)}
                     </td>
                   </tr>
@@ -237,8 +237,8 @@ export default function BoletaDocumento({ detalle }) {
           </Tarjeta>
         )}
 
-        <div className="flex overflow-hidden rounded-lg">
-          <div className="flex flex-1 flex-col justify-center bg-agento-blue-dark px-4 py-3 text-white">
+        <div className="flex overflow-hidden rounded-lg print:break-inside-avoid">
+          <div className="flex flex-1 flex-col justify-center bg-agento-blue-dark px-4 py-3 text-white print:py-1">
             <span className="flex items-center gap-2 text-sm font-bold uppercase tracking-wide"><WalletOutlined /> Neto a pagar</span>
             <span className="text-[10px] uppercase opacity-80">
               {reintegros.length > 0 ? `Abonado en cuenta — boleta ${soles(detalle.neto_a_pagar)} + reintegros ${soles(totalReintegros)}` : 'Abonado en cuenta'}
@@ -249,7 +249,7 @@ export default function BoletaDocumento({ detalle }) {
           </div>
         </div>
 
-        <div className="rounded-md bg-gray-50 px-3 py-2 text-[10px] text-gray-400">
+        <div className="rounded-md bg-gray-50 px-3 py-2 text-[10px] text-gray-400 print:break-inside-avoid print:py-0.5 print:leading-tight">
           <p>Documento emitido electrónicamente conforme al D.S. N° 001-98-TR y normas complementarias. Esta boleta ha sido firmada digitalmente y puede verificarse mediante el código QR.</p>
           <p className="mt-1">Calculado el {detalle.calculado_at} · Parámetros: {detalle.snapshot_parametros_version} · Reglas: {detalle.snapshot_reglas_version}</p>
         </div>
