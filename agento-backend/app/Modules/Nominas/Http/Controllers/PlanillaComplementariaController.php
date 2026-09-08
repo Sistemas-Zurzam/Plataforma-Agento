@@ -74,7 +74,17 @@ class PlanillaComplementariaController extends Controller
 
     public function horasExtraPendientes(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
-        return response()->json(['data' => $this->service->horasExtraPendientes($this->empresa($request, $ciclo), $ciclo)]);
+        $datos = $request->validate(['boleta_ids' => ['sometimes', 'array'], 'boleta_ids.*' => ['integer', 'distinct']]);
+        return response()->json(['data' => $this->service->horasExtraPendientes($this->empresa($request, $ciclo), $ciclo, $datos['boleta_ids'] ?? [])]);
+    }
+
+    public function crearConHorasExtra(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $this->validarHorasExtra($request, true);
+        $item = $this->service->crearConHorasExtra($this->empresa($request, $ciclo), $ciclo,
+            $datos['horas_detectadas'] ?? [], $datos['horas_manuales'] ?? [], $datos['motivo'], $request->user('api')->id);
+
+        return response()->json(['data' => $this->presentar($item)], 201);
     }
 
     public function store(Request $request, CicloRemunerativo $ciclo): JsonResponse
@@ -175,7 +185,17 @@ class PlanillaComplementariaController extends Controller
 
     public function agregarHorasExtra(Request $request, PlanillaComplementaria $complementaria): JsonResponse
     {
-        $datos = $request->validate([
+        $datos = $this->validarHorasExtra($request);
+        $item = $this->service->agregarHorasExtra($this->empresaItem($request, $complementaria), $complementaria,
+            $datos['horas_detectadas'] ?? [], $datos['horas_manuales'] ?? [], $request->user('api')->id);
+
+        return response()->json(['data' => $this->presentar($item)]);
+    }
+
+    private function validarHorasExtra(Request $request, bool $conMotivo = false): array
+    {
+        return $request->validate([
+            'motivo' => [$conMotivo ? 'required' : 'sometimes', 'string', 'max:1000'],
             'horas_detectadas' => ['sometimes', 'array'],
             'horas_detectadas.*.hora_extra_id' => ['required', 'integer', 'distinct'],
             'horas_detectadas.*.minutos' => ['required', 'integer', 'min:1', 'max:1440'],
@@ -186,10 +206,6 @@ class PlanillaComplementariaController extends Controller
             'horas_manuales.*.tasa' => ['required', Rule::in(['25', '35', '100'])],
             'horas_manuales.*.motivo' => ['required', 'string', 'max:255'],
         ]);
-        $item = $this->service->agregarHorasExtra($this->empresaItem($request, $complementaria), $complementaria,
-            $datos['horas_detectadas'] ?? [], $datos['horas_manuales'] ?? [], $request->user('api')->id);
-
-        return response()->json(['data' => $this->presentar($item)]);
     }
 
     public function eliminarConcepto(Request $request, PlanillaComplementariaDetalle $detalle, string $lineaId): JsonResponse

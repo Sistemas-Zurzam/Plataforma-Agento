@@ -144,7 +144,7 @@ class PlanillaComplementariaService
         });
     }
 
-    public function horasExtraPendientes(Empresa $empresa, CicloRemunerativo $ciclo): array
+    public function horasExtraPendientes(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds = []): array
     {
         $this->verificar($empresa, $ciclo);
         if ($ciclo->estado !== 'pagado') {
@@ -152,6 +152,7 @@ class PlanillaComplementariaService
         }
 
         $boletas = Boleta::where('ciclo_id', $ciclo->id)->where('estado', 'pagada')->where('es_version_vigente', true)
+            ->when($boletaIds !== [], fn ($query) => $query->whereIn('id', $boletaIds))
             ->with(['colaborador', 'conceptos.concepto'])->get()->keyBy('colaborador_id');
         $horas = AsistenciaHoraExtra::withoutGlobalScopes()->where('empresa_id', $empresa->id)
             ->whereBetween('fecha', [$ciclo->fecha_inicio, $ciclo->fecha_fin])->where('estado', 'aprobado')
@@ -288,6 +289,38 @@ class PlanillaComplementariaService
                 $this->guardarSnapshotYDiferencias($detalle, $snapshot);
             }
             return $this->cargar($item);
+        });
+    }
+
+    public function crearConHorasExtra(Empresa $empresa, CicloRemunerativo $ciclo, array $detectadas, array $manuales, string $motivo, int $usuarioId): PlanillaComplementaria
+    {
+        return DB::transaction(function () use ($empresa, $ciclo, $detectadas, $manuales, $motivo, $usuarioId) {
+            $this->verificar($empresa, $ciclo);
+            if ($ciclo->estado !== 'pagado') {
+                throw ValidationException::withMessages(['estado' => 'Las horas extra solo se regularizan sobre un ciclo pagado.']);
+            }
+
+            $pendientes = collect($this->horasExtraPendientes($empresa, $ciclo)['horas'])->keyBy('id');
+            $boletaIds = collect($detectadas)->map(fn ($seleccion) => $pendientes->get((int) $seleccion['hora_extra_id'])['boleta_id'] ?? null)
+                ->concat(collect($manuales)->pluck('boleta_id'))->filter()->unique()->values()->all();
+            if ($boletaIds === []) {
+                throw ValidationException::withMessages(['horas_extra' => 'Selecciona o registra al menos una hora extra pendiente.']);
+            }
+
+            $ocupado = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletaIds)
+                ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada']))->exists();
+            if ($ocupado) {
+                throw ValidationException::withMessages(['horas_extra' => 'Uno de los colaboradores ya tiene una complementaria pendiente. Agrégalo al borrador calculado o completa el pago de la complementaria aprobada.']);
+            }
+
+            $item = PlanillaComplementaria::create([
+                'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+                'nombre' => 'Pago de horas extra '.$ciclo->nombre.' '.now()->format('Ymd-His'),
+                'motivo' => $motivo, 'estado' => 'calculada', 'creado_por' => $usuarioId,
+            ]);
+            $this->agregarColaboradores($empresa, $item, $boletaIds);
+
+            return $this->agregarHorasExtra($empresa, $item, $detectadas, $manuales, $usuarioId);
         });
     }
 

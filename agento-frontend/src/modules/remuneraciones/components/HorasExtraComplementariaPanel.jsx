@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 
 const duracion = (minutos) => `${Math.floor(Number(minutos || 0) / 60)}h ${Number(minutos || 0) % 60}m`;
 
-export default function HorasExtraComplementariaPanel({ ciclo, items, api, onUpdated }) {
+export default function HorasExtraComplementariaPanel({ ciclo, boletaIds, items, api, onUpdated }) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [datos, setDatos] = useState({ horas: [], colaboradores: [] });
@@ -12,6 +12,7 @@ export default function HorasExtraComplementariaPanel({ ciclo, items, api, onUpd
   const [minutos, setMinutos] = useState({});
   const [borradorId, setBorradorId] = useState(null);
   const [busqueda, setBusqueda] = useState('');
+  const [motivoLote, setMotivoLote] = useState('Pago de horas extra pendientes');
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const borradores = items.filter((item) => item.estado === 'calculada');
@@ -20,7 +21,7 @@ export default function HorasExtraComplementariaPanel({ ciclo, items, api, onUpd
     if (!ciclo) return;
     setLoading(true);
     try {
-      const resultado = await api.fetchHorasExtraPendientesComplementaria(ciclo.id);
+      const resultado = await api.fetchHorasExtraPendientesComplementaria(ciclo.id, boletaIds);
       setDatos(resultado);
       setMinutos(Object.fromEntries(resultado.horas.map((hora) => [hora.id, hora.minutos_pendientes])));
     } catch (e) {
@@ -28,9 +29,9 @@ export default function HorasExtraComplementariaPanel({ ciclo, items, api, onUpd
     } finally { setLoading(false); }
   };
 
-  useEffect(() => { cargar(); }, [ciclo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { cargar(); }, [ciclo?.id, JSON.stringify(boletaIds)]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!borradores.some((item) => item.id === borradorId)) setBorradorId(borradores[0]?.id ?? null);
+    if (borradorId !== 'nuevo' && !borradores.some((item) => item.id === borradorId)) setBorradorId(borradores[0]?.id ?? 'nuevo');
   }, [items, borradorId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const filtradas = useMemo(() => {
@@ -39,10 +40,12 @@ export default function HorasExtraComplementariaPanel({ ciclo, items, api, onUpd
   }, [datos.horas, busqueda]);
 
   const guardar = async (detectadas = [], manuales = []) => {
-    if (!borradorId) return message.warning('Primero debe existir una complementaria calculada. Puedes usar cualquier reintegro en borrador como lote único.');
+    if (!borradorId) return message.warning('Selecciona dónde registrar las horas extra.');
+    if (borradorId === 'nuevo' && !motivoLote.trim()) return message.warning('Ingresa el motivo de la nueva complementaria.');
     setSaving(true);
     try {
-      await api.agregarHorasExtraComplementaria(borradorId, detectadas, manuales);
+      if (borradorId === 'nuevo') await api.crearComplementariaHorasExtra(ciclo.id, detectadas, manuales, motivoLote.trim());
+      else await api.agregarHorasExtraComplementaria(borradorId, detectadas, manuales);
       message.success('Horas extra agregadas al borrador complementario.');
       setSeleccion([]);
       form.resetFields(['colaborador_id', 'fecha', 'minutos', 'tasa', 'motivo']);
@@ -60,12 +63,12 @@ export default function HorasExtraComplementariaPanel({ ciclo, items, api, onUpd
     return guardar([], [{ boleta_id: colaborador.boleta_id, fecha: values.fecha.format('YYYY-MM-DD'), minutos: values.minutos, tasa: values.tasa, motivo: values.motivo }]);
   };
 
-  const selectorBorrador = <Select className="w-full" placeholder="Selecciona el borrador de destino" value={borradorId} onChange={setBorradorId}
-    options={borradores.map((item) => ({ value: item.id, label: `${item.nombre} — ${item.motivo}` }))} />;
+  const selectorBorrador = <Select className="w-full" placeholder="Selecciona el destino" value={borradorId} onChange={setBorradorId}
+    options={[{ value: 'nuevo', label: 'Crear nueva complementaria de horas extra' }, ...borradores.map((item) => ({ value: item.id, label: `${item.nombre} — ${item.motivo}` }))]} />;
 
   return <div className="space-y-3">
     <div><div className="mb-1 text-xs font-medium text-gray-600">Complementaria calculada de destino</div>{selectorBorrador}</div>
-    {!borradores.length && <p className="rounded border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">No hay un borrador calculado. Genera primero un reintegro y luego podrás añadirle las horas extra.</p>}
+    {borradorId === 'nuevo' && <Input value={motivoLote} onChange={(e) => setMotivoLote(e.target.value)} maxLength={1000} placeholder="Motivo de la nueva complementaria" />}
     <Tabs items={[
       { key: 'huellero', label: 'Registradas por huellero', children: <div className="space-y-2">
         <Input.Search allowClear placeholder="Buscar colaborador" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} />

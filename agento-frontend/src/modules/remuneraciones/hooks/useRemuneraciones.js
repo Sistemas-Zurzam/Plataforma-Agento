@@ -165,8 +165,15 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
-  const fetchHorasExtraPendientesComplementaria = useCallback(async (cicloId) => {
-    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/horas-extra-pendientes`);
+  const fetchHorasExtraPendientesComplementaria = useCallback(async (cicloId, boletaIds = []) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/horas-extra-pendientes`, { params: { boleta_ids: boletaIds } });
+    return data.data;
+  }, []);
+
+  const crearComplementariaHorasExtra = useCallback(async (cicloId, horasDetectadas, horasManuales, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/horas-extra`, {
+      horas_detectadas: horasDetectadas, horas_manuales: horasManuales, motivo,
+    });
     return data.data;
   }, []);
 
@@ -596,6 +603,7 @@ export function useRemuneraciones() {
     crearComplementaria,
     fetchFeriadosHistoricos,
     fetchHorasExtraPendientesComplementaria,
+    crearComplementariaHorasExtra,
     agregarHorasExtraComplementaria,
     crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,

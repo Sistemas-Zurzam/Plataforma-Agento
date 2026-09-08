@@ -349,7 +349,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
             </Checkbox>
           )}
           {tipoRegularizacion === 'horas_extra' && (
-            <HorasExtraComplementariaPanel ciclo={ciclo} items={items} api={api} onUpdated={cargar} />
+            <HorasExtraComplementariaPanel ciclo={ciclo} boletaIds={boletaIds} items={items} api={api} onUpdated={cargar} />
           )}
           {tipoRegularizacion !== 'horas_extra' && <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
