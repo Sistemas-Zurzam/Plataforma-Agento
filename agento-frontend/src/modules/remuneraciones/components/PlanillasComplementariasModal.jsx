@@ -182,7 +182,11 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       message.success('Archivo consolidado descargado.');
       setSeleccionReintegros([]);
     } catch (e) {
-      message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudo generar el archivo consolidado.');
+      let error = e.response?.data;
+      if (error instanceof Blob) {
+        try { error = JSON.parse(await error.text()); } catch { error = null; }
+      }
+      message.error(error?.message ?? Object.values(error?.errors ?? {})?.[0]?.[0] ?? 'No se pudo generar el archivo consolidado.');
     }
   };
 
