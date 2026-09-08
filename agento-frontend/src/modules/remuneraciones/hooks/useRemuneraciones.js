@@ -184,6 +184,18 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchColaboradoresPorAsistencia = useCallback(async (cicloId, dias, operador, conceptoId) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/colaboradores-por-asistencia`, {
+      params: { dias, operador, concepto_id: conceptoId },
+    });
+    return data.data;
+  }, []);
+
+  const aplicarBonoPorAsistencia = useCallback(async (cicloId, payload) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/bono-por-asistencia`, payload);
+    return data.data;
+  }, []);
+
   const agregarConceptoComplementaria = useCallback(async (detalleId, conceptoId, conceptoDefinicionId, monto, motivo) => {
     const { data } = await api.post(`/planillas-complementarias-detalles/${detalleId}/conceptos`, {
       concepto_id: conceptoId, concepto_definicion_id: conceptoDefinicionId, monto, motivo,
@@ -605,6 +617,8 @@ export function useRemuneraciones() {
     fetchHorasExtraPendientesComplementaria,
     crearComplementariaHorasExtra,
     agregarHorasExtraComplementaria,
+    fetchColaboradoresPorAsistencia,
+    aplicarBonoPorAsistencia,
     crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,
     eliminarConceptoComplementaria,

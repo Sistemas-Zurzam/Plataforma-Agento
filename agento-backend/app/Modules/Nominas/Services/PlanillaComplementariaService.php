@@ -3,6 +3,7 @@
 namespace App\Modules\Nominas\Services;
 
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
@@ -138,6 +139,195 @@ class PlanillaComplementariaService
                     'diferencia_neta' => 0,
                     'calculo_snapshot' => $base,
                 ]);
+            }
+
+            return $this->cargar($item);
+        });
+    }
+
+    /**
+     * Criterio determinístico para reconocer un "bono por asistencia" ya
+     * aplicado dentro de calculo_snapshot['bonos_masivos'] — combina ciclo,
+     * operador, días y concepto: el mismo colaborador no puede recibir DOS
+     * VECES el mismo bono, pero sí puede recibir otro bono distinto (otro
+     * concepto u otro umbral de días) sobre el mismo ciclo pagado.
+     */
+    private function criterioAsistencia(int $cicloId, string $operador, int $dias, int $conceptoId): string
+    {
+        return "asistencia:{$operador}:{$dias}:{$cicloId}:{$conceptoId}";
+    }
+
+    /**
+     * Lista, para un ciclo YA PAGADO, todos los colaboradores cuyos días de
+     * asistencia ('presente' en AsistenciaResultadoDiario, cruzando desde el
+     * módulo Asistencia con empresa_id explícito) cumplen el criterio de días
+     * (exacto o mínimo) — incluyendo a los que ya NO están disponibles para
+     * el bono, con el motivo, para que el frontend pueda explicar la
+     * exclusión en vez de ocultarlos silenciosamente. Reutilizable para
+     * cualquier concepto/umbral: no asume "27 días" ni ningún monto.
+     *
+     * @return array{colaboradores: array<int, array{boleta_id:int,colaborador_id:int,colaborador:string,documento:?string,dias_asistidos:int,disponible:bool,motivo:?string}>}
+     */
+    public function colaboradoresPorAsistencia(Empresa $empresa, CicloRemunerativo $ciclo, int $dias, string $operador, int $conceptoId): array
+    {
+        $this->verificar($empresa, $ciclo);
+
+        if (! in_array($operador, ['exacto', 'minimo'], true)) {
+            throw ValidationException::withMessages(['operador' => 'El operador debe ser "exacto" o "minimo".']);
+        }
+        if ($ciclo->estado !== 'pagado') {
+            throw ValidationException::withMessages(['estado' => 'El bono por asistencia solo se aplica sobre un ciclo pagado.']);
+        }
+
+        // Siempre con empresa_id explícito: AsistenciaResultadoDiario
+        // pertenece a otro módulo (Asistencia) y su scope global nunca debe
+        // asumirse como único límite de tenant en una query entre módulos.
+        $conteos = AsistenciaResultadoDiario::withoutGlobalScopes()
+            ->where('empresa_id', $empresa->id)
+            ->where('estado', 'presente')
+            ->whereDate('fecha', '>=', $ciclo->fecha_inicio->toDateString())
+            ->whereDate('fecha', '<=', $ciclo->fecha_fin->toDateString())
+            ->selectRaw('colaborador_id, count(*) as dias')
+            ->groupBy('colaborador_id')
+            ->having('dias', $operador === 'exacto' ? '=' : '>=', $dias)
+            ->pluck('dias', 'colaborador_id');
+
+        if ($conteos->isEmpty()) {
+            return ['colaboradores' => []];
+        }
+
+        $boletas = Boleta::where('ciclo_id', $ciclo->id)
+            ->where('estado', 'pagada')
+            ->where('es_version_vigente', true)
+            ->whereIn('colaborador_id', $conteos->keys())
+            ->with('colaborador')
+            ->get();
+
+        // Mismo criterio "ocupados" que ya usan agregarColaboradores() /
+        // colaboradoresDisponibles(): un colaborador con un borrador de
+        // complementaria sin aprobar en este ciclo no puede recibir otro
+        // bono hasta que ese borrador se apruebe o se elimine.
+        $ocupados = PlanillaComplementariaDetalle::whereIn('colaborador_id', $boletas->pluck('colaborador_id'))
+            ->whereHas('complementaria', fn ($q) => $q
+                ->where('ciclo_id', $ciclo->id)
+                ->whereIn('estado', ['calculada', 'aprobada']))
+            ->pluck('colaborador_id');
+
+        $criterio = $this->criterioAsistencia($ciclo->id, $operador, $dias, $conceptoId);
+        $yaRecibieron = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
+            ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada', 'pagada']))
+            ->get(['id', 'boleta_original_id', 'calculo_snapshot'])
+            ->filter(fn ($d) => collect($d->calculo_snapshot['bonos_masivos'] ?? [])->contains('criterio', $criterio))
+            ->pluck('boleta_original_id');
+
+        $colaboradores = $boletas->map(function (Boleta $boleta) use ($conteos, $ocupados, $yaRecibieron) {
+            $motivo = match (true) {
+                $ocupados->contains($boleta->colaborador_id) => 'Ya tiene una complementaria pendiente.',
+                $yaRecibieron->contains($boleta->id) => 'Ya recibió este bono.',
+                default => null,
+            };
+            return [
+                'boleta_id' => $boleta->id,
+                'colaborador_id' => $boleta->colaborador_id,
+                'colaborador' => trim(($boleta->colaborador?->nombres ?? '').' '.($boleta->colaborador?->apellidos ?? '')),
+                'documento' => $boleta->colaborador?->numero_documento,
+                'dias_asistidos' => (int) $conteos[$boleta->colaborador_id],
+                'disponible' => $motivo === null,
+                'motivo' => $motivo,
+            ];
+        })->sortBy('colaborador')->values()->all();
+
+        return ['colaboradores' => $colaboradores];
+    }
+
+    /**
+     * Aplica un concepto (bono) en bloque a varias boletas pagadas de un
+     * ciclo cerrado, filtradas por días de asistencia — SIEMPRE mediante una
+     * PlanillaComplementaria NUEVA (nunca reutiliza un borrador existente:
+     * más simple y más seguro para un lote masivo). Sigue el mismo patrón
+     * que DescansoSemanalComplementariaService::crear(): agregarConcepto()
+     * ya decide sola si recalcula AFP/EsSalud/renta 5ta/provisiones según el
+     * concepto (para BONO_NO_REMUNERATIVO, es_remunerativo_laboral=false,
+     * así que solo puede afectar renta de 5ta — nunca AFP/EsSalud/CTS), y
+     * acá solo se agrega la marca propia `bonos_masivos` al snapshot para
+     * poder identificar el bono después (ver colaboradoresPorAsistencia()).
+     *
+     * @param array<int, int> $boletaIds
+     */
+    public function aplicarBonoPorAsistencia(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds, int $dias, string $operador, int $conceptoId, ?int $conceptoDefinicionId, float $monto, string $motivo, int $usuarioId): PlanillaComplementaria
+    {
+        return DB::transaction(function () use ($empresa, $ciclo, $boletaIds, $dias, $operador, $conceptoId, $conceptoDefinicionId, $monto, $motivo, $usuarioId) {
+            // Serializa la creación para que dos solicitudes no compitan por
+            // los mismos colaboradores (mismo patrón que reintegrarDescuentos()).
+            $ciclo = CicloRemunerativo::whereKey($ciclo->id)->lockForUpdate()->firstOrFail();
+
+            $ids = array_values(array_unique(array_map('intval', $boletaIds)));
+
+            // Nunca confiar en lo que mandó el frontend (esto es dinero
+            // real): se recalcula la disponibilidad COMPLETA dentro de la
+            // transacción — la asistencia, el bloqueo por otro borrador
+            // pendiente y el bono ya recibido pudieron cambiar entre que el
+            // usuario vio la lista y confirmó la selección.
+            $disponibles = collect($this->colaboradoresPorAsistencia($empresa, $ciclo, $dias, $operador, $conceptoId)['colaboradores'])
+                ->keyBy('boleta_id');
+            foreach ($ids as $boletaId) {
+                $fila = $disponibles->get($boletaId);
+                if (! $fila || ! $fila['disponible']) {
+                    throw ValidationException::withMessages(['boleta_ids' => 'Uno de los colaboradores ya no está disponible: cambió su asistencia, ya tiene una complementaria pendiente o ya recibió este bono. Actualiza la lista e inténtalo nuevamente.']);
+                }
+            }
+
+            $concepto = ConceptoRemuneracion::where('id', $conceptoId)->where('activo', true)->firstOrFail();
+            if ($concepto->tipo !== 'ingreso') {
+                throw ValidationException::withMessages(['concepto_id' => 'Un bono por asistencia solo admite conceptos de tipo ingreso.']);
+            }
+            // Defensa en profundidad: el Controller ya exige/prohíbe
+            // concepto_definicion_id con este mismo criterio (BONIFICACION/
+            // BONO_NO_REMUNERATIVO) antes de llegar aquí, pero el Service no
+            // debe confiar únicamente en esa validación HTTP.
+            $requiereDefinicion = in_array($concepto->codigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
+            if ($requiereDefinicion && ! $conceptoDefinicionId) {
+                throw ValidationException::withMessages(['concepto_definicion_id' => 'Este concepto requiere seleccionar una clasificación PLAME (Tabla 22).']);
+            }
+            if (! $requiereDefinicion && $conceptoDefinicionId) {
+                throw ValidationException::withMessages(['concepto_definicion_id' => 'Este concepto no admite una clasificación PLAME adicional.']);
+            }
+
+            $etiquetaDias = $operador === 'minimo' ? '>= '.$dias : (string) $dias;
+            $item = PlanillaComplementaria::create([
+                'ciclo_id' => $ciclo->id,
+                'empresa_id' => $empresa->id,
+                'nombre' => 'Bono asistencia '.$etiquetaDias.'d '.$ciclo->nombre,
+                'motivo' => $motivo,
+                'estado' => 'calculada',
+                'creado_por' => $usuarioId,
+            ]);
+
+            $this->agregarColaboradores($empresa, $item, $ids);
+
+            $criterio = $this->criterioAsistencia($ciclo->id, $operador, $dias, $conceptoId);
+            $bloque = $concepto->tipo === 'ingreso' ? 'ingresos' : 'egresos';
+
+            // $item->detalles()->get() en vez de cargar($item): cargar()
+            // recorta la relación `colaborador` a columnas sin empresa_id
+            // (footgun documentado en agregarConcepto()) — acá no hace falta
+            // esa relación para nada, así que se evita ese recorte del todo.
+            foreach ($item->detalles()->get() as $detalle) {
+                $this->agregarConcepto($empresa, $detalle, $conceptoId, $conceptoDefinicionId, $monto, $motivo, $usuarioId);
+
+                $snapshot = $detalle->fresh()->calculo_snapshot;
+                $linea = collect($snapshot[$bloque] ?? [])->last(fn (array $l) => ($l['agregado_por'] ?? null) === $usuarioId);
+                $snapshot['bonos_masivos'][] = [
+                    'linea_id' => $linea['id'] ?? null,
+                    'criterio' => $criterio,
+                    'dias' => $dias,
+                    'operador' => $operador,
+                    'monto' => $monto,
+                    'motivo' => $motivo,
+                    'registrado_por' => $usuarioId,
+                    'registrado_en' => now()->toDateTimeString(),
+                ];
+                $detalle->update(['calculo_snapshot' => $snapshot]);
             }
 
             return $this->cargar($item);
@@ -934,12 +1124,18 @@ class PlanillaComplementariaService
                 'agregado_en' => now()->toDateTimeString(),
             ];
 
-            if ($bloque === 'ingresos' && ! $esHonorarios && $concepto->es_remunerativo_laboral) {
-                $this->recalcularAfpEssalud($detalle, $snapshot, $montoRedondeado);
+            // afecta_renta_5ta se evalúa independiente de es_remunerativo_laboral:
+            // BONO_NO_REMUNERATIVO es el caso real (es_remunerativo_laboral=false,
+            // afecta_renta_5ta=true en el seeder) — un bono no remunerativo no
+            // aporta a AFP/EsSalud/CTS pero sí tributa renta de 5ta.
+            if ($bloque === 'ingresos' && ! $esHonorarios) {
+                if ($concepto->es_remunerativo_laboral) {
+                    $this->recalcularAfpEssalud($detalle, $snapshot, $montoRedondeado);
+                    $this->recalcularProvisiones($detalle, $snapshot, $montoRedondeado);
+                }
                 if ($concepto->afecta_renta_5ta) {
                     $this->recalcularRentaQuinta($detalle, $snapshot, $montoRedondeado);
                 }
-                $this->recalcularProvisiones($detalle, $snapshot, $montoRedondeado);
             }
 
             $this->guardarSnapshotYDiferencias($detalle, $snapshot);
@@ -998,12 +1194,16 @@ class PlanillaComplementariaService
                 $colaborador = $detalle->colaborador;
                 $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
                 $concepto = ConceptoRemuneracion::where('codigo', $linea['codigo'])->first();
-                if (! $esHonorarios && $concepto?->es_remunerativo_laboral) {
-                    $this->recalcularAfpEssalud($detalle, $snapshot, -1 * (float) $linea['monto']);
-                    if ($concepto->afecta_renta_5ta) {
+                // Mismo desacople que agregarConcepto(): afecta_renta_5ta no
+                // depende de es_remunerativo_laboral.
+                if (! $esHonorarios) {
+                    if ($concepto?->es_remunerativo_laboral) {
+                        $this->recalcularAfpEssalud($detalle, $snapshot, -1 * (float) $linea['monto']);
+                        $this->recalcularProvisiones($detalle, $snapshot, -1 * (float) $linea['monto']);
+                    }
+                    if ($concepto?->afecta_renta_5ta) {
                         $this->recalcularRentaQuinta($detalle, $snapshot, -1 * (float) $linea['monto']);
                     }
-                    $this->recalcularProvisiones($detalle, $snapshot, -1 * (float) $linea['monto']);
                 }
             }
 

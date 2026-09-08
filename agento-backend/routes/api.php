@@ -230,6 +230,8 @@ Route::middleware('jwt')->group(function () {
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias/feriados-historicos', [PlanillaComplementariaController::class, 'feriadosDisponibles'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias/horas-extra-pendientes', [PlanillaComplementariaController::class, 'horasExtraPendientes'])->middleware('permiso:nominas.calcular');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/horas-extra', [PlanillaComplementariaController::class, 'crearConHorasExtra'])->middleware('permiso:nominas.calcular');
+    Route::get('/ciclos-remunerativos/{ciclo}/complementarias/colaboradores-por-asistencia', [PlanillaComplementariaController::class, 'colaboradoresPorAsistencia'])->middleware('permiso:nominas.calcular');
+    Route::post('/ciclos-remunerativos/{ciclo}/complementarias/bono-por-asistencia', [PlanillaComplementariaController::class, 'aplicarBonoPorAsistencia'])->middleware('permiso:nominas.calcular');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias', [PlanillaComplementariaController::class, 'store'])->middleware('permiso:nominas.calcular');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/regularizacion-feriado-historico', [PlanillaComplementariaController::class, 'regularizarFeriadoHistorico'])->middleware('permiso:nominas.calcular');
     Route::post('/planillas-complementarias-detalles/{detalle}/conceptos', [PlanillaComplementariaController::class, 'agregarConcepto'])->middleware('permiso:nominas.calcular');

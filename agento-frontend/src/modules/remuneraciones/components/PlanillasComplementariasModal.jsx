@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useCuentasBancariasEmpresa } from '../../configuracion/hooks/useCuentasBancariasEmpresa';
 import AgregarConceptoComplementariaModal, { CONCEPTOS_REGISTRABLES } from './AgregarConceptoComplementariaModal';
 import AgregarColaboradoresComplementariaModal from './AgregarColaboradoresComplementariaModal';
+import BonoAsistenciaComplementariaPanel from './BonoAsistenciaComplementariaPanel';
 import HorasExtraComplementariaPanel from './HorasExtraComplementariaPanel';
 
 const soles = (valor) => `S/ ${Number(valor || 0).toFixed(2)}`;
@@ -244,6 +245,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               { value: 'diferencia_ciclo', label: 'Diferencia del ciclo pagado' },
               { value: 'feriado_historico', label: 'Feriado trabajado no pagado' },
               { value: 'horas_extra', label: 'Pagar horas extra pendientes' },
+              { value: 'bono_asistencia', label: 'Bono por asistencia' },
             ]} />
             {tipoRegularizacion === 'feriado_historico' && (
               <DatePicker value={fechaFeriado} onChange={setFechaFeriado} format="DD/MM/YYYY" placeholder="Fecha del feriado"
@@ -260,6 +262,8 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               ? <>Se usará el sueldo y la condición contractual vigentes en el feriado: <strong>sueldo / 30 × 1</strong> para honorarios y <strong>× 2</strong> para planilla, sobre las <strong>{boletaIds.length}</strong> personas seleccionadas.</>
               : tipoRegularizacion === 'horas_extra'
               ? <>Selecciona horas aprobadas del huellero o registra manualmente las que no tuvieron marcación. Se agregarán a una complementaria calculada y se recalcularán sus aportes.</>
+              : tipoRegularizacion === 'bono_asistencia'
+              ? <>Filtra por días asistidos (exactos o como mínimo) y aplica el mismo concepto y monto a varios colaboradores a la vez. Se crea una complementaria nueva; no requiere un borrador previo.</>
               : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
           </div>
           {tipoRegularizacion === 'descanso_semanal' && (
@@ -351,7 +355,10 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           {tipoRegularizacion === 'horas_extra' && (
             <HorasExtraComplementariaPanel ciclo={ciclo} boletaIds={boletaIds} items={items} api={api} onUpdated={cargar} />
           )}
-          {tipoRegularizacion !== 'horas_extra' && <div className="flex gap-2">
+          {tipoRegularizacion === 'bono_asistencia' && (
+            <BonoAsistenciaComplementariaPanel ciclo={ciclo} api={api} onUpdated={cargar} catalogo={catalogoConceptos} />
+          )}
+          {!['horas_extra', 'bono_asistencia'].includes(tipoRegularizacion) && <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
             <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>
               {tipoRegularizacion === 'reintegro_descuentos' && agregaABorrador ? 'Agregar al borrador' : ['reintegro_descuentos', 'descanso_semanal'].includes(tipoRegularizacion) ? 'Generar reintegro' : tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}

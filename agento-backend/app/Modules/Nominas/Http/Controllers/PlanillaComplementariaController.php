@@ -87,6 +87,61 @@ class PlanillaComplementariaController extends Controller
         return response()->json(['data' => $this->presentar($item)], 201);
     }
 
+    public function colaboradoresPorAsistencia(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate([
+            'dias' => ['required', 'integer', 'min:1'],
+            'operador' => ['required', Rule::in(['exacto', 'minimo'])],
+            'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],
+        ]);
+
+        return response()->json(['data' => $this->service->colaboradoresPorAsistencia(
+            $this->empresa($request, $ciclo),
+            $ciclo,
+            (int) $datos['dias'],
+            $datos['operador'],
+            (int) $datos['concepto_id'],
+        )]);
+    }
+
+    public function aplicarBonoPorAsistencia(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        // Mismo criterio que agregarConcepto(): BONIFICACION/BONO_NO_REMUNERATIVO
+        // son demasiado genéricos para Tabla 22 sin una clasificación PLAME concreta.
+        $conceptoCodigo = ConceptoRemuneracion::find($request->input('concepto_id'))?->codigo;
+        $requiereDefinicion = in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
+
+        $datos = $request->validate([
+            'boleta_ids' => ['required', 'array', 'min:1'],
+            'boleta_ids.*' => ['required', 'integer', 'distinct'],
+            'dias' => ['required', 'integer', 'min:1'],
+            'operador' => ['required', Rule::in(['exacto', 'minimo'])],
+            'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],
+            'concepto_definicion_id' => [
+                $requiereDefinicion ? 'required' : 'prohibited',
+                'integer',
+                Rule::exists('concepto_definiciones_plame', 'id')->where('concepto_remuneracion_id', $request->input('concepto_id'))->where('activo', true),
+            ],
+            'monto' => ['required', 'numeric', 'min:0.01'],
+            'motivo' => ['required', 'string', 'max:255'],
+        ]);
+
+        $item = $this->service->aplicarBonoPorAsistencia(
+            $this->empresa($request, $ciclo),
+            $ciclo,
+            $datos['boleta_ids'],
+            (int) $datos['dias'],
+            $datos['operador'],
+            (int) $datos['concepto_id'],
+            $datos['concepto_definicion_id'] ?? null,
+            (float) $datos['monto'],
+            $datos['motivo'],
+            $request->user('api')->id,
+        );
+
+        return response()->json(['data' => $this->presentar($item)]);
+    }
+
     public function store(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
         $datos = $request->validate([
