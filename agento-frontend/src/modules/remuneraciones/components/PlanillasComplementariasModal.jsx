@@ -71,6 +71,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [sinDescansoSustitutorio, setSinDescansoSustitutorio] = useState(false);
   const [cuentaBcp, setCuentaBcp] = useState(null);
   const [categoria, setCategoria] = useState('5');
+  const [seleccionReintegros, setSeleccionReintegros] = useState([]);
   const [detalleParaConcepto, setDetalleParaConcepto] = useState(null);
   const [agregandoConcepto, setAgregandoConcepto] = useState(false);
 
@@ -98,6 +99,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       setFeriadosDisponibles([]);
       setSinDescansoSustitutorio(false);
       setCategoria('5');
+      setSeleccionReintegros([]);
       api.fetchFeriadosHistoricos(ciclo.id).then(setFeriadosDisponibles);
     });
   }, [open, ciclo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -162,6 +164,24 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       ? { cuenta_cargo_id: cuentaBcp, fecha_proceso: dayjs().format('YYYY-MM-DD'), subtipo: categoria === '4' ? '4' : 'X' }
       : { subtipo: categoria };
     await ejecutar(() => api.exportarComplementaria(item.id, banco, parametros), 'Archivo complementario descargado.');
+  };
+
+  const reintegrosAprobados = items.filter((item) => item.estado === 'aprobada');
+
+  const exportarMasivo = async (banco) => {
+    const esBcp = banco === 'telecredito-bcp';
+    if (esBcp && !cuentaBcp) return message.warning('Selecciona una cuenta BCP de cargo.');
+    if (!seleccionReintegros.length) return message.warning('Selecciona al menos un reintegro aprobado.');
+    const parametros = esBcp
+      ? { cuenta_cargo_id: cuentaBcp, fecha_proceso: dayjs().format('YYYY-MM-DD'), subtipo: categoria === '4' ? '4' : 'X' }
+      : { subtipo: categoria };
+    try {
+      await api.exportarComplementariasMasivo(ciclo.id, banco, seleccionReintegros, parametros);
+      message.success('Archivo consolidado descargado.');
+      setSeleccionReintegros([]);
+    } catch (e) {
+      message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudo generar el archivo consolidado.');
+    }
   };
 
   const agregarConcepto = async (detalleId, conceptoId, conceptoDefinicionId, monto, motivoConcepto) => {
@@ -335,14 +355,57 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         <div className="w-full shrink-0 space-y-3 lg:w-[480px]">
           <Select value={categoria} onChange={setCategoria} options={[{ value: '5', label: '5ta categoría' }, { value: '4', label: '4ta categoría' }]} />
 
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+            <Button size="small" disabled={!reintegrosAprobados.length} onClick={() => setSeleccionReintegros(reintegrosAprobados.map((i) => i.id))}>
+              Seleccionar aprobados ({reintegrosAprobados.length})
+            </Button>
+            <Button size="small" disabled={!seleccionReintegros.length} onClick={() => setSeleccionReintegros([])}>Limpiar selección</Button>
+            {permisos.telecredito && (
+              <Popconfirm
+                title="Cuenta BCP de cargo"
+                description={
+                  <Select className="w-64" placeholder="Selecciona una cuenta" value={cuentaBcp} onChange={setCuentaBcp}
+                    options={cuentasBcp.map((c) => ({ value: c.id, label: `${c.banco?.nombre ?? 'BCP'} • ${c.numero_cuenta}` }))} />
+                }
+                onConfirm={() => exportarMasivo('telecredito-bcp')}
+              >
+                <Button size="small" icon={<CreditCardOutlined />} disabled={!seleccionReintegros.length}>
+                  Telecrédito consolidado ({seleccionReintegros.length})
+                </Button>
+              </Popconfirm>
+            )}
+            {permisos.bbva && (
+              <Button size="small" icon={<BankOutlined />} disabled={!seleccionReintegros.length} onClick={() => exportarMasivo('bbva-netcash')}>
+                Net Cash consolidado ({seleccionReintegros.length})
+              </Button>
+            )}
+            <span className="text-xs text-gray-500">Solo se pueden combinar reintegros ya aprobados, de la categoría seleccionada arriba.</span>
+          </div>
+
           <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
           {items.map((item) => (
           <div key={item.id} className="rounded-lg border p-3">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div><strong>{item.nombre}</strong> <Tag>{item.estado}</Tag><div className="text-xs text-gray-500">{item.motivo}</div></div>
-              <div className="flex gap-2">
-                <span className="self-center text-sm text-green-700">A pagar: {soles(item.total_a_pagar)}</span>
-                {Number(item.saldo_a_descontar) > 0 && <span className="self-center text-sm text-red-600">A descontar: {soles(item.saldo_a_descontar)}</span>}
+            <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-2">
+                {item.estado === 'aprobada' && (
+                  <Checkbox className="mt-1" checked={seleccionReintegros.includes(item.id)}
+                    onChange={(e) => setSeleccionReintegros((prev) => e.target.checked ? [...prev, item.id] : prev.filter((id) => id !== item.id))} />
+                )}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{item.nombre}</strong>
+                    <Tag>{item.estado}</Tag>
+                  </div>
+                  <div className="text-xs text-gray-500">{item.motivo}</div>
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-0.5">
+                <span className="text-xs text-gray-500">A pagar</span>
+                <span className="text-base font-semibold text-green-700">{soles(item.total_a_pagar)}</span>
+                {Number(item.saldo_a_descontar) > 0 && <span className="text-sm font-medium text-red-600">A descontar: {soles(item.saldo_a_descontar)}</span>}
+              </div>
+            </div>
+            <div className="mb-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2">
                 {item.estado === 'calculada' && permisos.calcular && (
                   <Button icon={<PlusOutlined />} onClick={() => setItemParaColaboradores(item)}>Agregar colaboradores</Button>
                 )}
@@ -370,7 +433,6 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 )}
                 {item.estado === 'aprobada' && permisos.bbva && <Button icon={<BankOutlined />} onClick={() => exportar(item, 'bbva-netcash')}>Net Cash</Button>}
                 {item.estado === 'aprobada' && permisos.pagar && <Popconfirm title="Referencia del pago" description={<Form><Input id={`ref-${item.id}`} placeholder="Operación o lote" /></Form>} onConfirm={() => { const ref = document.getElementById(`ref-${item.id}`)?.value; if (ref) ejecutar(() => api.pagarComplementaria(item.id, ref), 'Complementaria marcada como pagada.', true); }}><Button>Marcar pagada</Button></Popconfirm>}
-              </div>
             </div>
             <Table
               rowKey="id"

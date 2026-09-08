@@ -214,6 +214,18 @@ export function useRemuneraciones() {
     return { descargado: true };
   }, []);
 
+  const exportarComplementariasMasivo = useCallback(async (cicloId, banco, complementariaIds, parametros) => {
+    const response = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/${banco}/exportar-masivo`,
+      { complementaria_ids: complementariaIds, ...parametros }, { responseType: 'blob' });
+    const contentType = response.headers?.['content-type'] ?? '';
+    if (contentType.includes('application/json')) return { descargado: false, ...JSON.parse(await response.data.text()) };
+    const nombre = response.headers?.['content-disposition']?.match(/filename="?([^";]+)"?/)?.[1] ?? `REINTEGROS_${cicloId}.txt`;
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a'); enlace.href = url; enlace.download = nombre;
+    document.body.appendChild(enlace); enlace.click(); enlace.remove(); window.URL.revokeObjectURL(url);
+    return { descargado: true };
+  }, []);
+
   const verBoleta = useCallback(async (boletaId) => {
     const { data } = await api.get(`/boletas/${boletaId}`);
     return data.data;
@@ -580,6 +592,7 @@ export function useRemuneraciones() {
     aprobarComplementaria,
     pagarComplementaria,
     exportarComplementaria,
+    exportarComplementariasMasivo,
     verBoleta,
     aprobarBoleta,
     fetchIncidenciasPendientesAprobar,

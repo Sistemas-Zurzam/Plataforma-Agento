@@ -218,6 +218,35 @@ class PlanillaComplementariaController extends Controller
         return response($contenido, 200, ['Content-Type' => 'text/plain; charset=Windows-1252', 'Content-Disposition' => 'attachment; filename="BBVA_COMPLEMENTARIA_'.$complementaria->id.'.txt"']);
     }
 
+    public function exportarBcpMasivo(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $datos = $request->validate([
+            'complementaria_ids' => ['required', 'array', 'min:1'],
+            'complementaria_ids.*' => ['required', 'integer', 'distinct'],
+            'cuenta_cargo_id' => ['required', 'integer'], 'fecha_proceso' => ['required', 'date'],
+            'subtipo' => ['required', Rule::in(['4', 'X'])],
+        ]);
+        $empresa = $this->empresa($request, $ciclo);
+        $cuenta = EmpresaCuentaBancaria::with('banco')->where('empresa_id', $empresa->id)->whereKey($datos['cuenta_cargo_id'])->where('activo', true)->firstOrFail();
+        abort_unless($cuenta->banco?->codigo === 'bcp', 422, 'La cuenta de cargo debe ser BCP.');
+        $contenido = $this->service->exportarBcpMasivo($empresa, $datos['complementaria_ids'], $cuenta, $datos['fecha_proceso'], $datos['subtipo']);
+        return response($contenido, 200, ['Content-Type' => 'text/plain; charset=Windows-1252', 'Content-Disposition' => 'attachment; filename="TELECREDITO_REINTEGROS_'.$ciclo->id.'_'.now()->format('YmdHis').'.txt"']);
+    }
+
+    public function exportarBbvaMasivo(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $datos = $request->validate([
+            'complementaria_ids' => ['required', 'array', 'min:1'],
+            'complementaria_ids.*' => ['required', 'integer', 'distinct'],
+            'subtipo' => ['required', Rule::in(['4', '5'])],
+        ]);
+        $empresa = $this->empresa($request, $ciclo);
+        $cuenta = EmpresaCuentaBancaria::with('banco')->where('empresa_id', $empresa->id)->where('activo', true)->where('uso', 'haberes')->whereHas('banco', fn ($q) => $q->where('codigo', 'bbva'))->orderByDesc('es_predeterminada')->first();
+        abort_unless($cuenta, 422, 'La empresa no tiene una cuenta BBVA activa para haberes.');
+        $contenido = $this->service->exportarBbvaMasivo($empresa, $datos['complementaria_ids'], $cuenta, $datos['subtipo']);
+        return response($contenido, 200, ['Content-Type' => 'text/plain; charset=Windows-1252', 'Content-Disposition' => 'attachment; filename="BBVA_REINTEGROS_'.$ciclo->id.'_'.now()->format('YmdHis').'.txt"']);
+    }
+
     private function presentar(PlanillaComplementaria $item): array
     {
         $detalles = $item->detalles;

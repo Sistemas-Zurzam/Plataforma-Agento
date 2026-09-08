@@ -1033,32 +1033,70 @@ class PlanillaComplementariaService
             throw ValidationException::withMessages(['estado' => 'Aprueba la complementaria antes de generar el archivo bancario.']);
         }
 
-        $esCuarta = $subtipo === '4';
-        $detalles = $item->detalles()->where('diferencia_neta', '>', 0)
-            ->with(['boletaOriginal.colaborador'])->get()
-            ->filter(fn ($d) => ($d->boletaOriginal->regimen_laboral_snapshot === 'Locacion de Servicios') === $esCuarta);
-
-        if ($detalles->isEmpty()) {
+        $boletas = $this->detallesParaPago($item, $subtipo);
+        if ($boletas->isEmpty()) {
             throw ValidationException::withMessages(['detalles' => 'No existen diferencias positivas para la categoría seleccionada.']);
         }
 
-        return $detalles->map(function ($detalle) {
-            $boleta = $detalle->boletaOriginal->replicate();
-            $boleta->id = $detalle->boleta_original_id;
-            $boleta->neto_a_pagar = $detalle->diferencia_neta;
-            $boleta->setRelation('colaborador', $detalle->boletaOriginal->colaborador);
-            $datosPago = new BoletaDatosPago([
-                'banco_id' => $detalle->banco_id,
-                'tipo_cuenta_snapshot' => $detalle->tipo_cuenta_snapshot,
-                'moneda_snapshot' => $detalle->moneda_snapshot,
-                'numero_cuenta_snapshot' => $detalle->numero_cuenta_snapshot,
-                'cci_snapshot' => $detalle->cci_snapshot,
-                'fecha_snapshot' => $detalle->created_at,
-            ]);
-            $datosPago->setRelation('banco', \App\Modules\Configuracion\Models\Banco::find($detalle->banco_id));
-            $boleta->setRelation('datosPago', $datosPago);
-            return $boleta;
-        })->values();
+        return $boletas;
+    }
+
+    /**
+     * Igual que boletasDePago() pero combinando varios reintegros aprobados
+     * en una sola colección — para generar un único archivo bancario en vez
+     * de uno por reintegro. Cada complementaria debe pertenecer a la empresa
+     * autorizada y estar 'aprobada' (misma exigencia que la exportación
+     * individual, ver detallesParaPago()); si alguna no cumple, se rechaza
+     * el lote completo antes de generar nada — nunca un archivo parcial.
+     *
+     * @param array<int, int> $itemIds
+     */
+    public function boletasDePagoMasivo(Empresa $empresa, array $itemIds, string $subtipo): Collection
+    {
+        $items = PlanillaComplementaria::whereIn('id', $itemIds)->get();
+        if ($items->count() !== count(array_unique($itemIds))) {
+            throw ValidationException::withMessages(['complementaria_ids' => 'Selecciona reintegros válidos.']);
+        }
+        foreach ($items as $item) {
+            $this->verificarItem($empresa, $item);
+            if ($item->estado !== 'aprobada') {
+                throw ValidationException::withMessages(['estado' => "\"{$item->nombre}\" todavía no está aprobada — apruébala antes de incluirla en el archivo consolidado."]);
+            }
+        }
+
+        $boletas = $items->flatMap(fn ($item) => $this->detallesParaPago($item, $subtipo))->values();
+        if ($boletas->isEmpty()) {
+            throw ValidationException::withMessages(['detalles' => 'No existen diferencias positivas para la categoría seleccionada en los reintegros elegidos.']);
+        }
+
+        return $boletas;
+    }
+
+    /** Detalles con diferencia positiva de UN reintegro, filtrados por categoría (4ta/5ta) y adaptados a la forma que esperan los exportadores bancarios. */
+    private function detallesParaPago(PlanillaComplementaria $item, string $subtipo): Collection
+    {
+        $esCuarta = $subtipo === '4';
+
+        return $item->detalles()->where('diferencia_neta', '>', 0)
+            ->with(['boletaOriginal.colaborador'])->get()
+            ->filter(fn ($d) => ($d->boletaOriginal->regimen_laboral_snapshot === 'Locacion de Servicios') === $esCuarta)
+            ->map(function ($detalle) {
+                $boleta = $detalle->boletaOriginal->replicate();
+                $boleta->id = $detalle->boleta_original_id;
+                $boleta->neto_a_pagar = $detalle->diferencia_neta;
+                $boleta->setRelation('colaborador', $detalle->boletaOriginal->colaborador);
+                $datosPago = new BoletaDatosPago([
+                    'banco_id' => $detalle->banco_id,
+                    'tipo_cuenta_snapshot' => $detalle->tipo_cuenta_snapshot,
+                    'moneda_snapshot' => $detalle->moneda_snapshot,
+                    'numero_cuenta_snapshot' => $detalle->numero_cuenta_snapshot,
+                    'cci_snapshot' => $detalle->cci_snapshot,
+                    'fecha_snapshot' => $detalle->created_at,
+                ]);
+                $datosPago->setRelation('banco', \App\Modules\Configuracion\Models\Banco::find($detalle->banco_id));
+                $boleta->setRelation('datosPago', $datosPago);
+                return $boleta;
+            })->values();
     }
 
     public function exportarBcp(Empresa $empresa, PlanillaComplementaria $item, $cuenta, string $fechaProceso, string $subtipo): string
@@ -1069,6 +1107,18 @@ class PlanillaComplementariaService
     public function exportarBbva(Empresa $empresa, PlanillaComplementaria $item, $cuenta, string $subtipo): string
     {
         return BbvaNetCashTxtExporter::generar($cuenta, $subtipo, 'COMPLEMENTARIA '.$item->id, $this->boletasDePago($empresa, $item, $subtipo));
+    }
+
+    /** @param array<int, int> $itemIds */
+    public function exportarBcpMasivo(Empresa $empresa, array $itemIds, $cuenta, string $fechaProceso, string $subtipo): string
+    {
+        return TelecreditoBcpTxtExporter::generar($cuenta, str_replace('-', '', $fechaProceso), $subtipo, 'REINTEGROS '.now()->format('Ymd-His'), $this->boletasDePagoMasivo($empresa, $itemIds, $subtipo));
+    }
+
+    /** @param array<int, int> $itemIds */
+    public function exportarBbvaMasivo(Empresa $empresa, array $itemIds, $cuenta, string $subtipo): string
+    {
+        return BbvaNetCashTxtExporter::generar($cuenta, $subtipo, 'REINTEGROS '.now()->format('Ymd-His'), $this->boletasDePagoMasivo($empresa, $itemIds, $subtipo));
     }
 
     private function cargar(PlanillaComplementaria $item): PlanillaComplementaria
