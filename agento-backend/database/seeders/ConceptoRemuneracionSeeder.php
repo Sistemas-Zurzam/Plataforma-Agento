@@ -63,6 +63,20 @@ class ConceptoRemuneracionSeeder extends Seeder
                 'sunat_no_aplica' => true,
                 'sunat_motivo_estado' => 'Los honorarios se declaran directamente en la estructura E20 (.4ta) como "Monto total del servicio", sin código de concepto remunerativo — no corresponde a Tabla 22.',
             ],
+            // Regularización de feriado histórico para locadores
+            // (PlanillaComplementariaService::crearFeriadoBloqueado) — NUNCA
+            // usa HE_100: ese código es Tabla 22 (Art. 8° D.Leg. 713,
+            // sobretasa por feriado sin descanso sustitutorio), un derecho
+            // que solo existe para trabajadores dependientes. Un locador no
+            // tiene relación laboral, así que un pago adicional por trabajar
+            // un feriado es una liberalidad contractual, no un beneficio de
+            // ley — de ahí que sea sueldo/30×1 (un día adicional) y no ×2, y
+            // que se declare como HONORARIO_BRUTO (E20 .4ta), nunca Tabla 22.
+            [
+                'codigo' => 'HONORARIO_FERIADO_TRABAJADO', 'nombre' => 'Adicional por feriado trabajado (honorarios)', 'tipo' => 'ingreso',
+                'sunat_no_aplica' => true,
+                'sunat_motivo_estado' => 'Pago adicional discrecional a un locador por trabajar un feriado histórico — no es un beneficio laboral (no hay relación laboral bajo recibos por honorarios), se declara como HONORARIO_BRUTO en la estructura E20 (.4ta), no corresponde a Tabla 22.',
+            ],
             [
                 'codigo' => 'RETENCION_RENTA_4TA', 'nombre' => 'Retención de renta de 4ta categoría', 'tipo' => 'egreso',
                 'sunat_no_aplica' => true,

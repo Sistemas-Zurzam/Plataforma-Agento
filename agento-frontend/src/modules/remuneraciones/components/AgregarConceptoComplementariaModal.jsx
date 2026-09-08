@@ -17,8 +17,10 @@ export const CONCEPTOS_REGISTRABLES = [
 
 // Demasiado genéricos para PLAME (Tabla 22) por sí solos — igual que en
 // RegistrarConceptoModal, exigen elegir una clasificación concreta ya
-// definida en Catálogos SUNAT.
-const CONCEPTOS_CON_DEFINICION = ['BONIFICACION', 'BONO_NO_REMUNERATIVO'];
+// definida en Catálogos SUNAT. Exportado para que otros paneles que agregan
+// el mismo tipo de concepto (p.ej. BonoAsistenciaComplementariaPanel) puedan
+// reutilizar esta regla sin duplicarla.
+export const CONCEPTOS_CON_DEFINICION = ['BONIFICACION', 'BONO_NO_REMUNERATIVO'];
 
 /**
  * Agrega un concepto manual (bono/comisión/descuento) a UN colaborador

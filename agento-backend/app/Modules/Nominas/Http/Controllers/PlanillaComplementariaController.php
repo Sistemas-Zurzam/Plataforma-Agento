@@ -18,7 +18,27 @@ use Symfony\Component\HttpFoundation\Response;
 
 class PlanillaComplementariaController extends Controller
 {
-    public function __construct(private readonly PlanillaComplementariaService $service) {}
+    public function __construct(private readonly PlanillaComplementariaService $service,
+        private readonly \App\Modules\Nominas\Services\DescansoSemanalComplementariaService $descansos) {}
+
+    public function descansosSemanales(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate(['boleta_ids' => ['required', 'array', 'min:1'], 'boleta_ids.*' => ['required', 'integer', 'distinct']]);
+        return response()->json(['data' => $this->descansos->semanas($this->empresa($request, $ciclo), $ciclo, $datos['boleta_ids'])]);
+    }
+
+    public function reintegrarDescansosSemanales(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate([
+            'semanas' => ['required', 'array', 'min:1'],
+            'semanas.*.boleta_id' => ['required', 'integer'],
+            'semanas.*.semana_inicio' => ['required', 'date_format:Y-m-d'],
+            'motivo' => ['required', 'string', 'max:1000'],
+            'sin_descanso_sustitutorio' => ['accepted'], 'sin_pago_previo' => ['accepted'],
+        ]);
+        $item = $this->descansos->crear($this->empresa($request, $ciclo), $ciclo, $datos['semanas'], $datos['motivo'], $request->user('api')->id);
+        return response()->json(['data' => $this->presentar($item)], 201);
+    }
 
     public function index(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
@@ -26,10 +46,100 @@ class PlanillaComplementariaController extends Controller
         return response()->json(['data' => $this->service->listar($empresa, $ciclo)->map(fn ($i) => $this->presentar($i))]);
     }
 
+    public function descuentos(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate(['boleta_ids' => ['required', 'array', 'min:1'], 'boleta_ids.*' => ['required', 'integer', 'distinct']]);
+        return response()->json(['data' => $this->service->descuentosReintegrables($this->empresa($request, $ciclo), $ciclo, $datos['boleta_ids'])]);
+    }
+
+    public function reintegrarDescuentos(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate([
+            'motivo' => ['required', 'string', 'max:1000'],
+            'descuentos' => ['required', 'array', 'min:1'],
+            'descuentos.*.boleta_id' => ['required', 'integer'],
+            'descuentos.*.indice' => ['required', 'integer', 'min:-1'],
+            'descuentos.*.version' => ['required', 'string', 'size:64'],
+            'descuentos.*.monto' => ['required', 'numeric', 'decimal:0,2', 'min:0.01'],
+        ]);
+        $item = $this->service->reintegrarDescuentos($this->empresa($request, $ciclo), $ciclo, $datos['descuentos'], $datos['motivo'], $request->user('api')->id);
+        return response()->json(['data' => $this->presentar($item)], 201);
+    }
+
     public function feriadosDisponibles(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
         $empresa = $this->empresa($request, $ciclo);
         return response()->json(['data' => $this->service->feriadosDisponibles($empresa, $ciclo)]);
+    }
+
+    public function horasExtraPendientes(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate(['boleta_ids' => ['sometimes', 'array'], 'boleta_ids.*' => ['integer', 'distinct']]);
+        return response()->json(['data' => $this->service->horasExtraPendientes($this->empresa($request, $ciclo), $ciclo, $datos['boleta_ids'] ?? [])]);
+    }
+
+    public function crearConHorasExtra(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $this->validarHorasExtra($request, true);
+        $item = $this->service->crearConHorasExtra($this->empresa($request, $ciclo), $ciclo,
+            $datos['horas_detectadas'] ?? [], $datos['horas_manuales'] ?? [], $datos['motivo'], $request->user('api')->id);
+
+        return response()->json(['data' => $this->presentar($item)], 201);
+    }
+
+    public function colaboradoresPorAsistencia(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate([
+            'dias' => ['required', 'integer', 'min:1'],
+            'operador' => ['required', Rule::in(['exacto', 'minimo'])],
+            'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],
+        ]);
+
+        return response()->json(['data' => $this->service->colaboradoresPorAsistencia(
+            $this->empresa($request, $ciclo),
+            $ciclo,
+            (int) $datos['dias'],
+            $datos['operador'],
+            (int) $datos['concepto_id'],
+        )]);
+    }
+
+    public function aplicarBonoPorAsistencia(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        // Mismo criterio que agregarConcepto(): BONIFICACION/BONO_NO_REMUNERATIVO
+        // son demasiado genéricos para Tabla 22 sin una clasificación PLAME concreta.
+        $conceptoCodigo = ConceptoRemuneracion::find($request->input('concepto_id'))?->codigo;
+        $requiereDefinicion = in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
+
+        $datos = $request->validate([
+            'boleta_ids' => ['required', 'array', 'min:1'],
+            'boleta_ids.*' => ['required', 'integer', 'distinct'],
+            'dias' => ['required', 'integer', 'min:1'],
+            'operador' => ['required', Rule::in(['exacto', 'minimo'])],
+            'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],
+            'concepto_definicion_id' => [
+                $requiereDefinicion ? 'required' : 'prohibited',
+                'integer',
+                Rule::exists('concepto_definiciones_plame', 'id')->where('concepto_remuneracion_id', $request->input('concepto_id'))->where('activo', true),
+            ],
+            'monto' => ['required', 'numeric', 'min:0.01'],
+            'motivo' => ['required', 'string', 'max:255'],
+        ]);
+
+        $item = $this->service->aplicarBonoPorAsistencia(
+            $this->empresa($request, $ciclo),
+            $ciclo,
+            $datos['boleta_ids'],
+            (int) $datos['dias'],
+            $datos['operador'],
+            (int) $datos['concepto_id'],
+            $datos['concepto_definicion_id'] ?? null,
+            (float) $datos['monto'],
+            $datos['motivo'],
+            $request->user('api')->id,
+        );
+
+        return response()->json(['data' => $this->presentar($item)]);
     }
 
     public function store(Request $request, CicloRemunerativo $ciclo): JsonResponse
@@ -54,6 +164,7 @@ class PlanillaComplementariaController extends Controller
             'boleta_ids.*' => ['integer', 'distinct'],
             'fecha_feriado' => ['required', 'date'],
             'sin_descanso_sustitutorio' => ['accepted'],
+            'sin_pago_previo' => ['accepted'],
             'motivo' => ['required', 'string', 'max:1000'],
         ]);
 
@@ -98,6 +209,58 @@ class PlanillaComplementariaController extends Controller
         );
 
         return response()->json(['data' => $this->presentar($item)]);
+    }
+
+    public function colaboradoresDisponibles(Request $request, PlanillaComplementaria $complementaria): JsonResponse
+    {
+        $datos = $request->validate(['busqueda' => ['nullable', 'string', 'max:100']]);
+
+        return response()->json(['data' => $this->service->colaboradoresDisponibles(
+            $this->empresaItem($request, $complementaria),
+            $complementaria,
+            $datos['busqueda'] ?? null,
+        )]);
+    }
+
+    public function agregarColaboradores(Request $request, PlanillaComplementaria $complementaria): JsonResponse
+    {
+        $datos = $request->validate([
+            'boleta_ids' => ['required', 'array', 'min:1'],
+            'boleta_ids.*' => ['required', 'integer', 'distinct'],
+        ]);
+
+        $item = $this->service->agregarColaboradores(
+            $this->empresaItem($request, $complementaria),
+            $complementaria,
+            $datos['boleta_ids'],
+        );
+
+        return response()->json(['data' => $this->presentar($item)]);
+    }
+
+    public function agregarHorasExtra(Request $request, PlanillaComplementaria $complementaria): JsonResponse
+    {
+        $datos = $this->validarHorasExtra($request);
+        $item = $this->service->agregarHorasExtra($this->empresaItem($request, $complementaria), $complementaria,
+            $datos['horas_detectadas'] ?? [], $datos['horas_manuales'] ?? [], $request->user('api')->id);
+
+        return response()->json(['data' => $this->presentar($item)]);
+    }
+
+    private function validarHorasExtra(Request $request, bool $conMotivo = false): array
+    {
+        return $request->validate([
+            'motivo' => [$conMotivo ? 'required' : 'sometimes', 'string', 'max:1000'],
+            'horas_detectadas' => ['sometimes', 'array'],
+            'horas_detectadas.*.hora_extra_id' => ['required', 'integer', 'distinct'],
+            'horas_detectadas.*.minutos' => ['required', 'integer', 'min:1', 'max:1440'],
+            'horas_manuales' => ['sometimes', 'array'],
+            'horas_manuales.*.boleta_id' => ['required', 'integer'],
+            'horas_manuales.*.fecha' => ['required', 'date'],
+            'horas_manuales.*.minutos' => ['required', 'integer', 'min:1', 'max:1440'],
+            'horas_manuales.*.tasa' => ['required', Rule::in(['25', '35', '100'])],
+            'horas_manuales.*.motivo' => ['required', 'string', 'max:255'],
+        ]);
     }
 
     public function eliminarConcepto(Request $request, PlanillaComplementariaDetalle $detalle, string $lineaId): JsonResponse
@@ -150,6 +313,35 @@ class PlanillaComplementariaController extends Controller
         return response($contenido, 200, ['Content-Type' => 'text/plain; charset=Windows-1252', 'Content-Disposition' => 'attachment; filename="BBVA_COMPLEMENTARIA_'.$complementaria->id.'.txt"']);
     }
 
+    public function exportarBcpMasivo(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $datos = $request->validate([
+            'complementaria_ids' => ['required', 'array', 'min:1'],
+            'complementaria_ids.*' => ['required', 'integer', 'distinct'],
+            'cuenta_cargo_id' => ['required', 'integer'], 'fecha_proceso' => ['required', 'date'],
+            'subtipo' => ['required', Rule::in(['4', 'X'])],
+        ]);
+        $empresa = $this->empresa($request, $ciclo);
+        $cuenta = EmpresaCuentaBancaria::with('banco')->where('empresa_id', $empresa->id)->whereKey($datos['cuenta_cargo_id'])->where('activo', true)->firstOrFail();
+        abort_unless($cuenta->banco?->codigo === 'bcp', 422, 'La cuenta de cargo debe ser BCP.');
+        $contenido = $this->service->exportarBcpMasivo($empresa, $datos['complementaria_ids'], $cuenta, $datos['fecha_proceso'], $datos['subtipo']);
+        return response($contenido, 200, ['Content-Type' => 'text/plain; charset=Windows-1252', 'Content-Disposition' => 'attachment; filename="TELECREDITO_REINTEGROS_'.$ciclo->id.'_'.now()->format('YmdHis').'.txt"']);
+    }
+
+    public function exportarBbvaMasivo(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $datos = $request->validate([
+            'complementaria_ids' => ['required', 'array', 'min:1'],
+            'complementaria_ids.*' => ['required', 'integer', 'distinct'],
+            'subtipo' => ['required', Rule::in(['4', '5'])],
+        ]);
+        $empresa = $this->empresa($request, $ciclo);
+        $cuenta = EmpresaCuentaBancaria::with('banco')->where('empresa_id', $empresa->id)->where('activo', true)->where('uso', 'haberes')->whereHas('banco', fn ($q) => $q->where('codigo', 'bbva'))->orderByDesc('es_predeterminada')->first();
+        abort_unless($cuenta, 422, 'La empresa no tiene una cuenta BBVA activa para haberes.');
+        $contenido = $this->service->exportarBbvaMasivo($empresa, $datos['complementaria_ids'], $cuenta, $datos['subtipo']);
+        return response($contenido, 200, ['Content-Type' => 'text/plain; charset=Windows-1252', 'Content-Disposition' => 'attachment; filename="BBVA_REINTEGROS_'.$ciclo->id.'_'.now()->format('YmdHis').'.txt"']);
+    }
+
     private function presentar(PlanillaComplementaria $item): array
     {
         $detalles = $item->detalles;
@@ -165,6 +357,10 @@ class PlanillaComplementariaController extends Controller
                 'diferencia_ingresos' => $d->diferencia_ingresos, 'diferencia_egresos' => $d->diferencia_egresos,
                 'diferencia_aportaciones' => $d->diferencia_aportaciones, 'diferencia_neta' => $d->diferencia_neta,
                 'conceptos_manuales' => $this->conceptosManuales($d),
+                'reintegros_descuentos' => $d->calculo_snapshot['reintegros_descuentos'] ?? [],
+                'descansos_semanales' => $d->calculo_snapshot['descansos_semanales'] ?? [],
+                'feriado_regularizado' => $d->calculo_snapshot['feriado_regularizado'] ?? null,
+                'horas_extra_regularizadas' => $d->calculo_snapshot['horas_extra_regularizadas'] ?? [],
             ])->values(),
             'aprobado_at' => $item->aprobado_at?->toDateTimeString(), 'pagado_at' => $item->pagado_at?->toDateTimeString(),
             'referencia_pago' => $item->referencia_pago,
@@ -180,12 +376,14 @@ class PlanillaComplementariaController extends Controller
     private function conceptosManuales($detalle): array
     {
         $snapshot = $detalle->calculo_snapshot;
+        $lineasHorasExtra = collect($snapshot['horas_extra_regularizadas'] ?? [])->pluck('linea_id')->filter();
 
         return collect([
             ...collect($snapshot['ingresos'] ?? [])->map(fn (array $l) => [...$l, 'tipo' => 'ingreso']),
             ...collect($snapshot['egresos'] ?? [])->map(fn (array $l) => [...$l, 'tipo' => 'egreso']),
         ])
             ->filter(fn (array $l) => isset($l['agregado_por']))
+            ->reject(fn (array $l) => $lineasHorasExtra->contains($l['id'] ?? null))
             ->map(fn (array $l) => [
                 'id' => $l['id'] ?? null,
                 'codigo' => $l['codigo'],

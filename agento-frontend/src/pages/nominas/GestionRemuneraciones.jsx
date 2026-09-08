@@ -31,6 +31,7 @@ import ConfiguracionNominaModal from '../../modules/remuneraciones/components/Co
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
 import LiquidacionesCeseTab from '../../modules/remuneraciones/components/LiquidacionesCeseTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
+import AportesPrevisionalesTab from '../../modules/remuneraciones/components/AportesPrevisionalesTab';
 import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCashModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
@@ -214,19 +215,20 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
     resumen, fetchResumen, fetchResumenContable,
-    verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, guardarComprobanteRh,
+    verBoleta, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
     previsualizacion, previsualizacionLoading, fetchPrevisualizacion,
+    aportesPrevisionales, aportesPrevisionalesLoading, fetchAportesPrevisionales,
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
     exportarPlanillaPagadaExcel,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
-    fetchComplementarias, crearComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, agregarConceptoComplementaria, eliminarConceptoComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria,
+    fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, crearComplementariaHorasExtra, agregarHorasExtraComplementaria, fetchColaboradoresPorAsistencia, aplicarBonoPorAsistencia, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo,
   } = useRemuneraciones();
 
   const [cicloId, setCicloId] = useState(null);
@@ -272,9 +274,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const puedeExportarTelecredito = user?.permisos?.includes('nominas.telecredito_exportar');
   const puedeExportarBbvaNetCash = user?.permisos?.includes('nominas.bbva_netcash_exportar');
   const puedeExportarBanco = puedeExportarTelecredito || puedeExportarBbvaNetCash;
-  const puedeSeleccionarBoletas = puedeAprobar || puedeExportarTelecredito || puedeExportarBbvaNetCash;
+  const puedeSeleccionarBoletas = puedeAprobar || puedePagar || puedeExportarTelecredito || puedeExportarBbvaNetCash;
   const boletasCalculadasSeleccionadas = boletas
     .filter((boleta) => boleta.estado === 'calculada' && boletasSeleccionadas.includes(boleta.id))
+    .map((boleta) => boleta.id);
+  const boletasAprobadasSeleccionadas = boletas
+    .filter((boleta) => boleta.estado === 'aprobada' && boletasSeleccionadas.includes(boleta.id))
     .map((boleta) => boleta.id);
 
   /**
@@ -593,32 +598,36 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     });
   };
 
-  const handlePagar = (boleta) => {
-    let referencia = '';
+  const handlePagarMasivo = async () => {
+    const idsPagar = boletasAprobadasSeleccionadas;
+    const cantidad = idsPagar.length;
     modal.confirm({
-      title: 'Marcar boleta como pagada',
-      content: (
-        <div className="mt-2">
-          <p className="mb-2 text-xs text-gray-500">Ingresa una referencia de pago real (N.º de operación, lote bancario, constancia).</p>
-          <Input placeholder="Ej. OP-2026-0819-004" onChange={(e) => { referencia = e.target.value; }} />
-        </div>
-      ),
-      okText: 'Marcar como pagada',
+      title: 'Marcar como pagadas las boletas seleccionadas',
+      content: `Se marcarán ${cantidad} boleta(s) en estado "aprobada" como pagadas.`,
+      okText: 'Marcar pagadas',
       cancelText: 'Cancelar',
       onOk: async () => {
-        if (!referencia.trim()) {
-          message.error('La referencia de pago es obligatoria');
-          return Promise.reject();
-        }
         try {
-          await pagarBoleta(boleta.id, referencia.trim());
-          message.success('Boleta marcada como pagada');
+          const resultado = await pagarBoletasMasivo(cicloId, idsPagar);
+          message.success(`${resultado.procesadas} boleta(s) marcada(s) como pagada(s).`);
+          setBoletasSeleccionadas([]);
           recargar();
+          fetchCiclos();
         } catch (err) {
-          message.error('No se pudo marcar la boleta como pagada');
+          message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudieron marcar las boletas seleccionadas como pagadas');
         }
       },
     });
+  };
+
+  const handlePagar = async (boleta) => {
+    try {
+      await pagarBoleta(boleta.id);
+      message.success('Boleta marcada como pagada');
+      recargar();
+    } catch (err) {
+      message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo marcar la boleta como pagada');
+    }
   };
 
   const abrirConfiguracion = (boleta) => setConfiguracionColaborador(boleta.colaborador);
@@ -1131,6 +1140,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                           Aprobar {boletasCalculadasSeleccionadas.length} calculada(s)
                         </Button>
                       )}
+                      {puedePagar && boletasAprobadasSeleccionadas.length > 0 && (
+                        <Button type="primary" size="small" icon={<BankOutlined />} onClick={handlePagarMasivo}>
+                          Marcar {boletasAprobadasSeleccionadas.length} pagada(s)
+                        </Button>
+                      )}
                     </div>
                   </div>
                 )}
@@ -1144,11 +1158,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                     selectedRowKeys: boletasSeleccionadas,
                     onChange: setBoletasSeleccionadas,
                     preserveSelectedRowKeys: true,
-                    getCheckboxProps: (boleta) => ({
-                      disabled: boleta.estado === 'calculada'
-                        ? !puedeAprobar
-                        : !puedeExportarBanco || !['aprobada', 'pagada'].includes(boleta.estado),
-                    }),
+                    getCheckboxProps: (boleta) => {
+                      if (boleta.estado === 'calculada') return { disabled: !puedeAprobar };
+                      if (boleta.estado === 'aprobada') return { disabled: !puedePagar && !puedeExportarBanco };
+                      return { disabled: !puedeExportarBanco || boleta.estado !== 'pagada' };
+                    },
                   } : undefined}
                   pagination={{
                     current: pagination.current,
@@ -1182,6 +1196,20 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   locale={{ emptyText: 'Este ciclo todavía no tiene boletas calculadas' }}
                 />
               </div>
+            ) : (
+              <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
+            ),
+          },
+          {
+            key: 'aportes-previsionales',
+            label: 'Aportes previsionales',
+            children: cicloId ? (
+              <AportesPrevisionalesTab
+                cicloId={cicloId}
+                fetchAportesPrevisionales={fetchAportesPrevisionales}
+                resumen={aportesPrevisionales}
+                loading={aportesPrevisionalesLoading}
+              />
             ) : (
               <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
             ),
@@ -1313,7 +1341,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setComplementariasModalOpen(false)}
         ciclo={cicloActivo}
         boletaIds={boletasSeleccionadas}
-        api={{ fetchComplementarias, crearComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, agregarConceptoComplementaria, eliminarConceptoComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria }}
+        api={{ fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, crearComplementariaHorasExtra, agregarHorasExtraComplementaria, fetchColaboradoresPorAsistencia, aplicarBonoPorAsistencia, fetchCatalogoConceptos, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo }}
         permisos={{ calcular: puedeCalcular, aprobar: puedeAprobar, pagar: puedePagar, telecredito: puedeExportarTelecredito, bbva: puedeExportarBbvaNetCash }}
         catalogoConceptos={catalogoConceptos}
       />

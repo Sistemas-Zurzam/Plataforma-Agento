@@ -405,8 +405,46 @@ class ColaboradorService
 
         $vigente = $colaborador->remuneraciones()->orderByDesc('vigencia_desde')->orderByDesc('id')->first();
 
+        $mismaRemuneracion = $vigente
+            && (float) $datos['salario'] === (float) $vigente->salario
+            && ($datos['moneda_salario'] ?? $vigente->moneda_salario ?? 'PEN') === $vigente->moneda_salario
+            && ($datos['periodicidad_pago'] ?? $vigente->periodicidad_pago ?? 'mensual') === $vigente->periodicidad_pago
+            && (float) ($datos['asignacion_familiar'] ?? 0) === (float) $vigente->asignacion_familiar;
+
+        // Si solo se corrige la fecha, se ajusta la fila vigente en lugar de
+        // insertar un duplicado con exactamente los mismos importes.
+        if ($mismaRemuneracion) {
+            if ($datos['vigencia_desde'] === $vigente->vigencia_desde->toDateString()) {
+                return $this->obtenerDetalle($empresa, $colaborador);
+            }
+
+            $anterior = $colaborador->remuneraciones()
+                ->where('id', '!=', $vigente->id)
+                ->orderByDesc('vigencia_desde')
+                ->orderByDesc('id')
+                ->first();
+
+            if ($anterior && $datos['vigencia_desde'] <= $anterior->vigencia_desde->toDateString()) {
+                throw ValidationException::withMessages([
+                    'vigencia_desde' => ['La vigencia corregida debe ser posterior a la remuneración histórica anterior.'],
+                ]);
+            }
+
+            if ($datos['vigencia_desde'] < $colaborador->fecha_ingreso->toDateString()) {
+                throw ValidationException::withMessages([
+                    'vigencia_desde' => ['La vigencia de la remuneración no puede ser anterior a la fecha de ingreso.'],
+                ]);
+            }
+
+            $vigente->update(['vigencia_desde' => $datos['vigencia_desde']]);
+
+            return $this->obtenerDetalle($empresa, $colaborador);
+        }
+
         if ($vigente && $datos['vigencia_desde'] < $vigente->vigencia_desde->toDateString()) {
-            throw new AuthorizationException('La nueva vigencia no puede ser anterior a la remuneración vigente actual.');
+            throw ValidationException::withMessages([
+                'vigencia_desde' => ['La nueva vigencia no puede ser anterior a la remuneración vigente actual.'],
+            ]);
         }
 
         $colaborador->remuneraciones()->create([

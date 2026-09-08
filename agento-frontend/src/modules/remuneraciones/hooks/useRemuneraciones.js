@@ -21,6 +21,9 @@ export function useRemuneraciones() {
   const [previsualizacion, setPrevisualizacion] = useState([]);
   const [previsualizacionLoading, setPrevisualizacionLoading] = useState(false);
 
+  const [aportesPrevisionales, setAportesPrevisionales] = useState(null);
+  const [aportesPrevisionalesLoading, setAportesPrevisionalesLoading] = useState(false);
+
   const fetchCiclos = useCallback(async () => {
     setCiclosLoading(true);
     try {
@@ -131,13 +134,65 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const fetchDescansosSemanales = useCallback(async (cicloId, boletaIds) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/descansos-semanales`, { params: { boleta_ids: boletaIds } });
+    return data.data;
+  }, []);
+  const reintegrarDescansosSemanales = useCallback(async (cicloId, semanas, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/descansos-semanales`, {
+      semanas, motivo, sin_descanso_sustitutorio: true, sin_pago_previo: true,
+    });
+    return data.data;
+  }, []);
+
   const crearComplementaria = useCallback(async (cicloId, boletaIds, motivo) => {
     const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias`, { boleta_ids: boletaIds, motivo });
     return data.data;
   }, []);
 
+  const fetchDescuentosComplementaria = useCallback(async (cicloId, boletaIds) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/descuentos`, { params: { boleta_ids: boletaIds } });
+    return data.data;
+  }, []);
+
+  const reintegrarDescuentosComplementaria = useCallback(async (cicloId, descuentos, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/reintegrar-descuentos`, { descuentos, motivo });
+    return data.data;
+  }, []);
+
   const fetchFeriadosHistoricos = useCallback(async (cicloId) => {
     const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/feriados-historicos`);
+    return data.data;
+  }, []);
+
+  const fetchHorasExtraPendientesComplementaria = useCallback(async (cicloId, boletaIds = []) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/horas-extra-pendientes`, { params: { boleta_ids: boletaIds } });
+    return data.data;
+  }, []);
+
+  const crearComplementariaHorasExtra = useCallback(async (cicloId, horasDetectadas, horasManuales, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/horas-extra`, {
+      horas_detectadas: horasDetectadas, horas_manuales: horasManuales, motivo,
+    });
+    return data.data;
+  }, []);
+
+  const agregarHorasExtraComplementaria = useCallback(async (id, horasDetectadas, horasManuales) => {
+    const { data } = await api.post(`/planillas-complementarias/${id}/horas-extra`, {
+      horas_detectadas: horasDetectadas, horas_manuales: horasManuales,
+    });
+    return data.data;
+  }, []);
+
+  const fetchColaboradoresPorAsistencia = useCallback(async (cicloId, dias, operador, conceptoId) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/colaboradores-por-asistencia`, {
+      params: { dias, operador, concepto_id: conceptoId },
+    });
+    return data.data;
+  }, []);
+
+  const aplicarBonoPorAsistencia = useCallback(async (cicloId, payload) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/bono-por-asistencia`, payload);
     return data.data;
   }, []);
 
@@ -150,6 +205,18 @@ export function useRemuneraciones() {
 
   const eliminarConceptoComplementaria = useCallback(async (detalleId, lineaId) => {
     const { data } = await api.delete(`/planillas-complementarias-detalles/${detalleId}/conceptos/${lineaId}`);
+    return data.data;
+  }, []);
+
+  const fetchColaboradoresDisponiblesComplementaria = useCallback(async (id, busqueda = null) => {
+    const { data } = await api.get(`/planillas-complementarias/${id}/colaboradores-disponibles`, {
+      params: { busqueda: busqueda || undefined },
+    });
+    return data.data;
+  }, []);
+
+  const agregarColaboradoresComplementaria = useCallback(async (id, boletaIds) => {
+    const { data } = await api.post(`/planillas-complementarias/${id}/colaboradores`, { boleta_ids: boletaIds });
     return data.data;
   }, []);
 
@@ -172,6 +239,18 @@ export function useRemuneraciones() {
     const contentType = response.headers?.['content-type'] ?? '';
     if (contentType.includes('application/json')) return { descargado: false, ...JSON.parse(await response.data.text()) };
     const nombre = response.headers?.['content-disposition']?.match(/filename="?([^";]+)"?/)?.[1] ?? `COMPLEMENTARIA_${id}.txt`;
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a'); enlace.href = url; enlace.download = nombre;
+    document.body.appendChild(enlace); enlace.click(); enlace.remove(); window.URL.revokeObjectURL(url);
+    return { descargado: true };
+  }, []);
+
+  const exportarComplementariasMasivo = useCallback(async (cicloId, banco, complementariaIds, parametros) => {
+    const response = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/${banco}/exportar-masivo`,
+      { complementaria_ids: complementariaIds, ...parametros }, { responseType: 'blob' });
+    const contentType = response.headers?.['content-type'] ?? '';
+    if (contentType.includes('application/json')) return { descargado: false, ...JSON.parse(await response.data.text()) };
+    const nombre = response.headers?.['content-disposition']?.match(/filename="?([^";]+)"?/)?.[1] ?? `REINTEGROS_${cicloId}.txt`;
     const url = window.URL.createObjectURL(response.data);
     const enlace = document.createElement('a'); enlace.href = url; enlace.download = nombre;
     document.body.appendChild(enlace); enlace.click(); enlace.remove(); window.URL.revokeObjectURL(url);
@@ -211,6 +290,11 @@ export function useRemuneraciones() {
   const pagarBoleta = useCallback(async (boletaId, referenciaPago) => {
     const { data } = await api.patch(`/boletas/${boletaId}/pagar`, { referencia_pago: referenciaPago });
     return data.data;
+  }, []);
+
+  const pagarBoletasMasivo = useCallback(async (cicloId, boletaIds, referenciaPago) => {
+    const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/boletas/pagar-masivo`, { ids: boletaIds, referencia_pago: referenciaPago });
+    return data;
   }, []);
 
   const fetchAfps = useCallback(async () => {
@@ -319,6 +403,17 @@ export function useRemuneraciones() {
     return { descargado: true };
   }, []);
 
+  const fetchAportesPrevisionales = useCallback(async (cicloId) => {
+    setAportesPrevisionalesLoading(true);
+    try {
+      const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/aportes-previsionales`);
+      setAportesPrevisionales(data);
+      return data;
+    } finally {
+      setAportesPrevisionalesLoading(false);
+    }
+  }, []);
+
   const fetchAfpNetValidacion = useCallback(async (cicloId) => {
     const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/afpnet-validacion`);
     return data;
@@ -369,6 +464,7 @@ export function useRemuneraciones() {
       boleta_ids: boletaIds,
       fecha_feriado: fechaFeriado,
       sin_descanso_sustitutorio: true,
+      sin_pago_previo: true,
       motivo,
     });
     return data.data;
@@ -518,19 +614,32 @@ export function useRemuneraciones() {
     fetchComplementarias,
     crearComplementaria,
     fetchFeriadosHistoricos,
+    fetchHorasExtraPendientesComplementaria,
+    crearComplementariaHorasExtra,
+    agregarHorasExtraComplementaria,
+    fetchColaboradoresPorAsistencia,
+    aplicarBonoPorAsistencia,
     crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,
     eliminarConceptoComplementaria,
+    fetchColaboradoresDisponiblesComplementaria,
+    agregarColaboradoresComplementaria,
     eliminarComplementaria,
     aprobarComplementaria,
     pagarComplementaria,
     exportarComplementaria,
+    exportarComplementariasMasivo,
     verBoleta,
     aprobarBoleta,
     fetchIncidenciasPendientesAprobar,
     aprobarBoletasMasivo,
     fetchIncidenciasPendientesAprobarMasivo,
     pagarBoleta,
+    pagarBoletasMasivo,
+    fetchDescuentosComplementaria,
+    fetchDescansosSemanales,
+    reintegrarDescansosSemanales,
+    reintegrarDescuentosComplementaria,
     guardarComprobanteRh,
     afps,
     fetchAfps,
@@ -549,6 +658,9 @@ export function useRemuneraciones() {
     previsualizacion,
     previsualizacionLoading,
     fetchPrevisualizacion,
+    aportesPrevisionales,
+    aportesPrevisionalesLoading,
+    fetchAportesPrevisionales,
     fetchPlameValidacion,
     exportarPlame,
     fetchAfpNetValidacion,

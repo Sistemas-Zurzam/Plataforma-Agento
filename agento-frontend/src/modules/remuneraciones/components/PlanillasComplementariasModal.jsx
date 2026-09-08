@@ -1,12 +1,15 @@
 import { BankOutlined, CreditCardOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { App, Button, Checkbox, DatePicker, Descriptions, Form, Input, Modal, Popconfirm, Select, Table, Tag } from 'antd';
+import { App, Button, Checkbox, DatePicker, Descriptions, Form, Input, InputNumber, Modal, Popconfirm, Select, Table, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import { useCuentasBancariasEmpresa } from '../../configuracion/hooks/useCuentasBancariasEmpresa';
 import AgregarConceptoComplementariaModal, { CONCEPTOS_REGISTRABLES } from './AgregarConceptoComplementariaModal';
+import AgregarColaboradoresComplementariaModal from './AgregarColaboradoresComplementariaModal';
+import BonoAsistenciaComplementariaPanel from './BonoAsistenciaComplementariaPanel';
+import HorasExtraComplementariaPanel from './HorasExtraComplementariaPanel';
 
 const soles = (valor) => `S/ ${Number(valor || 0).toFixed(2)}`;
-const nombreConcepto = (codigo) => CONCEPTOS_REGISTRABLES.find((c) => c.codigo === codigo)?.nombre ?? codigo;
+const nombreConcepto = (codigo) => codigo === 'DESCUENTO_FALTA_BASICO' ? 'Faltas descontadas de la remuneración básica' : CONCEPTOS_REGISTRABLES.find((c) => c.codigo === codigo)?.nombre ?? codigo;
 
 export default function PlanillasComplementariasModal({ open, onCancel, ciclo, boletaIds, api, permisos, catalogoConceptos = [] }) {
   const { message } = App.useApp();
@@ -14,13 +17,63 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [creando, setCreando] = useState(false);
+  const [itemParaColaboradores, setItemParaColaboradores] = useState(null);
   const [motivo, setMotivo] = useState('');
-  const [tipoRegularizacion, setTipoRegularizacion] = useState('diferencia_ciclo');
+  const [tipoRegularizacion, setTipoRegularizacion] = useState('reintegro_descuentos');
+  const [semanasDescanso, setSemanasDescanso] = useState([]);
+  const [semanasSeleccionadas, setSemanasSeleccionadas] = useState([]);
+  const [cargandoSemanas, setCargandoSemanas] = useState(false);
+  const [confirmarDescansos, setConfirmarDescansos] = useState(false);
+  const [busquedaSemanas, setBusquedaSemanas] = useState('');
+  const claveSemana = (s) => `${s.boleta_id}/${s.semana_inicio}`;
+  const semanasFiltradas = semanasDescanso.filter((s) => s.colaborador.toLocaleLowerCase().includes(busquedaSemanas.trim().toLocaleLowerCase()));
+  const cargarSemanas = async () => {
+    setSemanasSeleccionadas([]);
+    setSemanasDescanso([]);
+    setConfirmarDescansos(false);
+    if (!ciclo || !boletaIds.length) return;
+    setCargandoSemanas(true);
+    try { setSemanasDescanso(await api.fetchDescansosSemanales(ciclo.id, boletaIds)); }
+    catch (e) { message.error(e.response?.data?.message ?? 'No se pudieron cargar las semanas.'); }
+    finally { setCargandoSemanas(false); }
+  };
+  const [descuentos, setDescuentos] = useState([]);
+  const [seleccionDescuentos, setSeleccionDescuentos] = useState([]);
+  const [montosReintegro, setMontosReintegro] = useState({});
+  const [cargandoDescuentos, setCargandoDescuentos] = useState(false);
+  const [busquedaDescuentos, setBusquedaDescuentos] = useState('');
+  const [filtroDescuento, setFiltroDescuento] = useState(null);
+  const claveDescuento = (d) => `${d.boleta_id}-${d.indice}`;
+  const descuentosFiltrados = descuentos.filter((d) =>
+    (!filtroDescuento || d.codigo === filtroDescuento)
+    && d.colaborador.toLocaleLowerCase().includes(busquedaDescuentos.trim().toLocaleLowerCase()));
+  const disponiblesFiltrados = descuentosFiltrados.filter((d) => d.reintegrable);
+  const colaboradoresSeleccionados = new Set(descuentos.filter((d) => seleccionDescuentos.includes(claveDescuento(d))).map((d) => d.boleta_id)).size;
+  const agregaABorrador = descuentos.some((d) => seleccionDescuentos.includes(claveDescuento(d)) && d.complementaria_pendiente_estado === 'calculada');
+  const filasColaborador = Array.from(descuentosFiltrados.reduce((mapa, d) => {
+    if (!mapa.has(d.boleta_id)) mapa.set(d.boleta_id, { boleta_id: d.boleta_id, colaborador: d.colaborador, descuentos: [] });
+    mapa.get(d.boleta_id).descuentos.push(d);
+    return mapa;
+  }, new Map()).values());
+  const cargarDescuentos = async () => {
+    setSeleccionDescuentos([]);
+    setDescuentos([]);
+    if (!ciclo || !boletaIds.length) return;
+    setCargandoDescuentos(true);
+    try {
+      const datos = await api.fetchDescuentosComplementaria(ciclo.id, boletaIds);
+      setDescuentos(datos);
+      setMontosReintegro(Object.fromEntries(datos.map((d) => [claveDescuento(d), Number(d.monto)])));
+    } catch (e) {
+      message.error(e.response?.data?.message ?? 'No se pudieron cargar los descuentos.');
+    } finally { setCargandoDescuentos(false); }
+  };
   const [fechaFeriado, setFechaFeriado] = useState(null);
   const [feriadosDisponibles, setFeriadosDisponibles] = useState([]);
   const [sinDescansoSustitutorio, setSinDescansoSustitutorio] = useState(false);
   const [cuentaBcp, setCuentaBcp] = useState(null);
   const [categoria, setCategoria] = useState('5');
+  const [seleccionReintegros, setSeleccionReintegros] = useState([]);
   const [detalleParaConcepto, setDetalleParaConcepto] = useState(null);
   const [agregandoConcepto, setAgregandoConcepto] = useState(false);
 
@@ -36,30 +89,71 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       cargar();
       fetchCuentas();
       setMotivo('');
-      setTipoRegularizacion('diferencia_ciclo');
+      setBusquedaDescuentos('');
+      setFiltroDescuento(null);
+      setTipoRegularizacion('reintegro_descuentos');
+      setSemanasDescanso([]);
+      setSemanasSeleccionadas([]);
+      setConfirmarDescansos(false);
+      setBusquedaSemanas('');
+      cargarDescuentos();
       setFechaFeriado(null);
       setFeriadosDisponibles([]);
       setSinDescansoSustitutorio(false);
       setCategoria('5');
+      setSeleccionReintegros([]);
       api.fetchFeriadosHistoricos(ciclo.id).then(setFeriadosDisponibles);
     });
   }, [open, ciclo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const ejecutar = async (accion, exito) => {
-    try { await accion(); message.success(exito); await cargar(); } catch (e) { message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudo completar la operación'); }
+  const ejecutar = async (accion, exito, actualizarDescuentos = false) => {
+    try {
+      await accion(); message.success(exito); await cargar();
+      if (actualizarDescuentos) {
+        await cargarDescuentos();
+        if (tipoRegularizacion === 'descanso_semanal') await cargarSemanas();
+      }
+    } catch (e) { message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudo completar la operación'); }
   };
 
   const crear = async () => {
     if (!motivo.trim()) return message.warning('Ingresa el motivo de la regularización.');
     if (!boletaIds.length) return message.warning('Selecciona las boletas pagadas que deseas regularizar.');
-    if (tipoRegularizacion === 'feriado_historico' && !fechaFeriado) return message.warning('Selecciona la fecha del feriado histórico.');
+    if (tipoRegularizacion === 'feriado_historico' && !fechaFeriado) return message.warning('Selecciona la fecha del feriado trabajado.');
     if (tipoRegularizacion === 'feriado_historico' && !sinDescansoSustitutorio) return message.warning('Confirma que no se otorgó descanso sustitutorio.');
     setCreando(true);
     try {
+      if (tipoRegularizacion === 'descanso_semanal') {
+        if (!confirmarDescansos) return message.warning('Confirma que no hubo descanso sustitutorio ni pago previo.');
+        const seleccion = semanasDescanso.filter((s) => semanasSeleccionadas.includes(claveSemana(s)))
+          .map((s) => ({ boleta_id: s.boleta_id, semana_inicio: s.semana_inicio }));
+        if (!seleccion.length) return message.warning('Selecciona al menos una semana disponible.');
+        await api.reintegrarDescansosSemanales(ciclo.id, seleccion, motivo.trim());
+        setMotivo('');
+        message.success('Reintegro generado. Revisa el neto y aprueba para descargar el TXT.');
+        await cargar();
+        await cargarSemanas();
+        await cargarDescuentos();
+        return;
+      }
+      if (tipoRegularizacion === 'reintegro_descuentos') {
+        const elegidos = descuentos.filter((d) => seleccionDescuentos.includes(claveDescuento(d)))
+          .map((d) => ({ boleta_id: d.boleta_id, indice: d.indice, version: d.version, monto: montosReintegro[claveDescuento(d)] }));
+        if (!elegidos.length) return message.warning('Selecciona al menos un descuento para reintegrar.');
+        if (elegidos.some((d) => !d.monto || d.monto <= 0)) return message.warning('Ingresa un importe de reintegro mayor a cero.');
+        await api.reintegrarDescuentosComplementaria(ciclo.id, elegidos, motivo.trim());
+        setMotivo('');
+        message.success(agregaABorrador ? 'Descuentos agregados al borrador existente.' : 'Reintegro generado. Revisa el detalle y aprueba para descargar el TXT.');
+        await cargar();
+        await cargarDescuentos();
+        return;
+      }
       const accion = tipoRegularizacion === 'feriado_historico'
         ? () => api.crearRegularizacionFeriadoHistorico(ciclo.id, boletaIds, fechaFeriado.format('YYYY-MM-DD'), motivo.trim())
         : () => api.crearComplementaria(ciclo.id, boletaIds, motivo.trim());
-      await ejecutar(accion, tipoRegularizacion === 'feriado_historico' ? 'Regularización histórica calculada.' : 'Planilla complementaria calculada.');
+      await ejecutar(accion, tipoRegularizacion === 'feriado_historico' ? 'Reintegro de feriado calculado.' : 'Planilla complementaria calculada.');
+    } catch (e) {
+      message.error(Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? e.response?.data?.message ?? 'No se pudo generar el reintegro.');
     } finally {
       setCreando(false);
     }
@@ -72,6 +166,28 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       ? { cuenta_cargo_id: cuentaBcp, fecha_proceso: dayjs().format('YYYY-MM-DD'), subtipo: categoria === '4' ? '4' : 'X' }
       : { subtipo: categoria };
     await ejecutar(() => api.exportarComplementaria(item.id, banco, parametros), 'Archivo complementario descargado.');
+  };
+
+  const reintegrosAprobados = items.filter((item) => item.estado === 'aprobada');
+
+  const exportarMasivo = async (banco) => {
+    const esBcp = banco === 'telecredito-bcp';
+    if (esBcp && !cuentaBcp) return message.warning('Selecciona una cuenta BCP de cargo.');
+    if (!seleccionReintegros.length) return message.warning('Selecciona al menos un reintegro aprobado.');
+    const parametros = esBcp
+      ? { cuenta_cargo_id: cuentaBcp, fecha_proceso: dayjs().format('YYYY-MM-DD'), subtipo: categoria === '4' ? '4' : 'X' }
+      : { subtipo: categoria };
+    try {
+      await api.exportarComplementariasMasivo(ciclo.id, banco, seleccionReintegros, parametros);
+      message.success('Archivo consolidado descargado.');
+      setSeleccionReintegros([]);
+    } catch (e) {
+      let error = e.response?.data;
+      if (error instanceof Blob) {
+        try { error = JSON.parse(await error.text()); } catch { error = null; }
+      }
+      message.error(error?.message ?? Object.values(error?.errors ?? {})?.[0]?.[0] ?? 'No se pudo generar el archivo consolidado.');
+    }
   };
 
   const agregarConcepto = async (detalleId, conceptoId, conceptoDefinicionId, monto, motivoConcepto) => {
@@ -101,7 +217,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       title: '',
       key: 'acciones',
       width: 40,
-      render: (_, detalle) => (
+      render: (_, detalle) => detalle.descansos_semanales?.length || detalle.feriado_regularizado ? null : (
         <Button
           size="small"
           type="text"
@@ -116,7 +232,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const cuentasBcp = cuentas.filter((c) => c.activo && c.uso === 'haberes' && c.banco?.codigo === 'bcp');
 
   return (
-    <Modal title="Planillas complementarias" open={open} onCancel={onCancel} footer={null} width={980} destroyOnHidden>
+    <Modal title="Planillas complementarias" open={open} onCancel={onCancel} footer={null} width={1320} destroyOnHidden>
       <div className="space-y-4">
         <Descriptions size="small" bordered column={3}>
           <Descriptions.Item label="Empresa">{ciclo?.empresa?.nombre_comercial}</Descriptions.Item>
@@ -124,64 +240,217 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           <Descriptions.Item label="Estado"><Tag color="green">{ciclo?.estado}</Tag></Descriptions.Item>
         </Descriptions>
 
-        <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+        <div className="flex flex-col gap-4 lg:flex-row">
+        <div className="min-w-0 flex-1 rounded-lg border border-blue-200 bg-blue-50 p-3 lg:max-w-[760px]">
           <div className="mb-2 flex flex-wrap items-center gap-2">
-            <Select className="w-72" value={tipoRegularizacion} onChange={setTipoRegularizacion} options={[
+            <Select className="w-80" value={tipoRegularizacion} onChange={(v) => { setTipoRegularizacion(v); if (v === 'descanso_semanal') cargarSemanas(); }} options={[
+              { value: 'descanso_semanal', label: 'Reintegro por descanso semanal trabajado' },
+              { value: 'reintegro_descuentos', label: 'Reintegrar descuentos' },
               { value: 'diferencia_ciclo', label: 'Diferencia del ciclo pagado' },
-              { value: 'feriado_historico', label: 'Feriado histórico no pagado' },
+              { value: 'feriado_historico', label: 'Feriado trabajado no pagado' },
+              { value: 'horas_extra', label: 'Pagar horas extra pendientes' },
+              { value: 'bono_asistencia', label: 'Bono por asistencia' },
             ]} />
             {tipoRegularizacion === 'feriado_historico' && (
               <DatePicker value={fechaFeriado} onChange={setFechaFeriado} format="DD/MM/YYYY" placeholder="Fecha del feriado"
                 disabledDate={(fecha) => !feriadosDisponibles.includes(fecha.format('YYYY-MM-DD'))}
-                defaultPickerValue={ciclo?.fecha_inicio ? dayjs(ciclo.fecha_inicio).subtract(1, 'day') : undefined} />
+                defaultPickerValue={ciclo?.fecha_inicio ? dayjs(ciclo.fecha_inicio) : undefined} />
             )}
           </div>
           <div className="mb-2 text-sm">
-            {tipoRegularizacion === 'feriado_historico'
-              ? <>Se usará el sueldo vigente en el feriado y se calculará automáticamente <strong>sueldo / 30 × 2</strong> para las <strong>{boletaIds.length}</strong> personas seleccionadas.</>
+            {tipoRegularizacion === 'descanso_semanal'
+              ? <>Semanas completas con siete días trabajados y un descanso rotativo semanal. Importe adicional bruto: sueldo mensual histórico / 30 × 2 por semana seleccionada. El neto se calcula al generar la complementaria.</>
+              : tipoRegularizacion === 'reintegro_descuentos'
+              ? <>Boletas seleccionadas: <strong>{boletaIds.length}</strong>. Puedes generar un solo lote para todos los colaboradores. Filtra los descuentos y selecciona los que corresponde devolver.</>
+              : tipoRegularizacion === 'feriado_historico'
+              ? <>Se usará el sueldo y la condición contractual vigentes en el feriado: <strong>sueldo / 30 × 1</strong> para honorarios y <strong>× 2</strong> para planilla, sobre las <strong>{boletaIds.length}</strong> personas seleccionadas.</>
+              : tipoRegularizacion === 'horas_extra'
+              ? <>Selecciona horas aprobadas del huellero o registra manualmente las que no tuvieron marcación. Se agregarán a una complementaria calculada y se recalcularán sus aportes.</>
+              : tipoRegularizacion === 'bono_asistencia'
+              ? <>Filtra por días asistidos (exactos o como mínimo) y aplica el mismo concepto y monto a varios colaboradores a la vez. Se crea una complementaria nueva; no requiere un borrador previo.</>
               : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
           </div>
+          {tipoRegularizacion === 'descanso_semanal' && (
+            <div className="mb-3 space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={cargarSemanas} loading={cargandoSemanas}>Actualizar semanas</Button>
+                <Input.Search placeholder="Buscar colaborador" allowClear value={busquedaSemanas} onChange={(e) => setBusquedaSemanas(e.target.value)} />
+                <Button disabled={creando || cargandoSemanas} onClick={() => setSemanasSeleccionadas((prev) => [...new Set([...prev, ...semanasFiltradas.filter((s) => s.disponible).map(claveSemana)])])}>Seleccionar todas las disponibles del filtro</Button>
+                <Button onClick={() => setSemanasSeleccionadas([])}>Limpiar selección</Button>
+              </div>
+              <Table rowKey={claveSemana} size="small" loading={cargandoSemanas} dataSource={semanasFiltradas}
+                pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100] }}
+                rowSelection={{ selectedRowKeys: semanasSeleccionadas, onChange: setSemanasSeleccionadas, preserveSelectedRowKeys: true, getCheckboxProps: (s) => ({ disabled: !s.disponible || creando }) }}
+                locale={{ emptyText: 'No hay semanas completas pendientes para las boletas seleccionadas.' }}
+                columns={[
+                  { title: 'Colaborador', dataIndex: 'colaborador' },
+                  { title: 'Semana', render: (_, s) => `${dayjs(s.semana_inicio).format('DD/MM')} – ${dayjs(s.semana_fin).format('DD/MM/YYYY')}` },
+                  { title: 'Bruto adicional', dataIndex: 'importe_bruto', render: soles },
+                  { title: 'Estado', render: (_, s) => s.observacion ?? '7 días trabajados · 1 descanso por revisar' },
+                ]} />
+              <p className="font-medium text-green-700">{semanasSeleccionadas.length} semanas · Bruto seleccionado: {soles(semanasDescanso.filter((s) => semanasSeleccionadas.includes(claveSemana(s))).reduce((total, s) => total + Number(s.importe_bruto), 0))}</p>
+              <Checkbox checked={confirmarDescansos} onChange={(e) => setConfirmarDescansos(e.target.checked)}>Confirmo que no se otorgó descanso sustitutorio ni se pagaron previamente los descansos seleccionados.</Checkbox>
+              <p className="text-xs text-gray-500">Las semanas se evalúan de lunes a domingo. Una semana que termina en el mes siguiente se revisa en ese siguiente ciclo. Las semanas ya incluidas se ocultan; eliminar el borrador las libera.</p>
+            </div>
+          )}
+          {tipoRegularizacion === 'reintegro_descuentos' && (
+            <div className="mb-3 space-y-2">
+              <Button size="small" onClick={cargarDescuentos} loading={cargandoDescuentos}>Actualizar descuentos</Button>
+              <div className="flex flex-wrap gap-2">
+                <Input.Search className="w-64" placeholder="Buscar colaborador" allowClear value={busquedaDescuentos} onChange={(e) => setBusquedaDescuentos(e.target.value)} />
+                <Select className="w-64" placeholder="Todos los descuentos" allowClear value={filtroDescuento} onChange={setFiltroDescuento}
+                  options={Array.from(new Map(descuentos.map((d) => [d.codigo, { value: d.codigo, label: d.nombre }])).values())} />
+                <Button disabled={creando || !disponiblesFiltrados.length} onClick={() => setSeleccionDescuentos((prev) => [...new Set([...prev, ...disponiblesFiltrados.map(claveDescuento)])])}>
+                  Seleccionar todos los del filtro ({disponiblesFiltrados.length})
+                </Button>
+                <Button disabled={creando || !seleccionDescuentos.length} onClick={() => setSeleccionDescuentos([])}>Limpiar selección</Button>
+              </div>
+              <Table size="small" rowKey="boleta_id" dataSource={filasColaborador} loading={cargandoDescuentos}
+                pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (total) => `${total} colaboradores` }}
+                locale={{ emptyText: 'No hay descuentos pendientes en las boletas seleccionadas.' }}
+                expandable={{
+                  expandedRowRender: (fila) => (
+                    <Table size="small" showHeader={false} pagination={false} rowKey={claveDescuento} dataSource={fila.descuentos}
+                      rowSelection={{
+                        selectedRowKeys: seleccionDescuentos,
+                        onChange: (keys) => setSeleccionDescuentos((prev) => [...prev.filter((k) => !fila.descuentos.some((d) => claveDescuento(d) === k)), ...keys]),
+                        preserveSelectedRowKeys: true,
+                        getCheckboxProps: (d) => ({ disabled: !d.reintegrable || creando }),
+                      }}
+                      columns={[
+                        { title: 'Descuento', dataIndex: 'nombre', render: (v, d) => <div>{v}{(d.complementaria_pendiente_id || d.observacion_reintegro) && <div className="text-xs text-gray-500">{d.complementaria_pendiente_id ? (d.complementaria_pendiente_estado === 'calculada' ? 'Se agregará al borrador existente de este colaborador.' : 'La complementaria está aprobada y ya no puede modificarse; completa su pago antes de generar otra.') : d.observacion_reintegro}</div>}<div className="text-xs text-gray-500">{d.formula}</div></div> },
+                        { title: 'Pendiente', dataIndex: 'monto', align: 'right', width: 110, render: soles },
+                        { title: 'A reintegrar', align: 'right', width: 130, render: (_, d) => d.reintegrable ? <InputNumber className="w-full" min={0.01} max={Number(d.monto)} precision={2} value={montosReintegro[claveDescuento(d)]}
+                          disabled={creando} onChange={(v) => setMontosReintegro((prev) => ({ ...prev, [claveDescuento(d)]: v }))} /> : '—' },
+                      ]} />
+                  ),
+                }}
+                columns={[
+                  { title: 'Colaborador', dataIndex: 'colaborador', render: (v, fila) => (
+                      <div>
+                        <div className="font-medium text-gray-800">{v}</div>
+                        <div className="text-xs text-gray-500">{fila.descuentos.length} descuento{fila.descuentos.length === 1 ? '' : 's'}</div>
+                      </div>
+                    ) },
+                  { title: 'Pendiente de devolver', align: 'right', width: 140, className: 'border-l-2 border-blue-100 bg-blue-50/60',
+                    render: (_, fila) => soles(fila.descuentos.reduce((s, d) => s + Number(d.monto), 0)) },
+                  { title: 'A reintegrar', align: 'right', width: 150, className: 'bg-blue-50/60',
+                    render: (_, fila) => {
+                      const seleccionados = fila.descuentos.filter((d) => seleccionDescuentos.includes(claveDescuento(d)));
+                      const total = seleccionados.reduce((s, d) => s + Number(montosReintegro[claveDescuento(d)] || 0), 0);
+                      return (
+                        <div>
+                          <div className={seleccionados.length ? 'font-medium text-green-700' : 'text-gray-400'}>{soles(total)}</div>
+                          <div className="text-xs text-gray-500">{seleccionados.length}/{fila.descuentos.length} seleccionados</div>
+                        </div>
+                      );
+                    } },
+                ]} />
+              <div className="font-medium text-green-700">{colaboradoresSeleccionados} colaboradores · {seleccionDescuentos.length} descuentos · Reintegro seleccionado: {soles(seleccionDescuentos.reduce((s, key) => s + Number(montosReintegro[key] || 0), 0))}</div>
+              {descuentos.some((d) => d.aplicado_en_basico) && <p className="text-xs text-gray-600">Las faltas descontadas del básico se muestran por su importe bruto. Al subsanarlas se recalculan los aportes y se muestra el neto a pagar en la complementaria.</p>}
+              <p className="text-xs text-gray-500">Los descuentos ya incluidos no vuelven a aparecer. Mientras la complementaria siga calculada, puedes agregarle otros descuentos olvidados; después de aprobarla queda bloqueada.</p>
+            </div>
+          )}
           {tipoRegularizacion === 'feriado_historico' && (
             <Checkbox className="mb-2" checked={sinDescansoSustitutorio} onChange={(event) => setSinDescansoSustitutorio(event.target.checked)}>
-              Confirmo que trabajaron el feriado y no recibieron descanso sustitutorio
+              Confirmo que trabajaron el feriado, corresponde el adicional y no recibieron descanso sustitutorio ni pago previo por este concepto
             </Checkbox>
           )}
-          <div className="flex gap-2">
+          {tipoRegularizacion === 'horas_extra' && (
+            <HorasExtraComplementariaPanel ciclo={ciclo} boletaIds={boletaIds} items={items} api={api} onUpdated={cargar} />
+          )}
+          {tipoRegularizacion === 'bono_asistencia' && (
+            <BonoAsistenciaComplementariaPanel ciclo={ciclo} api={api} onUpdated={cargar} catalogo={catalogoConceptos} />
+          )}
+          {!['horas_extra', 'bono_asistencia'].includes(tipoRegularizacion) && <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
             <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>
-              {tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
+              {tipoRegularizacion === 'reintegro_descuentos' && agregaABorrador ? 'Agregar al borrador' : ['reintegro_descuentos', 'descanso_semanal'].includes(tipoRegularizacion) ? 'Generar reintegro' : tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
             </Button>
+          </div>}
+        </div>
+
+        <div className="w-full shrink-0 space-y-3 lg:w-[480px]">
+          <Select value={categoria} onChange={setCategoria} options={[{ value: '5', label: '5ta categoría' }, { value: '4', label: '4ta categoría' }]} />
+
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
+            <Button size="small" disabled={!reintegrosAprobados.length} onClick={() => setSeleccionReintegros(reintegrosAprobados.map((i) => i.id))}>
+              Seleccionar aprobados ({reintegrosAprobados.length})
+            </Button>
+            <Button size="small" disabled={!seleccionReintegros.length} onClick={() => setSeleccionReintegros([])}>Limpiar selección</Button>
+            {permisos.telecredito && (
+              <Popconfirm
+                title="Cuenta BCP de cargo"
+                description={
+                  <Select className="w-64" placeholder="Selecciona una cuenta" value={cuentaBcp} onChange={setCuentaBcp}
+                    options={cuentasBcp.map((c) => ({ value: c.id, label: `${c.banco?.nombre ?? 'BCP'} • ${c.numero_cuenta}` }))} />
+                }
+                onConfirm={() => exportarMasivo('telecredito-bcp')}
+              >
+                <Button size="small" icon={<CreditCardOutlined />} disabled={!seleccionReintegros.length}>
+                  Telecrédito consolidado ({seleccionReintegros.length})
+                </Button>
+              </Popconfirm>
+            )}
+            {permisos.bbva && (
+              <Button size="small" icon={<BankOutlined />} disabled={!seleccionReintegros.length} onClick={() => exportarMasivo('bbva-netcash')}>
+                Net Cash consolidado ({seleccionReintegros.length})
+              </Button>
+            )}
+            <span className="text-xs text-gray-500">Solo se pueden combinar reintegros ya aprobados, de la categoría seleccionada arriba.</span>
           </div>
-        </div>
 
-        <div className="flex gap-2">
-          <Select className="w-56" value={categoria} onChange={setCategoria} options={[{ value: '5', label: '5ta categoría' }, { value: '4', label: '4ta categoría' }]} />
-          <Select className="w-80" allowClear placeholder="Cuenta BCP para Telecrédito" value={cuentaBcp} onChange={setCuentaBcp}
-            options={cuentasBcp.map((c) => ({ value: c.id, label: `${c.banco?.nombre ?? 'BCP'} • ${c.numero_cuenta}` }))} />
-        </div>
-
-        <div className="max-h-[55vh] space-y-4 overflow-y-auto pr-1">
-        {items.map((item) => (
+          <div className="max-h-[70vh] space-y-4 overflow-y-auto pr-1">
+          {items.map((item) => (
           <div key={item.id} className="rounded-lg border p-3">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div><strong>{item.nombre}</strong> <Tag>{item.estado}</Tag><div className="text-xs text-gray-500">{item.motivo}</div></div>
-              <div className="flex gap-2">
-                <span className="self-center text-sm text-green-700">A pagar: {soles(item.total_a_pagar)}</span>
-                {Number(item.saldo_a_descontar) > 0 && <span className="self-center text-sm text-red-600">A descontar: {soles(item.saldo_a_descontar)}</span>}
+            <div className="mb-2 flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-2">
+                {item.estado === 'aprobada' && (
+                  <Checkbox className="mt-1" checked={seleccionReintegros.includes(item.id)}
+                    onChange={(e) => setSeleccionReintegros((prev) => e.target.checked ? [...prev, item.id] : prev.filter((id) => id !== item.id))} />
+                )}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{item.nombre}</strong>
+                    <Tag>{item.estado}</Tag>
+                  </div>
+                  <div className="text-xs text-gray-500">{item.motivo}</div>
+                </div>
+              </div>
+              <div className="flex shrink-0 flex-col items-end gap-0.5">
+                <span className="text-xs text-gray-500">A pagar</span>
+                <span className="text-base font-semibold text-green-700">{soles(item.total_a_pagar)}</span>
+                {Number(item.saldo_a_descontar) > 0 && <span className="text-sm font-medium text-red-600">A descontar: {soles(item.saldo_a_descontar)}</span>}
+              </div>
+            </div>
+            <div className="mb-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-2">
+                {item.estado === 'calculada' && permisos.calcular && (
+                  <Button icon={<PlusOutlined />} onClick={() => setItemParaColaboradores(item)}>Agregar colaboradores</Button>
+                )}
                 {item.estado === 'calculada' && permisos.calcular && (
                   <Popconfirm
                     title="¿Eliminar esta complementaria?"
                     description="Se borra por completo, incluyendo los conceptos que hayas agregado. La boleta original no se ve afectada."
-                    onConfirm={() => ejecutar(() => api.eliminarComplementaria(item.id), 'Complementaria eliminada.')}
+                    onConfirm={() => ejecutar(() => api.eliminarComplementaria(item.id), 'Complementaria eliminada.', true)}
                   >
                     <Button danger icon={<DeleteOutlined />}>Eliminar</Button>
                   </Popconfirm>
                 )}
                 {item.estado === 'calculada' && permisos.aprobar && <Button onClick={() => ejecutar(() => api.aprobarComplementaria(item.id), 'Complementaria aprobada.')}>Aprobar</Button>}
-                {item.estado === 'aprobada' && permisos.telecredito && <Button icon={<CreditCardOutlined />} onClick={() => exportar(item, 'telecredito-bcp')}>Telecrédito</Button>}
+                {item.estado === 'aprobada' && permisos.telecredito && (
+                  <Popconfirm
+                    title="Cuenta BCP de cargo"
+                    description={
+                      <Select className="w-64" placeholder="Selecciona una cuenta" value={cuentaBcp} onChange={setCuentaBcp}
+                        options={cuentasBcp.map((c) => ({ value: c.id, label: `${c.banco?.nombre ?? 'BCP'} • ${c.numero_cuenta}` }))} />
+                    }
+                    onConfirm={() => exportar(item, 'telecredito-bcp')}
+                  >
+                    <Button icon={<CreditCardOutlined />}>Telecrédito</Button>
+                  </Popconfirm>
+                )}
                 {item.estado === 'aprobada' && permisos.bbva && <Button icon={<BankOutlined />} onClick={() => exportar(item, 'bbva-netcash')}>Net Cash</Button>}
-                {item.estado === 'aprobada' && permisos.pagar && <Popconfirm title="Referencia del pago" description={<Form><Input id={`ref-${item.id}`} placeholder="Operación o lote" /></Form>} onConfirm={() => { const ref = document.getElementById(`ref-${item.id}`)?.value; if (ref) ejecutar(() => api.pagarComplementaria(item.id, ref), 'Complementaria marcada como pagada.'); }}><Button>Marcar pagada</Button></Popconfirm>}
-              </div>
+                {item.estado === 'aprobada' && permisos.pagar && <Popconfirm title="Referencia del pago" description={<Form><Input id={`ref-${item.id}`} placeholder="Operación o lote" /></Form>} onConfirm={() => { const ref = document.getElementById(`ref-${item.id}`)?.value; if (ref) ejecutar(() => api.pagarComplementaria(item.id, ref), 'Complementaria marcada como pagada.', true); }}><Button>Marcar pagada</Button></Popconfirm>}
             </div>
             <Table
               rowKey="id"
@@ -190,10 +459,33 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               columns={columnasDetalle(item)}
               dataSource={item.detalles}
               expandable={{
-                rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0,
+                rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0 || detalle.reintegros_descuentos?.length > 0 || detalle.descansos_semanales?.length > 0 || detalle.feriado_regularizado || detalle.horas_extra_regularizadas?.length > 0,
                 expandedRowRender: (detalle) => (
                   <div className="space-y-1.5 py-1">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Conceptos agregados a mano</p>
+                    {detalle.feriado_regularizado && <p className="text-sm text-green-700">Feriado trabajado {dayjs(detalle.feriado_regularizado.fecha).format('DD/MM/YYYY')}: {soles(detalle.feriado_regularizado.importe_bruto)} bruto adicional ({detalle.feriado_regularizado.tipo_pago === 'honorarios' ? 'honorarios ×1' : 'planilla ×2'}).</p>}
+                    {detalle.descansos_semanales?.map((s) => <p key={s.semana_inicio} className="text-sm text-green-700">Descanso semanal {s.semana_inicio} – {s.semana_fin}: {soles(s.sueldo)} / 30 × 2 = {soles(s.importe_bruto)} bruto.</p>)}
+                    {detalle.reintegros_descuentos?.length > 0 && <>
+                      <p className="text-xs font-semibold text-gray-500">Descuentos subsanados</p>
+                      {detalle.reintegros_descuentos.map((r, i) => <div key={i} className="text-sm text-green-700">{catalogoConceptos.find((c) => c.codigo === r.codigo)?.nombre ?? nombreConcepto(r.codigo)}: {soles(r.monto)} <span className="text-gray-500">— {r.motivo}</span></div>)}
+                    </>}
+                    {detalle.horas_extra_regularizadas?.length > 0 && <>
+                      <p className="text-xs font-semibold text-gray-500">Horas extra regularizadas</p>
+                      {detalle.horas_extra_regularizadas.map((hora, i) => (
+                        <div key={hora.linea_id ?? i} className="flex items-center justify-between rounded-lg border border-green-100 bg-green-50 px-3 py-1.5 text-xs">
+                          <div>
+                            <Tag color="green">HE {hora.tasa}%</Tag>
+                            <span className="font-medium">{Math.floor(Number(hora.minutos) / 60)}h {Number(hora.minutos) % 60}m · {soles(hora.monto)}</span>
+                            <span className="ml-1 text-gray-500">— {dayjs(hora.fecha).format('DD/MM/YYYY')} · {hora.origen === 'huellero' ? 'Huellero' : 'Manual'}{hora.motivo ? ` · ${hora.motivo}` : ''}</span>
+                          </div>
+                          {item.estado === 'calculada' && permisos.calcular && hora.linea_id && (
+                            <Popconfirm title="¿Eliminar estas horas extra?" description="Los minutos volverán a quedar disponibles para otra selección." onConfirm={() => eliminarConcepto(detalle.id, hora.linea_id)}>
+                              <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                            </Popconfirm>
+                          )}
+                        </div>
+                      ))}
+                    </>}
+                    {detalle.conceptos_manuales?.length > 0 && <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Conceptos agregados a mano</p>}
                     {detalle.conceptos_manuales.map((c, i) => (
                       <div key={c.id ?? i} className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-1.5 text-xs">
                         <div>
@@ -201,7 +493,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                           <span className="font-medium">{soles(c.monto)}</span>
                           {c.motivo && <span className="ml-1 text-gray-500">— {c.motivo}</span>}
                         </div>
-                        {item.estado === 'calculada' && permisos.calcular && (
+                        {item.estado === 'calculada' && permisos.calcular && !detalle.descansos_semanales?.length && !detalle.feriado_regularizado && (
                           c.id ? (
                             <Popconfirm title="¿Eliminar este concepto?" onConfirm={() => eliminarConcepto(detalle.id, c.id)}>
                               <Button size="small" type="text" danger icon={<DeleteOutlined />} />
@@ -220,7 +512,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
             />
           </div>
         ))}
-        {!items.length && !loading && <div className="py-8 text-center text-gray-400">Aún no hay regularizaciones para este ciclo.</div>}
+          {!items.length && !loading && <div className="py-8 text-center text-gray-400">Aún no hay regularizaciones para este ciclo.</div>}
+          </div>
+        </div>
         </div>
       </div>
 
@@ -231,6 +525,16 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         loading={agregandoConcepto}
         detalle={detalleParaConcepto}
         catalogo={catalogoConceptos}
+      />
+      <AgregarColaboradoresComplementariaModal
+        open={Boolean(itemParaColaboradores)}
+        item={itemParaColaboradores}
+        api={api}
+        onCancel={() => setItemParaColaboradores(null)}
+        onAdded={async () => {
+          setItemParaColaboradores(null);
+          await cargar();
+        }}
       />
     </Modal>
   );
