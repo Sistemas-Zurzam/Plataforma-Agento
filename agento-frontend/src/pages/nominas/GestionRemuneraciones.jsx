@@ -226,6 +226,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
     exportarPlanillaPagadaExcel,
+    exportarComplementariasExcel,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
     fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, crearComplementariaHorasExtra, agregarHorasExtraComplementaria, fetchColaboradoresPorAsistencia, aplicarBonoPorAsistencia, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo,
@@ -240,6 +241,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [creandoCiclo, setCreandoCiclo] = useState(false);
   const [calculando, setCalculando] = useState(false);
   const [exportandoPlanilla, setExportandoPlanilla] = useState(false);
+  const [exportandoComplementarias, setExportandoComplementarias] = useState(false);
 
   const [configuracionColaborador, setConfiguracionColaborador] = useState(null);
   const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
@@ -563,6 +565,20 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       message.error('No se pudo generar el Excel de la planilla pagada');
     } finally {
       setExportandoPlanilla(false);
+    }
+  };
+
+  const handleExportarComplementarias = async () => {
+    if (!cicloActivo) return;
+
+    setExportandoComplementarias(true);
+    try {
+      await exportarComplementariasExcel(cicloActivo.id);
+      message.success('Excel de planillas complementarias generado');
+    } catch {
+      message.error('No se pudo generar el Excel de planillas complementarias');
+    } finally {
+      setExportandoComplementarias(false);
     }
   };
 
@@ -1019,6 +1035,16 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             onClick={handleExportarPlanillaPagada}
           >
             Excel planilla pagada
+          </Button>
+        </Tooltip>
+        <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Exporta el detalle de todos los reintegros del ciclo' : 'Disponible para ciclos pagados'}>
+          <Button
+            icon={<FileExcelOutlined />}
+            disabled={cicloActivo?.estado !== 'pagado'}
+            loading={exportandoComplementarias}
+            onClick={handleExportarComplementarias}
+          >
+            Excel reintegros
           </Button>
         </Tooltip>
         <Tooltip title={cicloActivo ? '' : 'Selecciona un ciclo remunerativo primero'}>

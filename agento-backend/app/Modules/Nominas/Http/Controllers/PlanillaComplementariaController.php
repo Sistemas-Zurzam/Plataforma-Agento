@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
+use App\Modules\Nominas\Infrastructure\PlanillaComplementaria\Export\PlanillaComplementariaExcelExporter;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\PlanillaComplementaria;
@@ -11,6 +12,7 @@ use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Services\PlanillaComplementariaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -44,6 +46,22 @@ class PlanillaComplementariaController extends Controller
     {
         $empresa = $this->empresa($request, $ciclo);
         return response()->json(['data' => $this->service->listar($empresa, $ciclo)->map(fn ($i) => $this->presentar($i))]);
+    }
+
+    public function exportarExcel(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $empresa = $this->empresa($request, $ciclo);
+        $items = $this->service->listar($empresa, $ciclo);
+        abort_if($items->isEmpty(), 422, 'El ciclo no tiene planillas complementarias para exportar.');
+
+        $contenido = PlanillaComplementariaExcelExporter::generar($ciclo->loadMissing('empresa'), $items);
+        $nombre = sprintf('%s_%s_reintegros.xlsx', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
     }
 
     public function descuentos(Request $request, CicloRemunerativo $ciclo): JsonResponse
