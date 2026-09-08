@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { useCuentasBancariasEmpresa } from '../../configuracion/hooks/useCuentasBancariasEmpresa';
 import AgregarConceptoComplementariaModal, { CONCEPTOS_REGISTRABLES } from './AgregarConceptoComplementariaModal';
 import AgregarColaboradoresComplementariaModal from './AgregarColaboradoresComplementariaModal';
+import HorasExtraComplementariaPanel from './HorasExtraComplementariaPanel';
 
 const soles = (valor) => `S/ ${Number(valor || 0).toFixed(2)}`;
 const nombreConcepto = (codigo) => codigo === 'DESCUENTO_FALTA_BASICO' ? 'Faltas descontadas de la remuneración básica' : CONCEPTOS_REGISTRABLES.find((c) => c.codigo === codigo)?.nombre ?? codigo;
@@ -242,6 +243,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               { value: 'reintegro_descuentos', label: 'Reintegrar descuentos' },
               { value: 'diferencia_ciclo', label: 'Diferencia del ciclo pagado' },
               { value: 'feriado_historico', label: 'Feriado trabajado no pagado' },
+              { value: 'horas_extra', label: 'Pagar horas extra pendientes' },
             ]} />
             {tipoRegularizacion === 'feriado_historico' && (
               <DatePicker value={fechaFeriado} onChange={setFechaFeriado} format="DD/MM/YYYY" placeholder="Fecha del feriado"
@@ -256,6 +258,8 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               ? <>Boletas seleccionadas: <strong>{boletaIds.length}</strong>. Puedes generar un solo lote para todos los colaboradores. Filtra los descuentos y selecciona los que corresponde devolver.</>
               : tipoRegularizacion === 'feriado_historico'
               ? <>Se usará el sueldo y la condición contractual vigentes en el feriado: <strong>sueldo / 30 × 1</strong> para honorarios y <strong>× 2</strong> para planilla, sobre las <strong>{boletaIds.length}</strong> personas seleccionadas.</>
+              : tipoRegularizacion === 'horas_extra'
+              ? <>Selecciona horas aprobadas del huellero o registra manualmente las que no tuvieron marcación. Se agregarán a una complementaria calculada y se recalcularán sus aportes.</>
               : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
           </div>
           {tipoRegularizacion === 'descanso_semanal' && (
@@ -344,12 +348,15 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               Confirmo que trabajaron el feriado, corresponde el adicional y no recibieron descanso sustitutorio ni pago previo por este concepto
             </Checkbox>
           )}
-          <div className="flex gap-2">
+          {tipoRegularizacion === 'horas_extra' && (
+            <HorasExtraComplementariaPanel ciclo={ciclo} items={items} api={api} onUpdated={cargar} />
+          )}
+          {tipoRegularizacion !== 'horas_extra' && <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
             <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>
               {tipoRegularizacion === 'reintegro_descuentos' && agregaABorrador ? 'Agregar al borrador' : ['reintegro_descuentos', 'descanso_semanal'].includes(tipoRegularizacion) ? 'Generar reintegro' : tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
             </Button>
-          </div>
+          </div>}
         </div>
 
         <div className="w-full shrink-0 space-y-3 lg:w-[480px]">
@@ -441,7 +448,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               columns={columnasDetalle(item)}
               dataSource={item.detalles}
               expandable={{
-                rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0 || detalle.reintegros_descuentos?.length > 0 || detalle.descansos_semanales?.length > 0,
+                rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0 || detalle.reintegros_descuentos?.length > 0 || detalle.descansos_semanales?.length > 0 || detalle.feriado_regularizado || detalle.horas_extra_regularizadas?.length > 0,
                 expandedRowRender: (detalle) => (
                   <div className="space-y-1.5 py-1">
                     {detalle.feriado_regularizado && <p className="text-sm text-green-700">Feriado trabajado {dayjs(detalle.feriado_regularizado.fecha).format('DD/MM/YYYY')}: {soles(detalle.feriado_regularizado.importe_bruto)} bruto adicional ({detalle.feriado_regularizado.tipo_pago === 'honorarios' ? 'honorarios ×1' : 'planilla ×2'}).</p>}
@@ -449,6 +456,23 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                     {detalle.reintegros_descuentos?.length > 0 && <>
                       <p className="text-xs font-semibold text-gray-500">Descuentos subsanados</p>
                       {detalle.reintegros_descuentos.map((r, i) => <div key={i} className="text-sm text-green-700">{catalogoConceptos.find((c) => c.codigo === r.codigo)?.nombre ?? nombreConcepto(r.codigo)}: {soles(r.monto)} <span className="text-gray-500">— {r.motivo}</span></div>)}
+                    </>}
+                    {detalle.horas_extra_regularizadas?.length > 0 && <>
+                      <p className="text-xs font-semibold text-gray-500">Horas extra regularizadas</p>
+                      {detalle.horas_extra_regularizadas.map((hora, i) => (
+                        <div key={hora.linea_id ?? i} className="flex items-center justify-between rounded-lg border border-green-100 bg-green-50 px-3 py-1.5 text-xs">
+                          <div>
+                            <Tag color="green">HE {hora.tasa}%</Tag>
+                            <span className="font-medium">{Math.floor(Number(hora.minutos) / 60)}h {Number(hora.minutos) % 60}m · {soles(hora.monto)}</span>
+                            <span className="ml-1 text-gray-500">— {dayjs(hora.fecha).format('DD/MM/YYYY')} · {hora.origen === 'huellero' ? 'Huellero' : 'Manual'}{hora.motivo ? ` · ${hora.motivo}` : ''}</span>
+                          </div>
+                          {item.estado === 'calculada' && permisos.calcular && hora.linea_id && (
+                            <Popconfirm title="¿Eliminar estas horas extra?" description="Los minutos volverán a quedar disponibles para otra selección." onConfirm={() => eliminarConcepto(detalle.id, hora.linea_id)}>
+                              <Button size="small" type="text" danger icon={<DeleteOutlined />} />
+                            </Popconfirm>
+                          )}
+                        </div>
+                      ))}
                     </>}
                     {detalle.conceptos_manuales?.length > 0 && <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Conceptos agregados a mano</p>}
                     {detalle.conceptos_manuales.map((c, i) => (

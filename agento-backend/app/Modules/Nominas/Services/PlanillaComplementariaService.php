@@ -2,6 +2,7 @@
 
 namespace App\Modules\Nominas\Services;
 
+use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
@@ -19,6 +20,7 @@ use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use App\Modules\Personas\Support\FeriadosPeru;
 use Illuminate\Auth\Access\AuthorizationException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -52,7 +54,7 @@ class PlanillaComplementariaService
 
         $ocupados = PlanillaComplementariaDetalle::whereHas('complementaria', fn ($q) => $q
             ->where('ciclo_id', $item->ciclo_id)
-            ->whereIn('estado', ['calculada', 'aprobada']))
+            ->where('estado', 'calculada'))
             ->pluck('colaborador_id');
 
         return Boleta::where('ciclo_id', $item->ciclo_id)
@@ -106,12 +108,12 @@ class PlanillaComplementariaService
             $ocupados = PlanillaComplementariaDetalle::whereIn('colaborador_id', $boletas->pluck('colaborador_id'))
                 ->whereHas('complementaria', fn ($q) => $q
                     ->where('ciclo_id', $item->ciclo_id)
-                    ->whereIn('estado', ['calculada', 'aprobada']))
+                    ->where('estado', 'calculada'))
                 ->lockForUpdate()
                 ->exists();
 
             if ($ocupados) {
-                throw ValidationException::withMessages(['boleta_ids' => 'Uno de los colaboradores ya pertenece a una complementaria pendiente. Actualiza la lista e inténtalo nuevamente.']);
+                throw ValidationException::withMessages(['boleta_ids' => 'Uno de los colaboradores ya pertenece a un borrador de complementaria sin aprobar. Actualiza la lista e inténtalo nuevamente.']);
             }
 
             foreach ($boletas as $boleta) {
@@ -142,6 +144,153 @@ class PlanillaComplementariaService
         });
     }
 
+    public function horasExtraPendientes(Empresa $empresa, CicloRemunerativo $ciclo): array
+    {
+        $this->verificar($empresa, $ciclo);
+        if ($ciclo->estado !== 'pagado') {
+            throw ValidationException::withMessages(['estado' => 'Las horas extra pendientes solo se regularizan sobre un ciclo pagado.']);
+        }
+
+        $boletas = Boleta::where('ciclo_id', $ciclo->id)->where('estado', 'pagada')->where('es_version_vigente', true)
+            ->with(['colaborador', 'conceptos.concepto'])->get()->keyBy('colaborador_id');
+        $horas = AsistenciaHoraExtra::withoutGlobalScopes()->where('empresa_id', $empresa->id)
+            ->whereBetween('fecha', [$ciclo->fecha_inicio, $ciclo->fecha_fin])->where('estado', 'aprobado')
+            ->whereIn('colaborador_id', $boletas->keys())->orderBy('fecha')->orderBy('id')->get();
+
+        $detallesActivos = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
+            ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada', 'pagada']))
+            ->get(['id', 'colaborador_id', 'boleta_original_id', 'calculo_snapshot']);
+
+        $reservas = $detallesActivos->flatMap(fn ($d) => $d->calculo_snapshot['horas_extra_regularizadas'] ?? [])
+            ->where('origen', 'huellero')->groupBy('asistencia_hora_extra_id')
+            ->map(fn ($items) => (int) $items->sum('minutos'));
+
+        // Un HE al 100% ya cubierto por "descanso semanal sin sustitutorio" o "feriado
+        // trabajado no pagado" no puede volver a ofrecerse aquí: ambos flujos pagan el
+        // día completo (sueldo/30) sin dejar un vínculo por minutos en asistencia_horas_extra.
+        $semanasReservadasPorColaborador = $detallesActivos->groupBy('colaborador_id')->map(
+            fn ($detalles) => $detalles->flatMap(fn ($d) => $d->calculo_snapshot['descansos_semanales'] ?? [])
+                ->pluck('semana_inicio')->filter()->unique()->values()
+        );
+        $feriadosReservadosPorColaborador = $detallesActivos->groupBy('colaborador_id')->map(
+            fn ($detalles) => $detalles->pluck('calculo_snapshot.feriado_regularizado.fecha')->filter()->unique()->values()
+        );
+
+        $pagadoOriginal = [];
+        foreach ($boletas as $boleta) {
+            foreach ($boleta->conceptos as $linea) {
+                $tasa = match ($linea->concepto?->codigo) { 'HE_25' => '25', 'HE_35' => '35', 'HE_100' => '100', default => null };
+                if ($tasa) $pagadoOriginal[$boleta->colaborador_id][$tasa] = ($pagadoOriginal[$boleta->colaborador_id][$tasa] ?? 0) + (int) round((float) $linea->cantidad * 60);
+            }
+        }
+
+        $resultado = [];
+        foreach ($horas as $hora) {
+            $boleta = $boletas[$hora->colaborador_id];
+            if ((string) $hora->tasa === '100') {
+                $fecha = $hora->fecha->toDateString();
+                $enSemanaReservada = ($semanasReservadasPorColaborador[$hora->colaborador_id] ?? collect())
+                    ->contains(fn ($inicio) => $fecha >= $inicio && $fecha <= Carbon::parse($inicio)->addDays(6)->toDateString());
+                $enFeriadoReservado = ($feriadosReservadosPorColaborador[$hora->colaborador_id] ?? collect())->contains($fecha);
+                if ($enSemanaReservada || $enFeriadoReservado) continue;
+            }
+            $cubiertos = min((int) $hora->minutos_aprobados, $pagadoOriginal[$hora->colaborador_id][(string) $hora->tasa] ?? 0);
+            $pagadoOriginal[$hora->colaborador_id][(string) $hora->tasa] = max(0, ($pagadoOriginal[$hora->colaborador_id][(string) $hora->tasa] ?? 0) - $cubiertos);
+            $pendientes = max(0, (int) $hora->minutos_aprobados - $cubiertos - (int) ($reservas[$hora->id] ?? 0));
+            if ($pendientes === 0) continue;
+            $resultado[] = [
+                'id' => $hora->id, 'boleta_id' => $boleta->id, 'colaborador_id' => $hora->colaborador_id,
+                'colaborador' => trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos),
+                'fecha' => $hora->fecha->toDateString(), 'tasa' => (string) $hora->tasa,
+                'minutos_aprobados' => (int) $hora->minutos_aprobados, 'minutos_pendientes' => $pendientes,
+                'motivo' => $hora->motivo,
+            ];
+        }
+
+        $colaboradores = $boletas->filter(fn ($b) => $b->regimen_laboral_snapshot !== 'Locacion de Servicios')
+            ->map(fn ($b) => ['boleta_id' => $b->id, 'colaborador_id' => $b->colaborador_id,
+                'colaborador' => trim($b->colaborador->nombres.' '.$b->colaborador->apellidos),
+                'documento' => $b->colaborador->numero_documento])->values()->all();
+
+        return ['horas' => $resultado, 'colaboradores' => $colaboradores];
+    }
+
+    /** @param array<int, array{hora_extra_id:int,minutos:int}> $detectadas @param array<int, array{boleta_id:int,fecha:string,minutos:int,tasa:string,motivo:string}> $manuales */
+    public function agregarHorasExtra(Empresa $empresa, PlanillaComplementaria $item, array $detectadas, array $manuales, int $usuarioId): PlanillaComplementaria
+    {
+        return DB::transaction(function () use ($empresa, $item, $detectadas, $manuales, $usuarioId) {
+            $item = PlanillaComplementaria::whereKey($item->id)->lockForUpdate()->firstOrFail();
+            $this->verificarItem($empresa, $item);
+            if ($item->estado !== 'calculada') throw ValidationException::withMessages(['estado' => 'Solo se agregan horas extra a una complementaria calculada.']);
+
+            $ciclo = $item->ciclo;
+            $pendientes = collect($this->horasExtraPendientes($empresa, $ciclo)['horas'])->keyBy('id');
+            $entradas = collect();
+            foreach ($detectadas as $seleccion) {
+                $hora = $pendientes->get((int) $seleccion['hora_extra_id']);
+                if (! $hora || (int) $seleccion['minutos'] > $hora['minutos_pendientes']) {
+                    throw ValidationException::withMessages(['horas_detectadas' => 'Una hora extra ya fue pagada, reservada o supera los minutos pendientes. Actualiza la lista.']);
+                }
+                $entradas->push([...$hora, 'origen' => 'huellero', 'minutos' => (int) $seleccion['minutos'], 'asistencia_hora_extra_id' => (int) $seleccion['hora_extra_id']]);
+            }
+            foreach ($manuales as $manual) {
+                if ($manual['fecha'] < $ciclo->fecha_inicio->toDateString() || $manual['fecha'] > $ciclo->fecha_fin->toDateString()) {
+                    throw ValidationException::withMessages(['horas_manuales' => 'La fecha manual debe pertenecer al período del ciclo pagado.']);
+                }
+                $entradas->push([...$manual, 'origen' => 'manual', 'asistencia_hora_extra_id' => null]);
+            }
+            if ($entradas->isEmpty()) throw ValidationException::withMessages(['horas_extra' => 'Selecciona o registra al menos una hora extra.']);
+
+            $boletas = Boleta::where('ciclo_id', $ciclo->id)->whereIn('id', $entradas->pluck('boleta_id')->unique())
+                ->where('estado', 'pagada')->where('es_version_vigente', true)->with('colaborador')->get()->keyBy('id');
+            if ($boletas->count() !== $entradas->pluck('boleta_id')->unique()->count()) throw ValidationException::withMessages(['boleta_id' => 'Una boleta no pertenece al ciclo pagado.']);
+
+            $faltantes = $boletas->keys()->diff($item->detalles()->pluck('boleta_original_id'));
+            if ($faltantes->isNotEmpty()) $this->agregarColaboradores($empresa, $item, $faltantes->all());
+
+            foreach ($entradas->groupBy('boleta_id') as $boletaId => $grupo) {
+                $boleta = $boletas[$boletaId];
+                $nombreColaborador = trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos);
+                if ($boleta->regimen_laboral_snapshot === 'Locacion de Servicios') throw ValidationException::withMessages(['boleta_id' => 'Las horas extra laborales no aplican a locación de servicios.']);
+                $detalle = $item->detalles()->where('boleta_original_id', $boletaId)->firstOrFail();
+                $detalle->load(['colaborador.empresa', 'boletaOriginal.ciclo']);
+                if (! empty($detalle->calculo_snapshot['descansos_semanales']) || ! empty($detalle->calculo_snapshot['feriado_regularizado'])) {
+                    throw ValidationException::withMessages(['boleta_id' => "{$nombreColaborador} ya tiene un descanso semanal o feriado regularizado en este borrador: elimínalo y vuelve a generarlo aparte."]);
+                }
+                $snapshot = $detalle->calculo_snapshot;
+                $delta = 0.0;
+                foreach ($grupo as $entrada) {
+                    $condicion = ColaboradorCondicionLaboral::vigenteEn($boleta->colaborador_id, $entrada['fecha']);
+                    if (($condicion?->es_trabajador_confianza ?? false) || ! ($condicion?->contabilizar_horas_extra ?? $boleta->colaborador->contabilizar_horas_extra)) {
+                        throw ValidationException::withMessages(['horas_extra' => "{$nombreColaborador} no tenía habilitado el pago de horas extra en {$entrada['fecha']}."]);
+                    }
+                    $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $boleta->colaborador_id)->whereDate('vigencia_desde', '<=', $entrada['fecha'])->latest('vigencia_desde')->latest('id')->first();
+                    if (! $remuneracion) throw ValidationException::withMessages(['horas_extra' => "No existe remuneración histórica para {$nombreColaborador} al {$entrada['fecha']}."]);
+                    $parametros = ParametrosVigentesResolver::paraRegimen($empresa, $condicion?->regimen_laboral ?? $boleta->regimen_laboral_snapshot, $entrada['fecha']);
+                    $factor = match ((string) $entrada['tasa']) { '25' => $parametros['horas_extra_tasa_x25'], '35' => $parametros['horas_extra_tasa_x35'], '100' => $parametros['horas_extra_tasa_nocturna'] };
+                    $codigo = 'HE_'.(string) $entrada['tasa'];
+                    $monto = round(((float) $remuneracion->salario / 240) * $factor * ((int) $entrada['minutos'] / 60), 2);
+                    $delta += $monto;
+                    $lineaId = (string) Str::uuid();
+                    $snapshot['ingresos'][] = ['id' => $lineaId, 'codigo' => $codigo, 'monto' => $monto,
+                        'base_utilizada' => round((float) $remuneracion->salario / 240, 4), 'tasa_aplicada' => $factor,
+                        'cantidad' => round((int) $entrada['minutos'] / 60, 4), 'motivo' => $entrada['motivo'] ?? null,
+                        'formula_texto' => "({$remuneracion->salario}/240) × {$factor} × {$entrada['minutos']} min / 60",
+                        'agregado_por' => $usuarioId, 'agregado_en' => now()->toDateTimeString()];
+                    $snapshot['horas_extra_regularizadas'][] = ['linea_id' => $lineaId, 'origen' => $entrada['origen'],
+                        'asistencia_hora_extra_id' => $entrada['asistencia_hora_extra_id'], 'fecha' => $entrada['fecha'],
+                        'tasa' => (string) $entrada['tasa'], 'minutos' => (int) $entrada['minutos'], 'monto' => $monto,
+                        'motivo' => $entrada['motivo'] ?? null, 'registrado_por' => $usuarioId, 'registrado_en' => now()->toDateTimeString()];
+                }
+                $this->recalcularAfpEssalud($detalle, $snapshot, $delta);
+                $this->recalcularRentaQuinta($detalle, $snapshot, $delta);
+                $this->recalcularProvisiones($detalle, $snapshot, $delta);
+                $this->guardarSnapshotYDiferencias($detalle, $snapshot);
+            }
+            return $this->cargar($item);
+        });
+    }
+
     /** @param array<int, int> $boletaIds */
     public function crear(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds, string $motivo, int $usuarioId): PlanillaComplementaria
     {
@@ -162,11 +311,11 @@ class PlanillaComplementariaService
         }
 
         $pendienteExistente = PlanillaComplementariaDetalle::whereIn('colaborador_id', $originales->pluck('colaborador_id'))
-            ->whereHas('complementaria', fn ($q) => $q->where('ciclo_id', $ciclo->id)->whereIn('estado', ['calculada', 'aprobada']))
+            ->whereHas('complementaria', fn ($q) => $q->where('ciclo_id', $ciclo->id)->where('estado', 'calculada'))
             ->exists();
         if ($pendienteExistente) {
             throw ValidationException::withMessages([
-                'colaboradores' => 'Uno de los colaboradores ya tiene una complementaria pendiente. Apruébala y págala antes de generar otra para evitar duplicar el abono.',
+                'colaboradores' => 'Uno de los colaboradores ya tiene un borrador de complementaria sin aprobar. Apruébalo o elimínalo antes de generar otra.',
             ]);
         }
 
@@ -293,11 +442,11 @@ class PlanillaComplementariaService
 
         $colaboradorIds = $originales->pluck('colaborador_id');
         $pendienteExistente = PlanillaComplementariaDetalle::whereIn('colaborador_id', $colaboradorIds)
-            ->whereHas('complementaria', fn ($q) => $q->where('ciclo_id', $ciclo->id)->whereIn('estado', ['calculada', 'aprobada']))
+            ->whereHas('complementaria', fn ($q) => $q->where('ciclo_id', $ciclo->id)->where('estado', 'calculada'))
             ->exists();
         if ($pendienteExistente) {
             throw ValidationException::withMessages([
-                'colaboradores' => 'Uno de los colaboradores ya tiene una complementaria pendiente. Apruébala y págala antes de generar otra.',
+                'colaboradores' => 'Uno de los colaboradores ya tiene un borrador de complementaria sin aprobar. Apruébalo o elimínalo antes de generar otra.',
             ]);
         }
 
@@ -802,7 +951,17 @@ class PlanillaComplementariaService
                 ->reject(fn (array $l) => ($l['id'] ?? null) === $lineaId)
                 ->values()->all();
 
+            $snapshot['horas_extra_regularizadas'] = collect($snapshot['horas_extra_regularizadas'] ?? [])
+                ->reject(fn (array $hora) => ($hora['linea_id'] ?? null) === $lineaId)
+                ->values()->all();
+
             if ($bloque === 'ingresos') {
+                // $detalle puede venir de cargar() (colaborador con columnas
+                // restringidas, sin empresa_id) cuando el caller encadena
+                // varias operaciones sobre el mismo objeto en memoria en vez
+                // de volver a resolverlo por route model binding — recargar
+                // aquí evita un empresa_id nulo en recalcularAfpEssalud().
+                $detalle->load(['colaborador.empresa', 'boletaOriginal.ciclo']);
                 $colaborador = $detalle->colaborador;
                 $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
                 $concepto = ConceptoRemuneracion::where('codigo', $linea['codigo'])->first();

@@ -228,7 +228,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     exportarPlanillaPagadaExcel,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
-    fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo,
+    fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, agregarHorasExtraComplementaria, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo,
   } = useRemuneraciones();
 
   const [cicloId, setCicloId] = useState(null);
@@ -1341,7 +1341,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setComplementariasModalOpen(false)}
         ciclo={cicloActivo}
         boletaIds={boletasSeleccionadas}
-        api={{ fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo }}
+        api={{ fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, agregarHorasExtraComplementaria, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo }}
         permisos={{ calcular: puedeCalcular, aprobar: puedeAprobar, pagar: puedePagar, telecredito: puedeExportarTelecredito, bbva: puedeExportarBbvaNetCash }}
         catalogoConceptos={catalogoConceptos}
       />

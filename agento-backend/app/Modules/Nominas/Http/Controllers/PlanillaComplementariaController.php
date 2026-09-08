@@ -72,6 +72,11 @@ class PlanillaComplementariaController extends Controller
         return response()->json(['data' => $this->service->feriadosDisponibles($empresa, $ciclo)]);
     }
 
+    public function horasExtraPendientes(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        return response()->json(['data' => $this->service->horasExtraPendientes($this->empresa($request, $ciclo), $ciclo)]);
+    }
+
     public function store(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
         $datos = $request->validate([
@@ -164,6 +169,25 @@ class PlanillaComplementariaController extends Controller
             $complementaria,
             $datos['boleta_ids'],
         );
+
+        return response()->json(['data' => $this->presentar($item)]);
+    }
+
+    public function agregarHorasExtra(Request $request, PlanillaComplementaria $complementaria): JsonResponse
+    {
+        $datos = $request->validate([
+            'horas_detectadas' => ['sometimes', 'array'],
+            'horas_detectadas.*.hora_extra_id' => ['required', 'integer', 'distinct'],
+            'horas_detectadas.*.minutos' => ['required', 'integer', 'min:1', 'max:1440'],
+            'horas_manuales' => ['sometimes', 'array'],
+            'horas_manuales.*.boleta_id' => ['required', 'integer'],
+            'horas_manuales.*.fecha' => ['required', 'date'],
+            'horas_manuales.*.minutos' => ['required', 'integer', 'min:1', 'max:1440'],
+            'horas_manuales.*.tasa' => ['required', Rule::in(['25', '35', '100'])],
+            'horas_manuales.*.motivo' => ['required', 'string', 'max:255'],
+        ]);
+        $item = $this->service->agregarHorasExtra($this->empresaItem($request, $complementaria), $complementaria,
+            $datos['horas_detectadas'] ?? [], $datos['horas_manuales'] ?? [], $request->user('api')->id);
 
         return response()->json(['data' => $this->presentar($item)]);
     }
@@ -265,6 +289,7 @@ class PlanillaComplementariaController extends Controller
                 'reintegros_descuentos' => $d->calculo_snapshot['reintegros_descuentos'] ?? [],
                 'descansos_semanales' => $d->calculo_snapshot['descansos_semanales'] ?? [],
                 'feriado_regularizado' => $d->calculo_snapshot['feriado_regularizado'] ?? null,
+                'horas_extra_regularizadas' => $d->calculo_snapshot['horas_extra_regularizadas'] ?? [],
             ])->values(),
             'aprobado_at' => $item->aprobado_at?->toDateTimeString(), 'pagado_at' => $item->pagado_at?->toDateTimeString(),
             'referencia_pago' => $item->referencia_pago,
@@ -280,12 +305,14 @@ class PlanillaComplementariaController extends Controller
     private function conceptosManuales($detalle): array
     {
         $snapshot = $detalle->calculo_snapshot;
+        $lineasHorasExtra = collect($snapshot['horas_extra_regularizadas'] ?? [])->pluck('linea_id')->filter();
 
         return collect([
             ...collect($snapshot['ingresos'] ?? [])->map(fn (array $l) => [...$l, 'tipo' => 'ingreso']),
             ...collect($snapshot['egresos'] ?? [])->map(fn (array $l) => [...$l, 'tipo' => 'egreso']),
         ])
             ->filter(fn (array $l) => isset($l['agregado_por']))
+            ->reject(fn (array $l) => $lineasHorasExtra->contains($l['id'] ?? null))
             ->map(fn (array $l) => [
                 'id' => $l['id'] ?? null,
                 'codigo' => $l['codigo'],
