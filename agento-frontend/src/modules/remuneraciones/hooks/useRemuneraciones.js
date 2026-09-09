@@ -184,15 +184,30 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
-  const fetchColaboradoresPorAsistencia = useCallback(async (cicloId, dias, operador, conceptoId) => {
+  const fetchColaboradoresPorAsistencia = useCallback(async (cicloId, dias, operador, conceptoId, reporte = {}) => {
     const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/colaboradores-por-asistencia`, {
-      params: { dias, operador, concepto_id: conceptoId },
+      params: { dias, operador, concepto_id: conceptoId, ...reporte },
     });
     return data.data;
   }, []);
 
   const aplicarBonoPorAsistencia = useCallback(async (cicloId, payload) => {
     const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/bono-por-asistencia`, payload);
+    return data.data;
+  }, []);
+
+  const exportarExcelBono = useCallback(async (cicloId, mes, montoBase) => {
+    const response = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/bono-asistencia/excel`,
+      { params: { mes, monto_base: montoBase }, responseType: 'blob' }).catch(mostrarErrorDeArchivo);
+    const url = URL.createObjectURL(response.data);
+    const a = document.createElement('a'); a.href = url; a.download = `Bono_asistencia_${mes}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  }, []);
+
+  const importarExcelBono = useCallback(async (cicloId, archivo, opciones = {}) => {
+    const form = new FormData(); form.append('archivo', archivo);
+    Object.entries(opciones).forEach(([clave, valor]) => { if (valor !== null && valor !== undefined) form.append(clave, String(valor)); });
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/bono-asistencia/excel`, form);
     return data.data;
   }, []);
 
@@ -637,6 +652,8 @@ export function useRemuneraciones() {
     crearComplementariaHorasExtra,
     agregarHorasExtraComplementaria,
     fetchColaboradoresPorAsistencia,
+    exportarExcelBono,
+    importarExcelBono,
     aplicarBonoPorAsistencia,
     crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,

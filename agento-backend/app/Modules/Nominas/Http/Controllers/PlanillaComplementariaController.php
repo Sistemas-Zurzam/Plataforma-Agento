@@ -107,6 +107,11 @@ class PlanillaComplementariaController extends Controller
 
     public function colaboradoresPorAsistencia(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
+        if ($request->boolean('reporte_gerencia')) {
+            $datos = $request->validate(['mes' => ['required', 'date_format:Y-m']]);
+            return response()->json(['data' => app(\App\Modules\Nominas\Services\ReporteBonoAsistenciaService::class)
+                ->generar($this->empresa($request, $ciclo), $datos['mes'])]);
+        }
         $datos = $request->validate([
             'dias' => ['required', 'integer', 'min:1'],
             'operador' => ['required', Rule::in(['exacto', 'minimo'])],
@@ -120,6 +125,38 @@ class PlanillaComplementariaController extends Controller
             $datos['operador'],
             (int) $datos['concepto_id'],
         )]);
+    }
+
+    public function exportarBonoExcel(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $datos = $request->validate(['mes' => ['required', 'date_format:Y-m'], 'monto_base' => ['required', 'numeric', 'min:0.01', 'max:9999999']]);
+        $libro = app(\App\Modules\Nominas\Services\ExcelBonoAsistenciaService::class)
+            ->exportar($this->empresa($request, $ciclo), $datos['mes'], (float) $datos['monto_base']);
+        return response()->streamDownload(function () use ($libro) {
+            try { (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($libro))->save('php://output'); }
+            finally { $libro->disconnectWorksheets(); }
+        }, 'Bono_asistencia_'.$datos['mes'].'.xlsx', ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
+    public function importarBonoExcel(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate([
+            'archivo' => ['required', 'file', 'mimes:xlsx', 'max:10240'],
+            'generar' => ['sometimes', 'boolean'],
+            'concepto_id' => ['nullable', 'integer', 'exists:conceptos_remuneracion,id'],
+            'concepto_definicion_id' => ['nullable', 'integer'],
+            'motivo' => [$request->boolean('generar') ? 'required' : 'nullable', 'string', 'max:255'],
+        ]);
+        $empresa = $this->empresa($request, $ciclo);
+        $service = app(\App\Modules\Nominas\Services\ExcelBonoAsistenciaService::class);
+        try {
+            if (! $request->boolean('generar')) return response()->json(['data' => $service->validar($empresa, $ciclo, $request->file('archivo')->getRealPath())]);
+            $item = $service->generar($empresa, $ciclo, $request->file('archivo')->getRealPath(), $datos['concepto_id'] ?? null,
+                $datos['concepto_definicion_id'] ?? null, $datos['motivo'], $request->user('api')->id);
+            return response()->json(['data' => $this->presentar($item)], 201);
+        } catch (\PhpOffice\PhpSpreadsheet\Exception $e) {
+            throw ValidationException::withMessages(['archivo' => 'No se pudo leer el Excel. Usa la plantilla .xlsx exportada, sin cambiar su estructura.']);
+        }
     }
 
     public function aplicarBonoPorAsistencia(Request $request, CicloRemunerativo $ciclo): JsonResponse
@@ -393,6 +430,7 @@ class PlanillaComplementariaController extends Controller
                 'descansos_semanales' => $d->calculo_snapshot['descansos_semanales'] ?? [],
                 'feriado_regularizado' => $d->calculo_snapshot['feriado_regularizado'] ?? null,
                 'horas_extra_regularizadas' => $d->calculo_snapshot['horas_extra_regularizadas'] ?? [],
+                'bono_asistencia_gerencia' => $d->calculo_snapshot['bono_asistencia_gerencia'] ?? null,
                 'elegible_telecredito' => $elegibilidad[$d->id]['telecredito'],
                 'elegible_netcash' => $elegibilidad[$d->id]['netcash'],
             ])->values(),

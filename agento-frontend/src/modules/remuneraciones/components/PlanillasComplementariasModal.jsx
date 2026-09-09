@@ -277,7 +277,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               : tipoRegularizacion === 'horas_extra'
               ? <>Selecciona horas aprobadas del huellero o registra manualmente las que no tuvieron marcación. Se agregarán a una complementaria calculada y se recalcularán sus aportes.</>
               : tipoRegularizacion === 'bono_asistencia'
-              ? <>Filtra por días asistidos (exactos o como mínimo) y aplica el mismo concepto y monto a varios colaboradores a la vez. Se crea una complementaria nueva; no requiere un borrador previo.</>
+              ? <>Evalúa la asistencia mensual y exporta la propuesta para Gerencia. Después registra los colaboradores y montos aprobados en una complementaria.</>
               : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
           </div>
           {tipoRegularizacion === 'descanso_semanal' && (
@@ -488,6 +488,10 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0 || detalle.reintegros_descuentos?.length > 0 || detalle.descansos_semanales?.length > 0 || detalle.feriado_regularizado || detalle.horas_extra_regularizadas?.length > 0,
                 expandedRowRender: (detalle) => (
                   <div className="space-y-1.5 py-1">
+                    {detalle.bono_asistencia_gerencia && <div className="rounded border border-blue-100 bg-blue-50 p-2 text-sm">
+                      <p>Bono bruto aprobado: {soles(detalle.bono_asistencia_gerencia.monto)} · {detalle.bono_asistencia_gerencia.responsable} · {detalle.bono_asistencia_gerencia.fecha}</p>
+                      <p>Meta comercial: {detalle.bono_asistencia_gerencia.meta}. {detalle.bono_asistencia_gerencia.sustento}</p>
+                    </div>}
                     {detalle.feriado_regularizado && <p className="text-sm text-green-700">Feriado trabajado {dayjs(detalle.feriado_regularizado.fecha).format('DD/MM/YYYY')}: {soles(detalle.feriado_regularizado.importe_bruto)} bruto adicional ({detalle.feriado_regularizado.tipo_pago === 'honorarios' ? 'honorarios ×1' : 'planilla ×2'}).</p>}
                     {detalle.descansos_semanales?.map((s) => <p key={s.semana_inicio} className="text-sm text-green-700">Descanso semanal {s.semana_inicio} – {s.semana_fin}: {soles(s.sueldo)} / 30 × 2 = {soles(s.importe_bruto)} bruto.</p>)}
                     {detalle.reintegros_descuentos?.length > 0 && <>

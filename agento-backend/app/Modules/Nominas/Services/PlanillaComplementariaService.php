@@ -185,7 +185,8 @@ class PlanillaComplementariaService
         // asumirse como único límite de tenant en una query entre módulos.
         $conteos = AsistenciaResultadoDiario::withoutGlobalScopes()
             ->where('empresa_id', $empresa->id)
-            ->where('estado', 'presente')
+            ->whereNotNull('entrada_at')->whereNotNull('salida_at')
+            ->whereColumn('salida_at', '>', 'entrada_at')->where('minutos_trabajados', '>', 0)
             ->whereDate('fecha', '>=', $ciclo->fecha_inicio->toDateString())
             ->whereDate('fecha', '<=', $ciclo->fecha_fin->toDateString())
             ->selectRaw('colaborador_id, count(*) as dias')
@@ -1184,6 +1185,9 @@ class PlanillaComplementariaService
      */
     public function eliminarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, string $lineaId): PlanillaComplementaria
     {
+        if (! empty($detalle->calculo_snapshot['bono_asistencia_gerencia'])) {
+            throw ValidationException::withMessages(['detalle' => 'Para corregir un bono importado, elimina su complementaria calculada y vuelve a importar el Excel aprobado.']);
+        }
         if (! empty($detalle->calculo_snapshot['descansos_semanales']) || ! empty($detalle->calculo_snapshot['feriado_regularizado'])) {
             throw ValidationException::withMessages(['detalle' => 'Para corregir las semanas, elimina el borrador y vuelve a generar el reintegro.']);
         }
@@ -1271,6 +1275,35 @@ class PlanillaComplementariaService
      * Nunca se llama para honorarios (ya filtrado por el caller): un
      * locador no tiene AFP/ONP/EsSalud.
      */
+    public function agregarBonoHonorariosGerencia(Empresa $empresa, PlanillaComplementariaDetalle $detalle, float $monto, string $motivo, int $usuarioId): void
+    {
+        $this->verificarItem($empresa, $detalle->complementaria);
+        if ($detalle->complementaria->estado !== 'calculada' || $detalle->boletaOriginal->regimen_laboral_snapshot !== 'Locacion de Servicios' || $monto <= 0) {
+            throw ValidationException::withMessages(['bono' => 'El adicional requiere honorarios y una complementaria calculada.']);
+        }
+        $detalle->load(['colaborador', 'boletaOriginal.ciclo']);
+        $parametros = ParametrosVigentesResolver::paraHonorarios($empresa, $detalle->boletaOriginal->ciclo->fecha_corte_asistencia->toDateString());
+        $snapshot = $detalle->calculo_snapshot;
+        $base = (float) collect($snapshot['ingresos'])->where('codigo', 'HONORARIO_BRUTO')->sum('monto');
+        $retencion = fn ($valor) => $detalle->colaborador->tiene_suspension_renta_4ta || $valor <= $parametros['umbral_retencion_4ta']
+            ? 0 : round($valor * $parametros['tasa_retencion_4ta'], 2);
+        $adicionalRetencion = max(0, round($retencion($base + $monto) - $retencion($base), 2));
+        $snapshot['ingresos'][] = ['id' => (string) Str::uuid(), 'codigo' => 'HONORARIO_BRUTO', 'monto' => round($monto, 2),
+            'formula_texto' => 'Bono por asistencia aprobado por Gerencia: '.$motivo,
+            'motivo' => $motivo, 'agregado_por' => $usuarioId, 'agregado_en' => now()->toDateTimeString()];
+        if ($adicionalRetencion > 0) {
+            $indice = collect($snapshot['egresos'])->search(fn ($l) => $l['codigo'] === 'RETENCION_RENTA_4TA');
+            if ($indice === false) {
+                $snapshot['egresos'][] = ['codigo' => 'RETENCION_RENTA_4TA', 'monto' => $adicionalRetencion,
+                    'base_utilizada' => $base + $monto, 'tasa_aplicada' => $parametros['tasa_retencion_4ta']];
+            } else {
+                $snapshot['egresos'][$indice]['monto'] = round($snapshot['egresos'][$indice]['monto'] + $adicionalRetencion, 2);
+                $snapshot['egresos'][$indice]['base_utilizada'] = $base + $monto;
+            }
+        }
+        $this->guardarSnapshotYDiferencias($detalle, $snapshot);
+    }
+
     private function recalcularAfpEssalud(PlanillaComplementariaDetalle $detalle, array &$snapshot, float $deltaBase): void
     {
         $colaborador = $detalle->colaborador;
@@ -1312,7 +1345,8 @@ class PlanillaComplementariaService
         $fechaCorte = $ciclo->fecha_corte_asistencia->toDateString();
         $parametros = ParametrosVigentesResolver::paraRegimen($colaborador->empresa, $colaborador->regimen_laboral ?: 'General', $fechaCorte);
         $lineaActual = collect($snapshot['egresos'] ?? [])->firstWhere('codigo', 'RENTA_5TA');
-        $baseActual = (float) ($lineaActual['base_utilizada'] ?? collect($snapshot['ingresos'] ?? [])->sum('monto'));
+        // El snapshot ya contiene el ingreso agregado (o eliminado).
+        $baseActual = (float) ($lineaActual['base_utilizada'] ?? (collect($snapshot['ingresos'] ?? [])->sum('monto') - $deltaBase));
         $nueva = $this->calculador->calcularRenta5ta($colaborador, max(0, $baseActual + $deltaBase), $parametros, $fechaCorte, $ciclo->id);
 
         $snapshot['egresos'] = collect($snapshot['egresos'] ?? [])
