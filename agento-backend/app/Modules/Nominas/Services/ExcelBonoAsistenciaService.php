@@ -29,9 +29,9 @@ class ExcelBonoAsistenciaService
 
     public function __construct(private readonly ReporteBonoAsistenciaService $reportes, private readonly PlanillaComplementariaService $planillas) {}
 
-    public function exportar(Empresa $empresa, string $mes, float $monto): Spreadsheet
+    public function exportar(Empresa $empresa, string $mes, float $monto, ?int $areaId = null): Spreadsheet
     {
-        $reporte = $this->reportes->generar($empresa, $mes);
+        $reporte = $this->reportes->generar($empresa, $mes, $areaId);
         $libro = new Spreadsheet();
         $hoja = $libro->getActiveSheet()->setTitle('Decisiones');
         $hoja->fromArray(self::CABECERAS);
@@ -43,7 +43,7 @@ class ExcelBonoAsistenciaService
                 $c['porcentaje_inicial'], number_format($monto * $c['porcentaje_inicial'] / 100, 2, '.', ''), $c['porcentaje_recuperable'],
                 number_format($monto * $c['porcentaje_recuperable'] / 100, 2, '.', ''), $c['observaciones']];
             $fijos = array_map(fn ($v) => (string) ($v ?? ''), $fijos);
-            $token = Crypt::encryptString(json_encode(['version' => 1, 'empresa_id' => $empresa->id, 'mes' => $mes,
+            $token = Crypt::encryptString(json_encode(['version' => 1, 'empresa_id' => $empresa->id, 'mes' => $mes, 'area_id' => $reporte['area_id'],
                 'lote' => $lote, 'colaborador_id' => $c['colaborador_id'], 'huella' => $this->huella($c), 'fijos' => $fijos], JSON_THROW_ON_ERROR));
             foreach ([...$fijos, 'Pendiente', 'Pendiente', '', '', '', '', $token] as $j => $valor) {
                 $hoja->setCellValueExplicit(Coordinate::stringFromColumnIndex($j + 1).($i + 2), $valor, DataType::TYPE_STRING);
@@ -67,7 +67,7 @@ class ExcelBonoAsistenciaService
         $hoja->getColumnDimension('AB')->setVisible(false);
         $instrucciones = $libro->createSheet()->setTitle('Instrucciones');
         $instrucciones->fromArray([
-            ['Bono de asistencia — revisión de Gerencia'],
+            ['Bono de asistencia — revisión de Gerencia. Área: '.(collect($reporte['areas'])->firstWhere('id', $reporte['area_id'])['nombre'] ?? '')],
             ['Edita únicamente las celdas amarillas de la hoja Decisiones. No alteres datos de asistencia ni identificadores.'],
             ['Decisión: Pendiente, Aprobado o Rechazado. Solo se pagan filas Aprobado, con monto, responsable y fecha.'],
             ['Monto aprobado es el BONO BRUTO, no el neto bancario. El sistema calcula descuentos y aportes aplicables.'],
@@ -108,7 +108,7 @@ class ExcelBonoAsistenciaService
         } finally { $libro->disconnectWorksheets(); }
         if (array_map('strval', array_shift($filas) ?? []) !== self::CABECERAS) throw ValidationException::withMessages(['archivo' => 'No cambies las columnas del Excel exportado.']);
         $mes = $ciclo->fecha_inicio->format('Y-m');
-        $actuales = collect($this->reportes->generar($empresa, $mes)['colaboradores'])->keyBy('colaborador_id');
+        $reportesPorArea = [];
         $boletas = Boleta::where('empresa_id', $empresa->id)->where('ciclo_id', $ciclo->id)->where('estado', 'pagada')->where('es_version_vigente', true)->get()->keyBy('colaborador_id');
         $detalles = PlanillaComplementariaDetalle::whereHas('complementaria', fn ($q) => $q->where('empresa_id', $empresa->id)->whereIn('estado', ['calculada', 'aprobada', 'pagada']))->with('complementaria')->get();
         $vistos = []; $resultado = []; $errores = []; $loteArchivo = null;
@@ -124,7 +124,11 @@ class ExcelBonoAsistenciaService
                 $id = $control['colaborador_id'];
                 if (isset($vistos[$id])) throw new \RuntimeException('Colaborador repetido en el Excel.');
                 $vistos[$id] = true;
-                $actual = $actuales->get($id);
+                $area = $control['area_id'] ?? null;
+                $claveArea = $area ?? 'ventas';
+                $reportesPorArea[$claveArea] ??= collect($this->reportes->generar($empresa, $mes, $area)['colaboradores'])->keyBy('colaborador_id');
+                $actual = $reportesPorArea[$claveArea]->get($id);
+                if (! $actual) throw new \RuntimeException('El colaborador ya no pertenece al área seleccionada en el Excel. Exporta nuevamente.');
                 if (! $actual || ! hash_equals($control['huella'], $this->huella($actual))) throw new \RuntimeException('La asistencia o los datos cambiaron desde la exportación. Exporta y revisa nuevamente.');
                 foreach (array_slice($fila, 21, 6) as $valor) if (preg_match('/^\s*[=+@]/', (string) $valor)) throw new \RuntimeException('No se admiten fórmulas en las decisiones.');
                 $decision = mb_strtolower(trim((string) $fila[21]));

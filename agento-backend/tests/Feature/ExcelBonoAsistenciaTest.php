@@ -51,6 +51,7 @@ class ExcelBonoAsistenciaTest extends TestCase
         $persona = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01', 'tipo_contrato' => 'locacion_servicios',
             'regimen_laboral' => 'Locacion de Servicios', 'tiene_suspension_renta_4ta' => $suspension,
             'numero_documento' => '01234567', 'banco_id' => $banco->id, 'numero_cuenta' => '19123456789012', 'tipo_cuenta' => 'ahorro', 'moneda_cuenta' => 'PEN']);
+        $persona->area()->withoutGlobalScopes()->update(['nombre' => 'VENTAS']);
         $ciclo = CicloRemunerativo::create(['empresa_id' => $empresa->id, 'nombre' => 'Septiembre 2026',
             'fecha_inicio' => '2026-09-01', 'fecha_fin' => '2026-09-30', 'fecha_corte_asistencia' => '2026-09-30', 'fecha_pago' => '2026-09-30', 'estado' => 'pagado']);
         $boleta = Boleta::create(['empresa_id' => $empresa->id, 'ciclo_id' => $ciclo->id, 'colaborador_id' => $persona->id,
@@ -72,7 +73,9 @@ class ExcelBonoAsistenciaTest extends TestCase
         $service = app(ExcelBonoAsistenciaService::class);
         $libro = $service->exportar($empresa, '2026-09', 150);
         $fila = 2;
-        while ((string) $libro->getActiveSheet()->getCell('A'.$fila)->getValue() !== (string) $persona->id) $fila++;
+        $ultimaFila = $libro->getActiveSheet()->getHighestDataRow();
+        while ($fila <= $ultimaFila && (string) $libro->getActiveSheet()->getCell('A'.$fila)->getValue() !== (string) $persona->id) $fila++;
+        $this->assertLessThanOrEqual($ultimaFila, $fila, 'El colaborador de ventas debe figurar en el Excel.');
         foreach (['V' => 'Aprobado', 'W' => 'No', 'X' => '150.00', 'Y' => 'Gerencia LIVEX', 'Z' => '2026-10-05', 'AA' => 'RRHH verificó las marcaciones y autorizaciones de los días observados'] as $col => $v) $libro->getActiveSheet()->setCellValue($col.$fila, $v);
         return [$empresa, $ciclo, $boleta, $usuario, $service, $libro, $fila];
     }
@@ -99,10 +102,24 @@ class ExcelBonoAsistenciaTest extends TestCase
         $service->generar($empresa, $ciclo, $archivo, null, null, 'Duplicado', $usuario->id);
     }
 
+    public function test_rechaza_excel_si_colaborador_deja_de_pertenecer_a_ventas(): void
+    {
+        [$empresa, $ciclo, $boleta, , $service, $libro] = $this->escenario();
+        $archivo = $this->guardar($libro);
+        $this->assertTrue($service->validar($empresa, $ciclo, $archivo)['listo']);
+        $area = \App\Modules\Configuracion\Models\Area::create(['empresa_id' => $empresa->id, 'nombre' => 'ADMINISTRACION TEST']);
+        $boleta->colaborador->update(['area_id' => $area->id]);
+        $resultado = $service->validar($empresa, $ciclo, $archivo);
+        $this->assertFalse($resultado['listo']);
+        $this->assertStringContainsString('área seleccionada', $resultado['errores'][0]['mensaje']);
+        $this->assertDatabaseCount('planillas_complementarias', 0);
+    }
+
     public function test_archivo_mixto_separa_categorias_y_no_modifica_las_boletas(): void
     {
         [$empresa, $ciclo, $rh, $usuario, $service] = $this->escenario();
         $dependiente = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01', 'numero_documento' => '87654321']);
+        $dependiente->update(['area_id' => $rh->colaborador->area_id]);
         $boleta = $rh->replicate();
         $boleta->colaborador_id = $dependiente->id;
         $boleta->regimen_laboral_snapshot = 'General';
@@ -165,7 +182,10 @@ class ExcelBonoAsistenciaTest extends TestCase
             'estado' => 'aprobado', 'registrado_por' => $usuario->id]);
         $libro = $service->exportar($empresa, '2026-09', 150);
         $hoja = $libro->getActiveSheet();
-        $fila = 2; while ((int) $hoja->getCell('A'.$fila)->getValue() !== $boleta->colaborador_id) $fila++;
+        $fila = 2;
+        $ultimaFila = $hoja->getHighestDataRow();
+        while ($fila <= $ultimaFila && (int) $hoja->getCell('A'.$fila)->getValue() !== (int) $boleta->colaborador_id) $fila++;
+        $this->assertLessThanOrEqual($ultimaFila, $fila);
         foreach (['V' => 'Aprobado', 'W' => 'No', 'X' => '150', 'Y' => 'Gerencia', 'Z' => '2026-10-05', 'AA' => 'Se validó el sustento de RRHH'] as $col => $valor) $hoja->setCellValue($col.$fila, $valor);
         $this->assertFalse($service->validar($empresa, $ciclo, $this->guardar($libro))['listo']);
         $hoja->setCellValue('W'.$fila, 'Si');

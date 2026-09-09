@@ -1,4 +1,4 @@
-import { Alert, App, Button, DatePicker, Input, InputNumber, Table, Tag } from 'antd';
+import { Alert, App, Button, DatePicker, Input, InputNumber, Select, Table, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import ImportarBonoAsistenciaPanel from './ImportarBonoAsistenciaPanel';
@@ -7,33 +7,45 @@ export default function ReporteBonoAsistenciaPanel({ ciclo, api, onUpdated, cata
   const { message } = App.useApp();
   const [mes, setMes] = useState(dayjs(ciclo.fecha_inicio));
   const [reporte, setReporte] = useState(null);
+  const [areas, setAreas] = useState([]);
+  const [areaId, setAreaId] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busqueda, setBusqueda] = useState('');
   const [monto, setMonto] = useState(150);
-  useEffect(() => { setReporte(null); setMes(dayjs(ciclo.fecha_inicio)); }, [ciclo.id, ciclo.fecha_inicio]);
+  useEffect(() => {
+    let activo = true;
+    setReporte(null); setMes(dayjs(ciclo.fecha_inicio)); setAreaId(null); setAreas([]);
+    api.fetchColaboradoresPorAsistencia(ciclo.id, undefined, undefined, undefined,
+      { reporte_gerencia: true, mes: dayjs(ciclo.fecha_inicio).format('YYYY-MM') })
+      .then((r) => { if (activo) { setAreas(r.areas); setAreaId(r.area_id); } })
+      .catch(() => { if (activo) message.error('No se pudieron cargar las áreas.'); });
+    return () => { activo = false; };
+  }, [ciclo.id, ciclo.fecha_inicio]);
   const cargar = async () => {
     setLoading(true); setReporte(null);
     try {
       setReporte(await api.fetchColaboradoresPorAsistencia(ciclo.id, undefined, undefined, undefined,
-        { reporte_gerencia: true, mes: mes.format('YYYY-MM') }));
+        { reporte_gerencia: true, mes: mes.format('YYYY-MM'), area_id: areaId }));
     } catch (e) { message.error(e.response?.data?.message ?? 'No se pudo generar el reporte.'); }
     finally { setLoading(false); }
   };
   const importe = (porcentaje) => ((monto || 0) * porcentaje / 100).toFixed(2);
   const exportar = async () => {
     setLoading(true);
-    try { await api.exportarExcelBono(ciclo.id, mes.format('YYYY-MM'), monto); }
+    try { await api.exportarExcelBono(ciclo.id, mes.format('YYYY-MM'), monto, areaId); }
     catch (e) { message.error(e.response?.data?.message ?? 'No se pudo exportar el Excel.'); }
     finally { setLoading(false); }
   };
   const filas = (reporte?.colaboradores ?? []).filter((c) => `${c.colaborador} ${c.documento}`.toLowerCase().includes(busqueda.toLowerCase()));
   return <div className="space-y-3">
     <Alert type="info" showIcon message="Propuesta para revisión de Gerencia"
-      description="Incluye a todos los colaboradores del mes, con o sin boleta. Los porcentajes son preliminares: RR. HH. valida sustentos y autorizaciones; Gerencia decide el bono y la recuperación por meta. Exportar no genera pagos ni modifica comisiones." />
+      description="Evalúa el área seleccionada; VENTAS se selecciona por defecto. RR. HH. valida sustentos y autorizaciones; Gerencia decide el bono y la recuperación por meta. Exportar no genera pagos ni modifica comisiones." />
     <div className="flex flex-wrap gap-2 items-center">
+      <Select style={{ minWidth: 180 }} placeholder="Selecciona el área" value={areaId} options={areas.map((a) => ({ value: a.id, label: a.nombre }))}
+        onChange={(id) => { setAreaId(id); setReporte(null); }} disabled={loading} />
       <DatePicker picker="month" value={mes} allowClear={false} minDate={dayjs('2026-08-01')} onChange={(v) => { setMes(v); setReporte(null); }} />
       <span>Bono base S/</span><InputNumber min={0} precision={2} value={monto} onChange={setMonto} />
-      <Button onClick={cargar} loading={loading}>Evaluar todos los colaboradores</Button>
+      <Button onClick={cargar} loading={loading} disabled={!areaId}>Evaluar área seleccionada</Button>
       <Button onClick={exportar} disabled={!reporte?.colaboradores.length || loading || !monto}>Exportar Excel para Gerencia</Button>
     </div>
     <p className="text-xs text-gray-600">Criterios aplicados desde agosto de 2026: 26 jornadas y 4 descansos. Sin faltas: 100%; 1 justificada: 50% inicial + 50% por meta; 2 justificadas: 0% inicial + 50% por meta. Una falta injustificada o 3 tardanzas: 0%, sin recuperación. Las horas extra no compensan incidencias.</p>

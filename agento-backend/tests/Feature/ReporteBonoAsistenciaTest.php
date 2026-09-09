@@ -37,6 +37,10 @@ class ReporteBonoAsistenciaTest extends TestCase
         $empresa = Empresa::firstOrFail();
         $persona = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
         $sinDatos = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
+        $persona->area()->withoutGlobalScopes()->update(['nombre' => 'VENTAS']);
+        $sinDatos->update(['area_id' => $persona->area_id]);
+        $marketing = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01', 'cargo' => 'VENDEDOR']);
+        $marketing->area()->withoutGlobalScopes()->update(['nombre' => 'MARKETING']);
         $futuro = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-10-01']);
         $otraEmpresa = Empresa::create(['nombre_comercial' => 'Otra empresa', 'razon_social' => 'Otra', 'ruc' => '20999999991', 'activa' => true]);
         $ajeno = $this->crearColaborador($otraEmpresa, ['fecha_ingreso' => '2026-01-01']);
@@ -59,6 +63,7 @@ class ReporteBonoAsistenciaTest extends TestCase
         $reporte = app(ReporteBonoAsistenciaService::class)->generar($empresa, '2026-09');
         $filas = collect($reporte['colaboradores'])->keyBy('colaborador_id');
         $this->assertTrue($filas->has($sinDatos->id));
+        $this->assertFalse($filas->has($marketing->id));
         $this->assertFalse($filas->has($futuro->id));
         $this->assertFalse($filas->has($ajeno->id));
         $this->assertSame(26, $filas[$persona->id]['dias_efectivos']);
@@ -66,6 +71,8 @@ class ReporteBonoAsistenciaTest extends TestCase
         $this->assertSame(1, $filas[$persona->id]['tardanzas']);
         $this->assertSame(1, $filas[$persona->id]['sin_huellero_completo']);
         $this->assertSame(30, $filas[$sinDatos->id]['dias_sin_resultado']);
+        $marketingReporte = app(ReporteBonoAsistenciaService::class)->generar($empresa, '2026-09', $marketing->area_id);
+        $this->assertSame($marketing->id, $marketingReporte['colaboradores'][0]['colaborador_id']);
         $this->assertSame('Requiere revisión', $filas[$persona->id]['evaluacion']);
         $this->assertDatabaseCount('planillas_complementarias', 0);
     }

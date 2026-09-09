@@ -11,14 +11,18 @@ use Illuminate\Validation\ValidationException;
 
 class ReporteBonoAsistenciaService
 {
-    public function generar(Empresa $empresa, string $mes): array
+    public function generar(Empresa $empresa, string $mes, ?int $areaId = null): array
     {
         if ($mes < '2026-08') {
             throw ValidationException::withMessages(['mes' => 'Estos criterios se aplican desde agosto de 2026.']);
         }
         $inicio = Carbon::parse($mes.'-01')->startOfMonth();
         $fin = $inicio->copy()->endOfMonth();
+        $areas = \App\Modules\Configuracion\Models\Area::withoutGlobalScopes()->where('empresa_id', $empresa->id)->orderBy('nombre')->get(['id', 'nombre']);
+        $areaId ??= $areas->first(fn ($a) => strtoupper(trim($a->nombre)) === 'VENTAS')?->id;
+        if ($areaId !== null && ! $areas->contains('id', $areaId)) throw ValidationException::withMessages(['area_id' => 'El área no pertenece a la empresa.']);
         $personas = Colaborador::withoutGlobalScopes()->withTrashed()->where('empresa_id', $empresa->id)
+            ->where('area_id', $areaId ?? -1)
             ->whereDate('fecha_ingreso', '<=', $fin)
             ->where(fn ($q) => $q->whereNull('fecha_cese')->orWhereDate('fecha_cese', '>=', $inicio))
             ->orderBy('apellidos')->get();
@@ -29,7 +33,7 @@ class ReporteBonoAsistenciaService
         $permisos = AsistenciaPermiso::withoutGlobalScopes()->where('empresa_id', $empresa->id)
             ->where('estado', 'aprobado')->whereDate('fecha_inicio', '<=', $fin)->whereDate('fecha_fin', '>=', $inicio)
             ->with('tipoAusencia')->get()->groupBy('colaborador_id');
-        return ['empresa' => $empresa->nombre_comercial, 'mes' => $mes, 'generado_en' => now()->toIso8601String(),
+        return ['empresa' => $empresa->nombre_comercial, 'mes' => $mes, 'area_id' => $areaId, 'areas' => $areas->toArray(), 'generado_en' => now()->toIso8601String(),
             'colaboradores' => $personas->map(function ($persona) use ($resultados, $permisos, $inicio, $fin) {
                 $dias = ($resultados[$persona->id] ?? collect())->unique(fn ($r) => $r->fecha->toDateString());
                 $stats = ['dias_efectivos' => 0, 'descansos' => 0, 'tardanzas' => 0, 'faltas_justificadas' => 0,
