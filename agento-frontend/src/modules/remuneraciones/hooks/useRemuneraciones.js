@@ -198,7 +198,7 @@ export function useRemuneraciones() {
 
   const exportarExcelBono = useCallback(async (cicloId, mes, montoBase) => {
     const response = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/bono-asistencia/excel`,
-      { params: { mes, monto_base: montoBase }, responseType: 'blob' }).catch(mostrarErrorDeArchivo);
+      { params: { mes, monto_base: montoBase }, responseType: 'blob' });
     const url = URL.createObjectURL(response.data);
     const a = document.createElement('a'); a.href = url; a.download = `Bono_asistencia_${mes}.xlsx`;
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
