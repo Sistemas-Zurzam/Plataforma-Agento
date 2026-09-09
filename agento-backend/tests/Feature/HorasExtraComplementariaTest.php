@@ -23,7 +23,7 @@ class HorasExtraComplementariaTest extends TestCase
 {
     use RefreshDatabase, CreaColaboradorDePrueba;
 
-    private function escenario(): array
+    private function escenario(bool $honorarios = false): array
     {
         $this->seed(DatabaseSeeder::class);
         $empresa = Empresa::firstOrFail();
@@ -32,7 +32,8 @@ class HorasExtraComplementariaTest extends TestCase
         $usuario = User::where('username', 'test.user')->firstOrFail();
         $colaborador = $this->crearColaborador($empresa, [
             'fecha_ingreso' => '2026-01-01',
-            'regimen_laboral' => 'General',
+            'regimen_laboral' => $honorarios ? 'Locacion de Servicios' : 'General',
+            'tipo_contrato' => $honorarios ? 'locacion_servicios' : 'indefinido',
             'contabilizar_horas_extra' => true,
         ]);
         $colaborador->remuneraciones()->update(['salario' => 3000, 'vigencia_desde' => '2026-01-01']);
@@ -43,9 +44,9 @@ class HorasExtraComplementariaTest extends TestCase
         ]);
         $boleta = Boleta::create([
             'empresa_id' => $empresa->id, 'ciclo_id' => $ciclo->id, 'colaborador_id' => $colaborador->id,
-            'regimen_laboral_snapshot' => 'General', 'sueldo_basico_snapshot' => 3000, 'dias_pagados' => 30,
-            'total_ingresos' => 3015.63, 'total_egresos' => 391.98, 'total_aportaciones' => 271.41,
-            'neto_a_pagar' => 2623.65, 'estado' => 'pagada', 'es_version_vigente' => true,
+            'regimen_laboral_snapshot' => $honorarios ? 'Locacion de Servicios' : 'General', 'sueldo_basico_snapshot' => 3000, 'dias_pagados' => 30,
+            'total_ingresos' => 3015.63, 'total_egresos' => $honorarios ? 240 : 391.98, 'total_aportaciones' => $honorarios ? 0 : 271.41,
+            'neto_a_pagar' => $honorarios ? 2775.63 : 2623.65, 'estado' => 'pagada', 'es_version_vigente' => true,
             'snapshot_parametros_version' => 'test', 'snapshot_reglas_version' => 'test', 'calculado_at' => now(),
         ]);
         foreach ([
@@ -54,6 +55,12 @@ class HorasExtraComplementariaTest extends TestCase
             ['ONP', 'egreso', 391.98, 3015.63, 1],
             ['ESSALUD', 'aportacion', 271.41, 3015.63, 1],
         ] as [$codigo, $tipo, $monto, $base, $cantidad]) {
+            if ($honorarios && $codigo === 'ESSALUD') continue;
+            if ($honorarios && $codigo === 'ONP') {
+                $codigo = 'RETENCION_RENTA_4TA';
+                $monto = 240;
+                $base = 3000;
+            }
             $concepto = ConceptoRemuneracion::where('codigo', $codigo)->firstOrFail();
             $boleta->conceptos()->create([
                 'concepto_id' => $concepto->id, 'tipo' => $tipo, 'monto' => $monto,
@@ -88,6 +95,31 @@ class HorasExtraComplementariaTest extends TestCase
             'minutos_aprobados' => $minutos, 'tasa' => '25', 'estado' => 'aprobado',
             'motivo' => 'Marcación validada',
         ]);
+    }
+
+    public function test_honorarios_permite_manual_y_huellero_conservando_retencion_y_boleta_pagada(): void
+    {
+        [$empresa, $ciclo, $boleta, $item, $usuario, $service] = $this->escenario(true);
+        $datos = $service->horasExtraPendientes($empresa, $ciclo, [$boleta->id]);
+        $this->assertSame($boleta->id, $datos['colaboradores'][0]['boleta_id']);
+        $item = $service->agregarHorasExtra($empresa, $item, [], [[
+            'boleta_id' => $boleta->id, 'fecha' => '2026-08-10', 'minutos' => 60,
+            'tasa' => '25', 'motivo' => 'Horas autorizadas sin marcacion',
+        ]], $usuario->id);
+        $detalle = $item->detalles->first();
+        $this->assertSame('15.63', $detalle->diferencia_neta);
+        $this->assertEquals(240, collect($detalle->calculo_snapshot['egresos'])->sum('monto'));
+        $this->assertEmpty($detalle->calculo_snapshot['aportaciones']);
+        $lineaId = $detalle->calculo_snapshot['horas_extra_regularizadas'][0]['linea_id'];
+        $service->eliminarConcepto($empresa, $detalle, $lineaId);
+        $this->assertSame('0.00', $detalle->fresh()->diferencia_neta);
+        $hora = $this->horaAprobada($empresa, $boleta, '2026-08-12', 120);
+        $item = $service->agregarHorasExtra($empresa, $item, [
+            ['hora_extra_id' => $hora->id, 'minutos' => 60],
+        ], [], $usuario->id);
+        $this->assertSame('15.63', $item->detalles->first()->diferencia_neta);
+        $this->assertEmpty($service->horasExtraPendientes($empresa, $ciclo, [$boleta->id])['horas']);
+        $this->assertSame('2775.63', $boleta->fresh()->neto_a_pagar);
     }
 
     public function test_solo_ofrece_minutos_del_huellero_no_cubiertos_por_la_boleta(): void

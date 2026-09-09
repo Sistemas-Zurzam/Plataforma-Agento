@@ -399,7 +399,7 @@ class PlanillaComplementariaService
             ];
         }
 
-        $colaboradores = $boletas->filter(fn ($b) => $b->regimen_laboral_snapshot !== 'Locacion de Servicios')
+        $colaboradores = $boletas
             ->map(fn ($b) => ['boleta_id' => $b->id, 'colaborador_id' => $b->colaborador_id,
                 'colaborador' => trim($b->colaborador->nombres.' '.$b->colaborador->apellidos),
                 'documento' => $b->colaborador->numero_documento])->values()->all();
@@ -443,7 +443,7 @@ class PlanillaComplementariaService
             foreach ($entradas->groupBy('boleta_id') as $boletaId => $grupo) {
                 $boleta = $boletas[$boletaId];
                 $nombreColaborador = trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos);
-                if ($boleta->regimen_laboral_snapshot === 'Locacion de Servicios') throw ValidationException::withMessages(['boleta_id' => 'Las horas extra laborales no aplican a locación de servicios.']);
+                $esHonorarios = $boleta->regimen_laboral_snapshot === 'Locacion de Servicios';
                 $detalle = $item->detalles()->where('boleta_original_id', $boletaId)->firstOrFail();
                 $detalle->load(['colaborador.empresa', 'boletaOriginal.ciclo']);
                 if (! empty($detalle->calculo_snapshot['descansos_semanales']) || ! empty($detalle->calculo_snapshot['feriado_regularizado'])) {
@@ -460,7 +460,9 @@ class PlanillaComplementariaService
                     }
                     $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $boleta->colaborador_id)->whereDate('vigencia_desde', '<=', $entrada['fecha'])->latest('vigencia_desde')->latest('id')->first();
                     if (! $remuneracion) throw ValidationException::withMessages(['horas_extra' => "No existe remuneración histórica para {$nombreColaborador} al {$entrada['fecha']}."]);
-                    $parametros = ParametrosVigentesResolver::paraRegimen($empresa, $condicion?->regimen_laboral ?? $boleta->regimen_laboral_snapshot, $entrada['fecha']);
+                    $parametros = $esHonorarios
+                        ? ParametrosVigentesResolver::paraHonorarios($empresa, $entrada['fecha'])
+                        : ParametrosVigentesResolver::paraRegimen($empresa, $condicion?->regimen_laboral ?? $boleta->regimen_laboral_snapshot, $entrada['fecha']);
                     $factor = match ((string) $entrada['tasa']) { '25' => $parametros['horas_extra_tasa_x25'], '35' => $parametros['horas_extra_tasa_x35'], '100' => $parametros['horas_extra_tasa_nocturna'] };
                     $codigo = 'HE_'.(string) $entrada['tasa'];
                     $monto = round(((float) $remuneracion->salario / 240) * $factor * ((int) $entrada['minutos'] / 60), 2);
@@ -476,9 +478,13 @@ class PlanillaComplementariaService
                         'tasa' => (string) $entrada['tasa'], 'minutos' => (int) $entrada['minutos'], 'monto' => $monto,
                         'motivo' => $entrada['motivo'] ?? null, 'registrado_por' => $usuarioId, 'registrado_en' => now()->toDateTimeString()];
                 }
-                $this->recalcularAfpEssalud($detalle, $snapshot, $delta);
-                $this->recalcularRentaQuinta($detalle, $snapshot, $delta);
-                $this->recalcularProvisiones($detalle, $snapshot, $delta);
+                // Honorarios conserva la retención del recibo original, igual que
+                // CalcularReciboHonorarios: los adicionales HE no cambian su base.
+                if (! $esHonorarios) {
+                    $this->recalcularAfpEssalud($detalle, $snapshot, $delta);
+                    $this->recalcularRentaQuinta($detalle, $snapshot, $delta);
+                    $this->recalcularProvisiones($detalle, $snapshot, $delta);
+                }
                 $this->guardarSnapshotYDiferencias($detalle, $snapshot);
             }
             return $this->cargar($item);
