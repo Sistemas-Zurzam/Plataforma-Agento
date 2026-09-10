@@ -87,12 +87,22 @@ class ReporteBonoAsistenciaTest extends TestCase
             $fecha = Carbon::create(2026, 9, $dia);
             $trabajo = $dia <= 26;
             $esIncompleto = $dia === 15;
-            AsistenciaResultadoDiario::create(['empresa_id' => $empresa->id, 'colaborador_id' => $persona->id,
+            $resultado = AsistenciaResultadoDiario::create(['empresa_id' => $empresa->id, 'colaborador_id' => $persona->id,
                 'fecha' => $fecha, 'tipo_dia' => $trabajo ? 'laborable_presencial' : 'descanso',
                 'estado' => ! $trabajo ? 'descanso' : ($esIncompleto ? 'marcacion_incompleta' : 'presente'),
                 'entrada_at' => $trabajo ? $fecha->copy()->setTime(9, 0) : null,
                 'salida_at' => $trabajo && ! $esIncompleto ? $fecha->copy()->setTime(18, 0) : null,
                 'minutos_trabajados' => $trabajo && ! $esIncompleto ? 480 : 0, 'minutos_tardanza' => 0, 'procesado_at' => now()]);
+            // Marcaciones reales del huellero en los días completos, para que
+            // "sin_huellero_completo" solo detecte el día 15 (marcación
+            // incompleta) y no marque también los 25 días con entrada y
+            // salida ya registradas por biométrico.
+            if ($trabajo) foreach ($esIncompleto ? [9] : [9, 18] as $hora) {
+                $marca = AsistenciaMarcacion::create(['empresa_id' => $empresa->id, 'colaborador_id' => $persona->id,
+                    'person_id' => $persona->numero_documento, 'marcado_at' => $fecha->copy()->setTime($hora, 0),
+                    'origen' => 'attendance_device']);
+                $resultado->marcaciones()->attach($marca->id);
+            }
         }
         $reporte = app(ReporteBonoAsistenciaService::class)->generar($empresa, '2026-09');
         $fila = collect($reporte['colaboradores'])->firstWhere('colaborador_id', $persona->id);
