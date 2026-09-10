@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Services;
 
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
+use App\Modules\Configuracion\Models\Afp;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
@@ -1340,7 +1341,7 @@ class PlanillaComplementariaService
         // estar hidratados. Recargar las relaciones completas evita calcular
         // con datos parciales (o fallar intentando resolver los parámetros).
         $detalle->load(['colaborador.empresa', 'boletaOriginal.ciclo']);
-        $colaborador = $detalle->colaborador;
+        $colaborador = $this->colaboradorPrevisionalParaRecalculo($detalle, $snapshot);
         $ciclo = $detalle->boletaOriginal->ciclo;
         $regimen = $colaborador->regimen_laboral ?: 'General';
         $fechaCorte = $ciclo->fecha_corte_asistencia->toDateString();
@@ -1370,6 +1371,50 @@ class PlanillaComplementariaService
             ->reject(fn (array $l) => in_array($l['codigo'], $codigosEssalud, true))
             ->push($essalud['linea'])
             ->values()->all();
+    }
+
+    /**
+     * Compatibilidad con boletas antiguas que guardaron el nombre de la AFP
+     * en sistema_previsional, pero dejaron afp_id/tipo_comision vacíos. Esas
+     * boletas sí descontaron el aporte obligatorio y luego fallaban con un
+     * RuntimeException al agregar o retirar un ingreso remunerativo de una
+     * complementaria.
+     *
+     * Se trabaja sobre una copia en memoria: no corrige silenciosamente la
+     * ficha actual ni modifica la boleta pagada. La AFP se resuelve por su
+     * clave y el tipo se infiere de la línea histórica de comisión: una tasa
+     * positiva corresponde a flujo; cero, al componente flujo de mixta.
+     */
+    private function colaboradorPrevisionalParaRecalculo(PlanillaComplementariaDetalle $detalle, array $snapshot)
+    {
+        $colaborador = $detalle->colaborador->replicate();
+        $colaborador->setRelation('empresa', $detalle->colaborador->empresa);
+
+        if ($colaborador->sistema_previsional === 'onp') {
+            return $colaborador;
+        }
+
+        $condicion = ColaboradorCondicionLaboral::vigenteEn(
+            $detalle->colaborador_id,
+            $detalle->boletaOriginal->ciclo->fecha_corte_asistencia->toDateString(),
+        );
+
+        $colaborador->sistema_previsional = $condicion?->sistema_previsional ?: $colaborador->sistema_previsional;
+        $colaborador->afp_id = $condicion?->afp_id ?: $colaborador->afp_id;
+        $colaborador->tipo_comision = $condicion?->tipo_comision ?: $colaborador->tipo_comision;
+
+        if (! $colaborador->afp_id && filled($colaborador->sistema_previsional)) {
+            $colaborador->afp_id = Afp::where('clave', $colaborador->sistema_previsional)->value('id');
+        }
+
+        if (! in_array($colaborador->tipo_comision, ['flujo', 'mixta'], true)) {
+            $lineaComision = collect($snapshot['egresos'] ?? [])->firstWhere('codigo', 'AFP_COMISION');
+            $colaborador->tipo_comision = (float) ($lineaComision['tasa_aplicada'] ?? 0) > 0
+                ? 'flujo'
+                : 'mixta';
+        }
+
+        return $colaborador;
     }
 
     private function recalcularRentaQuinta(PlanillaComplementariaDetalle $detalle, array &$snapshot, float $deltaBase): void

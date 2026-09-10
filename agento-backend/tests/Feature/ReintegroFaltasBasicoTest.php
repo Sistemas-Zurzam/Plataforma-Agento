@@ -191,6 +191,48 @@ class ReintegroFaltasBasicoTest extends TestCase
         $this->assertEquals(18.79, $egresos['AFP_COMISION']['monto']);
     }
 
+    public function test_agrega_y_elimina_bono_en_afiliacion_afp_heredada_incompleta(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $colaborador = $boleta->colaborador;
+        $claveAfp = Afp::findOrFail($colaborador->afp_id)->clave;
+
+        $colaborador->update([
+            'sistema_previsional' => $claveAfp,
+            'afp_id' => null,
+            'tipo_comision' => null,
+        ]);
+        $colaborador->condicionesLaborales()->update([
+            'sistema_previsional' => $claveAfp,
+            'afp_id' => null,
+            'tipo_comision' => null,
+        ]);
+
+        $item = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id,
+            'empresa_id' => $empresa->id,
+            'nombre' => 'Regularización heredada',
+            'motivo' => 'Regularización heredada',
+            'estado' => 'calculada',
+            'creado_por' => $usuario->id,
+        ]);
+        $item = $service->agregarColaboradores($empresa, $item, [$boleta->id]);
+        $detalle = $item->detalles->first();
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+
+        $item = $service->agregarConcepto(
+            $empresa, $detalle, $bonificacion->id, null, 150, 'Bono pendiente', $usuario->id
+        );
+        $detalle = $item->detalles->first();
+        $linea = collect($detalle->calculo_snapshot['ingresos'])->firstWhere('codigo', 'BONIFICACION');
+
+        $this->assertNotNull($linea);
+        $this->assertArrayHasKey('AFP_PRIMA_SEGURO', collect($detalle->calculo_snapshot['egresos'])->keyBy('codigo')->all());
+
+        $item = $service->eliminarConcepto($empresa, $detalle, $linea['id']);
+        $this->assertNull(collect($item->detalles->first()->calculo_snapshot['ingresos'])->firstWhere('id', $linea['id']));
+    }
+
     public function test_nuevo_borrador_no_hereda_bloqueo_de_feriado_pagado_anterior(): void
     {
         [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
