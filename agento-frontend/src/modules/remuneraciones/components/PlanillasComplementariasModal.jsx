@@ -18,6 +18,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [loading, setLoading] = useState(false);
   const [creando, setCreando] = useState(false);
   const [itemParaColaboradores, setItemParaColaboradores] = useState(null);
+  const [itemParaReabrir, setItemParaReabrir] = useState(null);
+  const [motivoReapertura, setMotivoReapertura] = useState('');
+  const [reabriendo, setReabriendo] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [tipoRegularizacion, setTipoRegularizacion] = useState('reintegro_descuentos');
   const [semanasDescanso, setSemanasDescanso] = useState([]);
@@ -463,6 +466,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                   </Popconfirm>
                 )}
                 {item.estado === 'calculada' && permisos.aprobar && <Button onClick={() => ejecutar(() => api.aprobarComplementaria(item.id), 'Complementaria aprobada.')}>Aprobar</Button>}
+                {item.estado === 'aprobada' && permisos.aprobar && (
+                  <Button onClick={() => { setItemParaReabrir(item); setMotivoReapertura(''); }}>Reabrir</Button>
+                )}
                 {item.estado === 'aprobada' && permisos.telecredito && (
                   <Popconfirm
                     title="Cuenta BCP de cargo"
@@ -556,6 +562,39 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         detalle={detalleParaConcepto}
         catalogo={catalogoConceptos}
       />
+      <Modal
+        title="Reabrir planilla complementaria"
+        open={Boolean(itemParaReabrir)}
+        okText="Reabrir"
+        cancelText="Cancelar"
+        confirmLoading={reabriendo}
+        okButtonProps={{ disabled: !motivoReapertura.trim() }}
+        onCancel={() => { if (!reabriendo) setItemParaReabrir(null); }}
+        onOk={async () => {
+          if (!itemParaReabrir || !motivoReapertura.trim()) return;
+          setReabriendo(true);
+          try {
+            await api.reabrirComplementaria(itemParaReabrir.id, motivoReapertura.trim());
+            message.success('Complementaria reabierta. Ya puedes agregar colaboradores y conceptos.');
+            setItemParaReabrir(null);
+            setMotivoReapertura('');
+            await cargar();
+          } catch (e) {
+            message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudo reabrir la complementaria.');
+          } finally {
+            setReabriendo(false);
+          }
+        }}
+      >
+        <p className="mb-3 text-sm text-gray-600">Los archivos bancarios generados antes de la reapertura deben descartarse y generarse nuevamente después de aprobar.</p>
+        <Input.TextArea
+          value={motivoReapertura}
+          onChange={(e) => setMotivoReapertura(e.target.value)}
+          maxLength={1000}
+          autoSize={{ minRows: 3, maxRows: 6 }}
+          placeholder="Motivo de la reapertura..."
+        />
+      </Modal>
       <AgregarColaboradoresComplementariaModal
         open={Boolean(itemParaColaboradores)}
         item={itemParaColaboradores}

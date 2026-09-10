@@ -247,6 +247,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/planillas-complementarias/{complementaria}/horas-extra', [PlanillaComplementariaController::class, 'agregarHorasExtra'])->middleware('permiso:nominas.calcular');
     Route::delete('/planillas-complementarias/{complementaria}', [PlanillaComplementariaController::class, 'eliminar'])->middleware('permiso:nominas.calcular');
     Route::patch('/planillas-complementarias/{complementaria}/aprobar', [PlanillaComplementariaController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
+    Route::patch('/planillas-complementarias/{complementaria}/reabrir', [PlanillaComplementariaController::class, 'reabrir'])->middleware('permiso:nominas.aprobar');
     Route::patch('/planillas-complementarias/{complementaria}/pagar', [PlanillaComplementariaController::class, 'pagar'])->middleware('permiso:nominas.pagar');
     Route::post('/planillas-complementarias/{complementaria}/telecredito-bcp/exportar', [PlanillaComplementariaController::class, 'exportarBcp'])->middleware('permiso:nominas.telecredito_exportar');
     Route::post('/planillas-complementarias/{complementaria}/bbva-netcash/exportar', [PlanillaComplementariaController::class, 'exportarBbva'])->middleware('permiso:nominas.bbva_netcash_exportar');

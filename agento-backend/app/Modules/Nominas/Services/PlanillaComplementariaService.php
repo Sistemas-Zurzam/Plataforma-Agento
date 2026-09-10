@@ -1482,6 +1482,42 @@ class PlanillaComplementariaService
         return $this->cargar($item);
     }
 
+    public function reabrir(Empresa $empresa, PlanillaComplementaria $item, int $usuarioId, string $motivo): PlanillaComplementaria
+    {
+        return DB::transaction(function () use ($empresa, $item, $usuarioId, $motivo) {
+            $item = PlanillaComplementaria::whereKey($item->id)->lockForUpdate()->firstOrFail();
+            $this->verificarItem($empresa, $item);
+
+            if ($item->estado !== 'aprobada') {
+                throw ValidationException::withMessages([
+                    'estado' => 'Solo se puede reabrir una complementaria aprobada que todavía no fue pagada.',
+                ]);
+            }
+
+            $reapertura = [
+                'motivo' => trim($motivo),
+                'reabierto_por' => $usuarioId,
+                'reabierto_at' => now()->toDateTimeString(),
+                'aprobado_por_anterior' => $item->aprobado_por,
+                'aprobado_at_anterior' => $item->aprobado_at?->toDateTimeString(),
+            ];
+
+            foreach ($item->detalles()->lockForUpdate()->get() as $detalle) {
+                $snapshot = $detalle->calculo_snapshot;
+                $snapshot['reaperturas'][] = $reapertura;
+                $detalle->update(['calculo_snapshot' => $snapshot]);
+            }
+
+            $item->update([
+                'estado' => 'calculada',
+                'aprobado_por' => null,
+                'aprobado_at' => null,
+            ]);
+
+            return $this->cargar($item);
+        });
+    }
+
     /**
      * Elimina por completo una complementaria creada por error — solo
      * mientras siga "calculada": una vez aprobada representa un compromiso

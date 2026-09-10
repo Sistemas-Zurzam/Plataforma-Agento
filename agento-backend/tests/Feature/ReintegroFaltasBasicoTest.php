@@ -231,4 +231,26 @@ class ReintegroFaltasBasicoTest extends TestCase
         $this->assertNotNull(collect($actualizado->detalles->first()->calculo_snapshot['ingresos'])
             ->firstWhere('codigo', 'BONIFICACION'));
     }
+
+    public function test_complementaria_aprobada_puede_reabrirse_pero_una_pagada_no(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $falta = collect($service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]))
+            ->firstWhere('codigo', 'DESCUENTO_FALTA_BASICO');
+        $item = $service->reintegrarDescuentos($empresa, $ciclo, [$falta], 'Subsanación', $usuario->id);
+        $item = $service->aprobar($empresa, $item, $usuario->id);
+
+        $reabierta = $service->reabrir($empresa, $item, $usuario->id, 'Faltó agregar un bono');
+
+        $this->assertSame('calculada', $reabierta->estado);
+        $this->assertNull($reabierta->aprobado_por);
+        $this->assertNull($reabierta->aprobado_at);
+        $this->assertSame('Faltó agregar un bono', $reabierta->detalles->first()->calculo_snapshot['reaperturas'][0]['motivo']);
+
+        $reaprobada = $service->aprobar($empresa, $reabierta, $usuario->id);
+        $pagada = $service->marcarPagada($empresa, $reaprobada, $usuario->id, 'PAGO-TEST');
+
+        $this->expectException(ValidationException::class);
+        $service->reabrir($empresa, $pagada, $usuario->id, 'No debe permitirse');
+    }
 }

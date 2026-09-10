@@ -244,6 +244,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const reabrirComplementaria = useCallback(async (id, motivo) => {
+    const { data } = await api.patch(`/planillas-complementarias/${id}/reabrir`, { motivo });
+    return data.data;
+  }, []);
+
   const pagarComplementaria = useCallback(async (id, referenciaPago) => {
     const { data } = await api.patch(`/planillas-complementarias/${id}/pagar`, { referencia_pago: referenciaPago });
     return data.data;
@@ -662,6 +667,7 @@ export function useRemuneraciones() {
     agregarColaboradoresComplementaria,
     eliminarComplementaria,
     aprobarComplementaria,
+    reabrirComplementaria,
     pagarComplementaria,
     exportarComplementaria,
     exportarComplementariasMasivo,

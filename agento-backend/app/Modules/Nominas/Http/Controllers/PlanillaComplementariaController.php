@@ -338,6 +338,19 @@ class PlanillaComplementariaController extends Controller
         return response()->json(['data' => $this->presentar($item)]);
     }
 
+    public function reabrir(Request $request, PlanillaComplementaria $complementaria): JsonResponse
+    {
+        $datos = $request->validate(['motivo' => ['required', 'string', 'max:1000']]);
+        $item = $this->service->reabrir(
+            $this->empresaItem($request, $complementaria),
+            $complementaria,
+            $request->user('api')->id,
+            $datos['motivo'],
+        );
+
+        return response()->json(['data' => $this->presentar($item)]);
+    }
+
     public function pagar(Request $request, PlanillaComplementaria $complementaria): JsonResponse
     {
         $datos = $request->validate(['referencia_pago' => ['required', 'string', 'max:255']]);
