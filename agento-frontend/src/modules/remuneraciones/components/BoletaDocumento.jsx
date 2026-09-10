@@ -169,7 +169,6 @@ export default function BoletaDocumento({ detalle }) {
           </Tarjeta>
 
           <Tarjeta titulo="Información del período" icono={<CalendarOutlined />}>
-            <Dato label="Días Laborados" value={numero(detalle.dias_pagados, 0)} />
             <Dato label="Horas Extras 25%" value={numero(sumaCantidad(conceptos, 'HE_25'), 1)} />
             <Dato label="Horas Extras 35%" value={numero(sumaCantidad(conceptos, 'HE_35'), 1)} />
             <Dato label="Vacaciones" value={sino(ausencias?.vacaciones)} />

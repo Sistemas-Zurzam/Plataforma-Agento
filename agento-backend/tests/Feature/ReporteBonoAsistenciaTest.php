@@ -76,4 +76,31 @@ class ReporteBonoAsistenciaTest extends TestCase
         $this->assertSame('Requiere revisión', $filas[$persona->id]['evaluacion']);
         $this->assertDatabaseCount('planillas_complementarias', 0);
     }
+
+    public function test_marcacion_incompleta_con_entrada_cuenta_como_dia_efectivo(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $empresa = Empresa::firstOrFail();
+        $persona = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
+        $persona->area()->withoutGlobalScopes()->update(['nombre' => 'VENTAS']);
+        for ($dia = 1; $dia <= 30; $dia++) {
+            $fecha = Carbon::create(2026, 9, $dia);
+            $trabajo = $dia <= 26;
+            $esIncompleto = $dia === 15;
+            AsistenciaResultadoDiario::create(['empresa_id' => $empresa->id, 'colaborador_id' => $persona->id,
+                'fecha' => $fecha, 'tipo_dia' => $trabajo ? 'laborable_presencial' : 'descanso',
+                'estado' => ! $trabajo ? 'descanso' : ($esIncompleto ? 'marcacion_incompleta' : 'presente'),
+                'entrada_at' => $trabajo ? $fecha->copy()->setTime(9, 0) : null,
+                'salida_at' => $trabajo && ! $esIncompleto ? $fecha->copy()->setTime(18, 0) : null,
+                'minutos_trabajados' => $trabajo && ! $esIncompleto ? 480 : 0, 'minutos_tardanza' => 0, 'procesado_at' => now()]);
+        }
+        $reporte = app(ReporteBonoAsistenciaService::class)->generar($empresa, '2026-09');
+        $fila = collect($reporte['colaboradores'])->firstWhere('colaborador_id', $persona->id);
+        // El colaborador sí llegó el día 15 (hay entrada_at) aunque le falte la
+        // marca de salida: debe seguir contando para las 26 jornadas del bono,
+        // no como "día sin clasificar" — pero sí como observación a revisar.
+        $this->assertSame(26, $fila['dias_efectivos']);
+        $this->assertSame(0, $fila['dias_sin_clasificar']);
+        $this->assertSame(1, $fila['sin_huellero_completo']);
+    }
 }
