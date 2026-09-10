@@ -185,10 +185,27 @@ class PlanillaDependienteCalculator implements RegimenCalculator
             ]];
         }
 
-        $tienAfpId = $colaborador->afp_id !== null;
-        $comisionAfp = $tienAfpId
-            ? ParametrosVigentesResolver::comisionAfp($colaborador->afp_id, $colaborador->tipo_comision, $fechaCorte)
-            : ['aporte_obligatorio' => $parametros['tasa_afp_obligatoria'], 'prima_seguro' => 0.0, 'comision' => 0.0];
+        // Una afiliación AFP incompleta nunca debe degradarse silenciosamente
+        // a "10 % obligatorio + prima/comisión 0". Ese fallback produjo
+        // boletas aparentemente válidas, pero con una retención previsional
+        // incompleta que solo se descubría después del pago.
+        if ($colaborador->afp_id === null || ! in_array($colaborador->tipo_comision, ['flujo', 'mixta'], true)) {
+            throw new RuntimeException(
+                "El colaborador #{$colaborador->id} tiene AFP incompleta a la fecha {$fechaCorte}: configura la AFP y el tipo de comisión antes de calcular la planilla."
+            );
+        }
+
+        $comisionAfp = ParametrosVigentesResolver::comisionAfp(
+            $colaborador->afp_id,
+            $colaborador->tipo_comision,
+            $fechaCorte
+        );
+
+        if ($comisionAfp['vigencia_desde'] === null) {
+            throw new RuntimeException(
+                "No hay tasas vigentes para la AFP del colaborador #{$colaborador->id} a la fecha {$fechaCorte}. Configura aporte obligatorio, prima de seguro y comisión antes de calcular la planilla."
+            );
+        }
 
         // V3 Fase 6F.2.1 — la Remuneración Máxima Asegurable (RMA, Art. 67°
         // Título VII del Compendio de Normas Reglamentarias del SPP) topa

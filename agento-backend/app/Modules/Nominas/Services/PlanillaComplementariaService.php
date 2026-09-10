@@ -120,6 +120,10 @@ class PlanillaComplementariaService
 
             foreach ($boletas as $boleta) {
                 $base = $this->baseParaReintegro($boleta);
+                // Si la base proviene de una complementaria pagada anterior,
+                // conservar sus montos pero no las marcas operativas que
+                // bloqueaban agregar conceptos en este nuevo borrador.
+                unset($base['descansos_semanales'], $base['feriado_regularizado']);
                 $pago = $boleta->datosPago;
                 $colaborador = $boleta->colaborador;
 
@@ -1086,6 +1090,7 @@ class PlanillaComplementariaService
      */
     public function agregarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, int $conceptoId, ?int $conceptoDefinicionId, float $monto, ?string $motivo, int $usuarioId, bool $regularizacionFeriado = false): PlanillaComplementaria
     {
+        $this->limpiarMarcasHeredadas($detalle);
         if (! empty($detalle->calculo_snapshot['descansos_semanales']) || ! empty($detalle->calculo_snapshot['feriado_regularizado'])) {
             throw ValidationException::withMessages(['detalle' => 'Para corregir las semanas, elimina el borrador y vuelve a generar el reintegro.']);
         }
@@ -1185,6 +1190,7 @@ class PlanillaComplementariaService
      */
     public function eliminarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, string $lineaId): PlanillaComplementaria
     {
+        $this->limpiarMarcasHeredadas($detalle);
         if (! empty($detalle->calculo_snapshot['bono_asistencia_gerencia'])) {
             throw ValidationException::withMessages(['detalle' => 'Para corregir un bono importado, elimina su complementaria calculada y vuelve a importar el Excel aprobado.']);
         }
@@ -1261,6 +1267,28 @@ class PlanillaComplementariaService
     }
 
     /**
+     * Repara borradores creados antes de que agregarColaboradores() limpiara
+     * las marcas del feriado/descanso pagado usado como base. Una diferencia
+     * cero demuestra que el detalle actual todavía no tiene una operación
+     * propia; solo en ese caso se retiran las marcas heredadas.
+     */
+    private function limpiarMarcasHeredadas(PlanillaComplementariaDetalle $detalle): void
+    {
+        if (round((float) $detalle->diferencia_neta, 2) !== 0.0) {
+            return;
+        }
+
+        $snapshot = $detalle->calculo_snapshot;
+        if (empty($snapshot['descansos_semanales']) && empty($snapshot['feriado_regularizado'])) {
+            return;
+        }
+
+        unset($snapshot['descansos_semanales'], $snapshot['feriado_regularizado']);
+        $detalle->update(['calculo_snapshot' => $snapshot]);
+        $detalle->setAttribute('calculo_snapshot', $snapshot);
+    }
+
+    /**
      * Recalcula AFP/ONP y EsSalud/SIS sobre la base remunerativa + $deltaBase
      * (positivo al agregar un ingreso remunerativo, negativo al eliminarlo),
      * reutilizando EXACTAMENTE las mismas fórmulas de
@@ -1306,6 +1334,12 @@ class PlanillaComplementariaService
 
     private function recalcularAfpEssalud(PlanillaComplementariaDetalle $detalle, array &$snapshot, float $deltaBase): void
     {
+        // cargar() optimiza la respuesta del modal seleccionando solo columnas
+        // de presentación del colaborador. Si ese mismo objeto se reutiliza
+        // para agregar un concepto, empresa_id/AFP/tipo_comision pueden no
+        // estar hidratados. Recargar las relaciones completas evita calcular
+        // con datos parciales (o fallar intentando resolver los parámetros).
+        $detalle->load(['colaborador.empresa', 'boletaOriginal.ciclo']);
         $colaborador = $detalle->colaborador;
         $ciclo = $detalle->boletaOriginal->ciclo;
         $regimen = $colaborador->regimen_laboral ?: 'General';

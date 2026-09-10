@@ -227,7 +227,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       title: '',
       key: 'acciones',
       width: 40,
-      render: (_, detalle) => detalle.descansos_semanales?.length || detalle.feriado_regularizado ? null : (
+      render: (_, detalle) => (detalle.descansos_semanales?.length || detalle.feriado_regularizado) && Number(detalle.diferencia_neta) !== 0 ? null : (
         <Button
           size="small"
           type="text"
