@@ -56,6 +56,22 @@ class NominaImportacionHistoricaAislamientoTest extends TestCase
         return [$usuario, ['Authorization' => "Bearer {$token}"]];
     }
 
+    public function test_el_listado_solo_muestra_lotes_de_la_empresa_activa(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $empresaA = Empresa::factory()->create();
+        $empresaB = Empresa::factory()->create();
+        NominaImportacionHistorica::factory()->create(['empresa_id' => $empresaA->id, 'estado' => 'validado']);
+        NominaImportacionHistorica::factory()->create(['empresa_id' => $empresaB->id, 'estado' => 'validado']);
+
+        [, $headersA] = $this->autenticarComoAdmin($empresaA);
+
+        $respuesta = $this->withHeaders($headersA)->getJson('/api/nominas/importaciones-historicas');
+        $respuesta->assertStatus(200);
+        $this->assertCount(1, $respuesta->json('data'));
+        $this->assertSame($empresaA->id, $respuesta->json('data.0.empresa_id'));
+    }
+
     public function test_no_puede_ver_ni_aprobar_un_lote_de_otra_empresa(): void
     {
         $this->seed(DatabaseSeeder::class);

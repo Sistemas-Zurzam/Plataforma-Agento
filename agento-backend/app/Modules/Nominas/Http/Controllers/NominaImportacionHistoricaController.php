@@ -18,6 +18,17 @@ use Illuminate\Support\Carbon;
 
 class NominaImportacionHistoricaController extends Controller
 {
+    public function index(Request $request): JsonResponse
+    {
+        $empresa = $request->user('api')->empresa;
+        $importaciones = NominaImportacionHistorica::where('empresa_id', $empresa->id)
+            ->when($request->filled('estado'), fn ($q) => $q->where('estado', $request->input('estado')))
+            ->orderByDesc('cargado_at')
+            ->paginate(min(50, max(1, (int) $request->input('per_page', 20))));
+
+        return response()->json($importaciones);
+    }
+
     public function importar(NominaImportacionHistoricaRequest $request, ImportarAntecedentesHistoricosService $servicio): JsonResponse
     {
         $empresa = $request->user('api')->empresa;

@@ -31,6 +31,7 @@ import BoletasImprimirMasivoModal from '../../modules/remuneraciones/components/
 import BonoAsistenciaLotePanel from '../../modules/remuneraciones/components/BonoAsistenciaLotePanel';
 import ComprobanteRhModal from '../../modules/remuneraciones/components/ComprobanteRhModal';
 import ConfiguracionNominaModal from '../../modules/remuneraciones/components/ConfiguracionNominaModal';
+import AntecedentesHistoricosTab from '../../modules/remuneraciones/components/AntecedentesHistoricosTab';
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
 import LiquidacionesCeseTab from '../../modules/remuneraciones/components/LiquidacionesCeseTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
@@ -1298,6 +1299,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             key: 'liquidaciones',
             label: 'Liquidaciones',
             children: <LiquidacionesCeseTab empresaId={user?.empresa?.id} puedeAprobar={puedeAprobar} puedePagar={puedePagar} />,
+          },
+          {
+            key: 'antecedentes-historicos',
+            label: 'Antecedentes históricos',
+            children: <AntecedentesHistoricosTab puedeGestionarCiclos={puedeGestionarCiclos} puedeAprobar={puedeAprobar} />,
           },
           {
             key: 'documentacion',

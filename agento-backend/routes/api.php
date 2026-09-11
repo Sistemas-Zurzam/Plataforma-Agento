@@ -207,6 +207,7 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/liquidaciones-cese/{liquidacion}/aprobar', [LiquidacionCeseController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/liquidaciones-cese/{liquidacion}/pagar', [LiquidacionCeseController::class, 'pagar'])->middleware('permiso:nominas.pagar');
     Route::patch('/liquidaciones-cese/{liquidacion}/anular-revertir', [LiquidacionCeseController::class, 'anularYRevertir'])->middleware('permiso:nominas.aprobar');
+    Route::get('/nominas/importaciones-historicas', [NominaImportacionHistoricaController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::post('/nominas/importaciones-historicas', [NominaImportacionHistoricaController::class, 'importar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/nominas/importaciones-historicas/{importacion}', [NominaImportacionHistoricaController::class, 'show'])->middleware('permiso:nominas.ver');
     Route::patch('/nominas/importaciones-historicas/{importacion}/detalles/{detalle}', [NominaImportacionHistoricaController::class, 'corregirDetalle'])->middleware('permiso:nominas.gestionar_ciclos');
