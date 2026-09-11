@@ -259,6 +259,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [tipoFiltro, setTipoFiltro] = useState(null);
   const [busquedaPlanilla, setBusquedaPlanilla] = useState('');
   const [boletasSeleccionadas, setBoletasSeleccionadas] = useState([]);
+  const [boletasSeleccionadasDatos, setBoletasSeleccionadasDatos] = useState([]);
   const [seleccionandoTodas, setSeleccionandoTodas] = useState(false);
   const [boletaImprimirId, setBoletaImprimirId] = useState(null);
   const [imprimirMasivoOpen, setImprimirMasivoOpen] = useState(false);
@@ -1191,7 +1192,10 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   scroll={{ x: 1100 }}
                   rowSelection={puedeSeleccionarBoletas ? {
                     selectedRowKeys: boletasSeleccionadas,
-                    onChange: setBoletasSeleccionadas,
+                    onChange: (keys) => {
+                      setBoletasSeleccionadas(keys);
+                      setBoletasSeleccionadasDatos((prev) => [...prev.filter((b) => keys.includes(b.id)), ...boletas.filter((b) => keys.includes(b.id) && !prev.some((p) => p.id === b.id))]);
+                    },
                     preserveSelectedRowKeys: true,
                     getCheckboxProps: (boleta) => {
                       if (boleta.estado === 'calculada') return { disabled: !puedeAprobar };
@@ -1353,7 +1357,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setTelecreditoBcpModalOpen(false)}
         ciclo={cicloActivo}
         boletaIds={boletasSeleccionadas}
-        boletasSeleccionadas={boletas.filter((boleta) => boletasSeleccionadas.includes(boleta.id))}
+        boletasSeleccionadas={boletasSeleccionadasDatos}
         fetchValidacion={fetchTelecreditoBcpValidacion}
         exportarTelecreditoBcp={exportarTelecreditoBcp}
       />
