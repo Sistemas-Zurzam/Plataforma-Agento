@@ -23,7 +23,6 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [reabriendo, setReabriendo] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [tipoRegularizacion, setTipoRegularizacion] = useState('reintegro_descuentos');
-  const [montoComision, setMontoComision] = useState(null);
   const [montosComision, setMontosComision] = useState({});
   const [semanasDescanso, setSemanasDescanso] = useState([]);
   const [semanasSeleccionadas, setSemanasSeleccionadas] = useState([]);
@@ -127,7 +126,6 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
     if (!motivo.trim()) return message.warning('Ingresa el motivo de la regularización.');
     if (!boletaIds.length) return message.warning('Selecciona las boletas pagadas que deseas regularizar.');
     if (tipoRegularizacion === 'comisiones') {
-      if (!montoComision || montoComision <= 0) return message.warning('Ingresa el monto de la comisión.');
       const comisiones = boletasSeleccionadas.map((b) => ({ boleta_id: b.id, monto: Number(montosComision[b.id]) || 0 }));
       if (!comisiones.length || comisiones.some((c) => c.monto <= 0)) return message.warning('Ingresa la comisión de cada colaborador.');
       setCreando(true);

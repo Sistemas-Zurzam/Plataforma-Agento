@@ -1192,9 +1192,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   scroll={{ x: 1100 }}
                   rowSelection={puedeSeleccionarBoletas ? {
                     selectedRowKeys: boletasSeleccionadas,
-                    onChange: (keys) => {
+                    onChange: (keys, selectedRows) => {
                       setBoletasSeleccionadas(keys);
-                      setBoletasSeleccionadasDatos((prev) => [...prev.filter((b) => keys.includes(b.id)), ...boletas.filter((b) => keys.includes(b.id) && !prev.some((p) => p.id === b.id))]);
+                      setBoletasSeleccionadasDatos((prev) => {
+                        const disponibles = [...prev, ...selectedRows];
+                        return keys.map((id) => disponibles.find((b) => b.id === id)).filter(Boolean);
+                      });
                     },
                     preserveSelectedRowKeys: true,
                     getCheckboxProps: (boleta) => {
@@ -1357,7 +1360,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setTelecreditoBcpModalOpen(false)}
         ciclo={cicloActivo}
         boletaIds={boletasSeleccionadas}
-        boletasSeleccionadas={boletasSeleccionadasDatos}
         fetchValidacion={fetchTelecreditoBcpValidacion}
         exportarTelecreditoBcp={exportarTelecreditoBcp}
       />
@@ -1388,6 +1390,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setComplementariasModalOpen(false)}
         ciclo={cicloActivo}
         boletaIds={boletasSeleccionadas}
+        boletasSeleccionadas={boletasSeleccionadasDatos}
         api={{ exportarExcelBono, importarExcelBono, fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, crearComplementariaHorasExtra, agregarHorasExtraComplementaria, fetchColaboradoresPorAsistencia, aplicarBonoPorAsistencia, fetchCatalogoConceptos, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, reabrirComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo }}
         permisos={{ calcular: puedeCalcular, aprobar: puedeAprobar, pagar: puedePagar, telecredito: puedeExportarTelecredito, bbva: puedeExportarBbvaNetCash }}
         catalogoConceptos={catalogoConceptos}
