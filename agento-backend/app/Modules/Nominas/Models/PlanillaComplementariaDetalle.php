@@ -39,11 +39,11 @@ class PlanillaComplementariaDetalle extends Model
             isset($snapshot['feriado_regularizado']) => 'Feriado trabajado',
             ! empty($snapshot['descansos_semanales']) => 'Descanso semanal trabajado',
             ! empty($snapshot['reintegros_descuentos']) => 'Reintegro de descuentos',
-            ! empty($snapshot['horas_extra_regularizadas']) => 'Horas extra',
             ! empty($snapshot['bonos_masivos']) => 'Bono por asistencia',
             collect($snapshot['ingresos'] ?? [])->contains(fn (array $linea) =>
                 ($linea['codigo'] ?? null) === 'BONIFICACION' && isset($linea['agregado_por'])
             ) => 'Bonificación',
+            ! empty($snapshot['horas_extra_regularizadas']) => 'Horas extra',
             default => 'Diferencia de ciclo',
         };
     }
