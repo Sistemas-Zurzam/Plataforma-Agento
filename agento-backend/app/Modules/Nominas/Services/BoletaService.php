@@ -183,14 +183,25 @@ class BoletaService
             ->whereHas('complementaria', fn ($q) => $q->where('estado', 'pagada'))
             ->with('complementaria')
             ->get()
-            ->map(fn (PlanillaComplementariaDetalle $detalle) => [
-                'nombre' => $detalle->complementaria->nombre,
-                'tipo' => $detalle->tipoReintegro(),
-                'motivo' => $detalle->complementaria->motivo,
-                'monto' => (float) $detalle->diferencia_neta,
-                'pagado_at' => $detalle->complementaria->pagado_at?->toDateTimeString(),
-                'referencia_pago' => $detalle->complementaria->referencia_pago,
-            ])
+            ->map(function (PlanillaComplementariaDetalle $detalle) {
+                $tipo = $detalle->tipoReintegro();
+                $motivo = $detalle->complementaria->motivo;
+
+                if ($tipo === 'Bonificación') {
+                    $motivoBono = collect($detalle->calculo_snapshot['ingresos'] ?? [])
+                        ->first(fn (array $linea) => ($linea['codigo'] ?? null) === 'BONIFICACION' && isset($linea['agregado_por']))['motivo'] ?? null;
+                    $motivo = $motivoBono ?: 'Bono de asistencia';
+                }
+
+                return [
+                    'nombre' => $detalle->complementaria->nombre,
+                    'tipo' => $tipo,
+                    'motivo' => $motivo,
+                    'monto' => (float) $detalle->diferencia_neta,
+                    'pagado_at' => $detalle->complementaria->pagado_at?->toDateTimeString(),
+                    'referencia_pago' => $detalle->complementaria->referencia_pago,
+                ];
+            })
             ->values()
             ->all();
     }

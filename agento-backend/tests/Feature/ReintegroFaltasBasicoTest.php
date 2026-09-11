@@ -250,6 +250,26 @@ class ReintegroFaltasBasicoTest extends TestCase
         $this->assertSame('Bonificación', $item->detalles->first()->tipoReintegro());
     }
 
+    public function test_motivo_de_bonificacion_en_boleta_no_hereda_motivo_general(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $item = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Reintegro de descuentos', 'motivo' => 'Reintegro de tardanza y falta',
+            'estado' => 'calculada', 'creado_por' => $usuario->id,
+        ]);
+        $item = $service->agregarColaboradores($empresa, $item, [$boleta->id]);
+        $detalle = $item->detalles->first();
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+        $service->agregarConcepto($empresa, $detalle, $bonificacion->id, null, 75, 'Bono de asistencia', $usuario->id);
+        $item->update(['estado' => 'pagada', 'pagado_at' => now()]);
+
+        $boleta = app(\App\Modules\Nominas\Services\BoletaService::class)->ver($empresa, $boleta);
+
+        $this->assertSame('Bonificación', $boleta->reintegros[0]['tipo']);
+        $this->assertSame('Bono de asistencia', $boleta->reintegros[0]['motivo']);
+    }
+
     public function test_nuevo_borrador_no_hereda_bloqueo_de_feriado_pagado_anterior(): void
     {
         [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
