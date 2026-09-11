@@ -233,6 +233,23 @@ class ReintegroFaltasBasicoTest extends TestCase
         $this->assertNull(collect($item->detalles->first()->calculo_snapshot['ingresos'])->firstWhere('id', $linea['id']));
     }
 
+    public function test_tipo_de_reintegro_de_bonificacion_se_muestra_como_bonificacion(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $item = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Bono pendiente', 'motivo' => 'Bono pendiente',
+            'estado' => 'calculada', 'creado_por' => $usuario->id,
+        ]);
+        $item = $service->agregarColaboradores($empresa, $item, [$boleta->id]);
+        $detalle = $item->detalles->first();
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+
+        $item = $service->agregarConcepto($empresa, $detalle, $bonificacion->id, null, 75, 'Bono', $usuario->id);
+
+        $this->assertSame('Bonificación', $item->detalles->first()->tipoReintegro());
+    }
+
     public function test_nuevo_borrador_no_hereda_bloqueo_de_feriado_pagado_anterior(): void
     {
         [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
