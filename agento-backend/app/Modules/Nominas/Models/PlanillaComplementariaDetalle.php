@@ -41,6 +41,9 @@ class PlanillaComplementariaDetalle extends Model
             ! empty($snapshot['reintegros_descuentos']) => 'Reintegro de descuentos',
             ! empty($snapshot['bonos_masivos']) => 'Bono por asistencia',
             collect($snapshot['ingresos'] ?? [])->contains(fn (array $linea) =>
+                ($linea['codigo'] ?? null) === 'COMISION' && isset($linea['agregado_por'])
+            ) => 'Comisión por ventas',
+            collect($snapshot['ingresos'] ?? [])->contains(fn (array $linea) =>
                 ($linea['codigo'] ?? null) === 'BONIFICACION' && isset($linea['agregado_por'])
             ) => 'Bonificación',
             ! empty($snapshot['horas_extra_regularizadas']) => 'Horas extra',

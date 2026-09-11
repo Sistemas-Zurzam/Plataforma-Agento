@@ -250,6 +250,25 @@ class ReintegroFaltasBasicoTest extends TestCase
         $this->assertSame('Bonificación', $item->detalles->first()->tipoReintegro());
     }
 
+    public function test_comision_agregada_tiene_prioridad_sobre_una_bonificacion_preexistente(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $item = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Comisiones pendientes', 'motivo' => 'Comisiones agosto',
+            'estado' => 'calculada', 'creado_por' => $usuario->id,
+        ]);
+        $item = $service->agregarColaboradores($empresa, $item, [$boleta->id]);
+        $detalle = $item->detalles->first();
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+        $comision = ConceptoRemuneracion::where('codigo', 'COMISION')->firstOrFail();
+
+        $item = $service->agregarConcepto($empresa, $detalle, $bonificacion->id, null, 75, 'Bono anterior', $usuario->id);
+        $item = $service->agregarConcepto($empresa, $item->detalles->first(), $comision->id, null, 1224, 'Comisiones agosto', $usuario->id);
+
+        $this->assertSame('Comisión por ventas', $item->detalles->first()->tipoReintegro());
+    }
+
     public function test_motivo_de_bonificacion_en_boleta_no_hereda_motivo_general(): void
     {
         [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
