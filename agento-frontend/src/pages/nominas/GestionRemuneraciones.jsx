@@ -233,7 +233,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     exportarComplementariasExcel,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
-    exportarExcelBono, importarExcelBono,
+    exportarExcelBono, importarExcelBono, crearComisionesComplementaria,
     fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, crearComplementariaHorasExtra, agregarHorasExtraComplementaria, fetchColaboradoresPorAsistencia, aplicarBonoPorAsistencia, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, reabrirComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo,
     crearBonoAsistenciaLote, fetchBonoAsistenciaLotes, fetchBonoAsistenciaLote, exportarBonoAsistenciaLote, importarBonoAsistenciaLote, aplicarBonoAsistenciaLote, eliminarBonoAsistenciaLote,
   } = useRemuneraciones();
@@ -1356,6 +1356,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setImprimirMasivoOpen(false)}
         cicloId={cicloId}
         boletaIds={boletasSeleccionadas}
+        crearComisionesComplementaria={crearComisionesComplementaria}
         imprimirBoletasMasivo={imprimirBoletasMasivo}
       />
 
