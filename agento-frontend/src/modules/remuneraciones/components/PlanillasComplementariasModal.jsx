@@ -296,6 +296,8 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               ? <>Selecciona horas aprobadas del huellero o registra manualmente las que no tuvieron marcación. Se agregarán a una complementaria calculada y se recalcularán sus aportes.</>
               : tipoRegularizacion === 'bono_asistencia'
               ? <>Evalúa la asistencia mensual y exporta la propuesta para Gerencia. Después registra los colaboradores y montos aprobados en una complementaria.</>
+              : tipoRegularizacion === 'comisiones'
+              ? <>Ingresa el monto de comisión correspondiente a cada colaborador seleccionado. Se recalcularán sus aportes y provisiones.</>
               : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
           </div>
           {tipoRegularizacion === 'descanso_semanal' && (
@@ -396,7 +398,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               <InputNumber min={0.01} precision={2} value={montosComision[boleta.id]} onChange={(value) => setMontosComision((prev) => ({ ...prev, [boleta.id]: value }))} placeholder="Monto comisión" />
             </div>
           ))}
-          {tipoRegularizacion === 'comisiones' && <InputNumber className="mb-2 w-48" min={0.01} precision={2} value={montoComision} onChange={setMontoComision} placeholder="Monto comisión" />}
+          {tipoRegularizacion === 'comisiones' && !boletasSeleccionadas.length && (
+            <div className="mb-2 text-sm text-amber-700">Selecciona las boletas pagadas para ingresar la comisión de cada colaborador.</div>
+          )}
           {!['horas_extra', 'bono_asistencia'].includes(tipoRegularizacion) && <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
             <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>
