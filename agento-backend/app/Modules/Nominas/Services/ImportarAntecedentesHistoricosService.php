@@ -300,10 +300,11 @@ class ImportarAntecedentesHistoricosService
             $errores[] = 'El motivo/sustento es obligatorio.';
         }
         if ($colaborador) {
-            // CTS mayo cubre nov(año-1)-abr(año), depositada en mayo; CTS
-            // noviembre cubre may-oct, depositada en noviembre. `mes` (1-12)
-            // es un mes DENTRO del periodo cubierto por la fila.
-            $mesEsperado = $detalle->mes !== null ? (((int) $detalle->mes <= 6) ? 11 : 5) : null;
+            // La CTS solo se calcula/deposita en mayo o noviembre: `mes` es
+            // directamente el mes en que se depositó (mismo criterio que
+            // confirmarGratificacionPagada()), nunca un mes dentro de un
+            // periodo más amplio.
+            $mesEsperado = $detalle->mes !== null ? (((int) $detalle->mes <= 6) ? 5 : 11) : null;
             $errores = [...$errores, ...$this->validarFechaConfirmacion($detalle, $importacion, $colaborador, $fechaDeposito, $mesEsperado)];
         }
         if ($errores !== []) {

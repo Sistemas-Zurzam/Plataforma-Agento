@@ -58,9 +58,10 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
 
         $this->crearDetalle($lote, [
             'colaborador_id' => $colaborador->id, 'fecha_ingreso_vinculo' => $colaborador->fecha_ingreso,
-            // mes=6: dentro del periodo enero-junio que cubre la gratificación de julio
-            // (el aplicador clasifica por el mes DENTRO del periodo, no el mes de pago).
-            'tipo_antecedente' => 'gratificacion_pagada', 'anio' => 2026, 'mes' => 6,
+            // mes=7: la gratificación solo se calcula en julio o diciembre, y
+            // el aplicador clasifica directamente por ese mes (nunca un mes
+            // dentro de un periodo más amplio).
+            'tipo_antecedente' => 'gratificacion_pagada', 'anio' => 2026, 'mes' => 7,
             'fecha_periodo_inicio' => '2026-01-01', 'fecha_periodo_fin' => '2026-06-30',
             'fecha_corte' => '2026-07-31', 'importe' => 1500, 'hoja_nombre' => 'Gratificaciones', 'fila_numero' => 1,
         ]);
@@ -371,7 +372,7 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
         app(AplicarImportacionHistoricaService::class)->aplicar($empresa, $lote, $usuarioId);
 
         $beneficio = BeneficioSocialHistorico::where('colaborador_id', $colaborador->id)->firstOrFail();
-        $this->assertSame('cts_noviembre', $beneficio->tipo);
+        $this->assertSame('cts_mayo', $beneficio->tipo);
         $this->assertSame('Num Operacion - 001', $beneficio->referencia_externa);
         $this->assertSame('2026-05-15', $beneficio->fecha_pago_deposito->toDateString());
     }

@@ -166,12 +166,17 @@ class AplicarImportacionHistoricaService
     }
 
     /**
-     * `$detalle->mes` se interpreta como un mes DENTRO del periodo cubierto
-     * (ej. 6 para "enero-junio"), nunca el mes de pago/depósito — así, mes
-     * 1-6 siempre cae en gratificación de julio / CTS de noviembre, y 7-12
-     * en gratificación de diciembre / CTS de mayo. Incremento 2 debe
-     * confirmar esta convención contra el layout real del Excel antes de
-     * poblar `mes` desde el lector.
+     * `$detalle->mes` es, confirmado contra el Excel real y las
+     * validaciones de `ImportarAntecedentesHistoricosService`, el mes en que
+     * la fila se calculó/pagó (no un mes dentro de un periodo más amplio):
+     * la gratificación solo se calcula en julio o diciembre
+     * (`confirmarGratificacionPagada()` exige `mes` ∈ {7,12}) y la CTS solo
+     * en mayo o noviembre (`confirmarCtsDepositada()` usa el mismo criterio
+     * al validar la fecha confirmada). `mes` determina directamente el
+     * tipo: gratificación de julio (cubre ene-jun) o CTS de mayo (cubre
+     * nov(año-1)-abr) para el primero de los dos valores válidos de cada
+     * una; gratificación de diciembre (cubre jul-dic) o CTS de noviembre
+     * (cubre may-oct) para el segundo.
      */
     private function construirBeneficioSocial(NominaImportacionHistoricaDetalle $detalle, int $usuarioId): BeneficioSocialHistorico
     {
@@ -186,14 +191,15 @@ class AplicarImportacionHistoricaService
             ]);
         }
 
-        $esPrimerSemestre = (int) $detalle->mes <= 6;
         $esGratificacion = $detalle->tipo_antecedente === 'gratificacion_pagada';
+        // Los valores válidos de `mes` no son simétricos: gratificación solo
+        // vale 7 o 12 (julio es la "primera mitad"), CTS solo vale 5 o 11
+        // (mayo es la "primera mitad") — no se puede usar el mismo corte
+        // "<= 6" para ambos.
+        $esPrimerSemestre = $esGratificacion ? (int) $detalle->mes === 7 : (int) $detalle->mes <= 6;
         $tipo = $esGratificacion
             ? ($esPrimerSemestre ? 'gratificacion_julio' : 'gratificacion_diciembre')
-            : ($esPrimerSemestre ? 'cts_noviembre' : 'cts_mayo');
-        // Nota: cts_mayo cubre nov(año-1)-abr, cts_noviembre cubre may-oct;
-        // se deriva del semestre del mes informado como aproximación —
-        // Incremento 2 debe afinar esto con el layout real del Excel.
+            : ($esPrimerSemestre ? 'cts_mayo' : 'cts_noviembre');
 
         $modelo = new BeneficioSocialHistorico([
             'empresa_id' => $detalle->empresa_id,

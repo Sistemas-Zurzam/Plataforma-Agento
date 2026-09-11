@@ -167,7 +167,7 @@ class ConfirmarCtsDepositadaTest extends TestCase
 
     public function test_rechaza_si_la_fecha_de_deposito_es_incompatible_con_el_periodo_declarado(): void
     {
-        // mes=5 (<=6) implica depósito esperado en noviembre de 2026, no en junio.
+        // mes=5 implica depósito esperado en mayo de 2026, no en junio.
         [$empresa, , $importacion, $detalle] = $this->crearLoteConDetalleCts(['anio' => 2026, 'mes' => 5]);
 
         $this->expectException(ValidationException::class);
