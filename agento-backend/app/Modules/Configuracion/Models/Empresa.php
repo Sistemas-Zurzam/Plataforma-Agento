@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'seguro_salud',
     'activa',
     'descanso_flexible_automatico',
+    'bono_asistencia_habilitado',
 ])]
 class Empresa extends Model
 {
@@ -46,6 +47,7 @@ class Empresa extends Model
         return [
             'activa' => 'boolean',
             'descanso_flexible_automatico' => 'boolean',
+            'bono_asistencia_habilitado' => 'boolean',
             'inscrita_remype' => 'boolean',
             'fecha_inscripcion_remype' => 'date',
         ];

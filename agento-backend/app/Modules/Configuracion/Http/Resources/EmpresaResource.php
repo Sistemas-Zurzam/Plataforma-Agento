@@ -33,6 +33,7 @@ class EmpresaResource extends JsonResource
             'seguro_salud' => $this->seguro_salud,
             'activa' => $this->activa,
             'descanso_flexible_automatico' => $this->descanso_flexible_automatico,
+            'bono_asistencia_habilitado' => $this->bono_asistencia_habilitado,
             // Un administrador global opera como Administrador en TODAS las
             // empresas, incluidas las que no traen `pivot` cargado (porque
             // vinieron de Empresa::all(), no de $user->empresas()) — ver

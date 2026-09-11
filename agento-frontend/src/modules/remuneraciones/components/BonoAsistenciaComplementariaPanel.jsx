@@ -1,5 +1,6 @@
 import { CheckCircleOutlined } from '@ant-design/icons';
-import { App, Button, Input, InputNumber, Segmented, Select, Table, Tag } from 'antd';
+import { App, Button, Checkbox, Input, InputNumber, Segmented, Select, Table, Tag } from 'antd';
+import ReporteBonoAsistenciaPanel from './ReporteBonoAsistenciaPanel';
 import { useEffect, useMemo, useState } from 'react';
 import { useConceptoDefinicionesPlame } from '../../configuracion/hooks/useConceptoDefinicionesPlame';
 import { CONCEPTOS_CON_DEFINICION, CONCEPTOS_REGISTRABLES } from './AgregarConceptoComplementariaModal';
@@ -17,7 +18,9 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
   const { message } = App.useApp();
   const { definiciones, loading: definicionesLoading, fetchDefiniciones } = useConceptoDefinicionesPlame();
 
-  const [dias, setDias] = useState(27);
+  const [vista, setVista] = useState('reporte');
+  const [aprobacionConfirmada, setAprobacionConfirmada] = useState(false);
+  const [dias, setDias] = useState(26);
   const [operador, setOperador] = useState('exacto');
   const [codigo, setCodigo] = useState(undefined);
   const [conceptoDefinicionId, setConceptoDefinicionId] = useState(undefined);
@@ -68,7 +71,8 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
     try {
       const resultado = await api.fetchColaboradoresPorAsistencia(ciclo.id, dias, operador, concepto.id);
       setColaboradores(resultado.colaboradores);
-      setSeleccion(resultado.colaboradores.filter((c) => c.disponible).map((c) => c.boleta_id));
+      setSeleccion([]);
+      setAprobacionConfirmada(false);
       setBuscado(true);
     } catch (e) {
       message.error(Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? e.response?.data?.message ?? 'No se pudieron cargar los colaboradores por asistencia.');
@@ -76,7 +80,7 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
   };
 
   const aplicar = async () => {
-    if (!seleccion.length) return;
+    if (!seleccion.length || !aprobacionConfirmada) return;
     if (requiereDefinicionPlame && !conceptoDefinicionId) return message.warning('Selecciona la clasificación PLAME del bono.');
     if (!monto || monto <= 0) return message.warning('Ingresa un monto mayor a cero.');
     if (!motivo.trim()) return message.warning('Ingresa el motivo del bono.');
@@ -104,10 +108,13 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
   };
 
   return <div className="space-y-3">
+    <Segmented value={vista} onChange={setVista} options={[{ value: 'reporte', label: 'Evaluación para Gerencia' }, { value: 'aplicar', label: 'Registrar bonos aprobados' }]} />
+    {vista === 'reporte' ? <ReporteBonoAsistenciaPanel ciclo={ciclo} api={api} onUpdated={onUpdated} catalogo={catalogoLocal} /> : <>
+    <p>Registra únicamente los colaboradores y montos aprobados por Gerencia. Para porcentajes distintos, registra cada grupo con su importe autorizado.</p>
     <div className="flex flex-wrap items-end gap-3">
       <div>
-        <div className="mb-1 text-xs font-medium text-gray-600">Días asistidos</div>
-        <InputNumber min={1} max={31} value={dias} onChange={setDias} />
+        <div className="mb-1 text-xs font-medium text-gray-600">Días pagados en la boleta</div>
+        <InputNumber min={1} max={30} value={dias} onChange={setDias} />
       </div>
       <div>
         <div className="mb-1 text-xs font-medium text-gray-600">Comparación</div>
@@ -137,7 +144,7 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
       )}
       <div>
         <div className="mb-1 text-xs font-medium text-gray-600">Monto (S/)</div>
-        <InputNumber min={0.01} step={0.01} precision={2} value={monto} onChange={setMonto} />
+        <InputNumber min={0.01} step={0.01} precision={2} value={monto} onChange={(v) => { setMonto(v); setAprobacionConfirmada(false); }} />
       </div>
     </div>
     <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }}
@@ -150,22 +157,24 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
       loading={buscando}
       dataSource={colaboradores}
       scroll={{ x: 700 }}
-      rowSelection={{ selectedRowKeys: seleccion, onChange: setSeleccion, preserveSelectedRowKeys: true, getCheckboxProps: (c) => ({ disabled: !c.disponible }) }}
+      rowSelection={{ selectedRowKeys: seleccion, onChange: (ids) => { setSeleccion(ids); setAprobacionConfirmada(false); }, preserveSelectedRowKeys: true, getCheckboxProps: (c) => ({ disabled: !c.disponible }) }}
       pagination={{ defaultPageSize: 10, showSizeChanger: true }}
       locale={{ emptyText: buscado ? 'Ningún colaborador cumple el filtro de asistencia.' : 'Busca para ver los colaboradores que cumplen el filtro.' }}
       columns={[
         { title: 'Colaborador', dataIndex: 'colaborador' },
         { title: 'Documento', dataIndex: 'documento', width: 120 },
-        { title: 'Días asistidos', dataIndex: 'dias_asistidos', width: 120, align: 'center' },
+        { title: 'Días pagados', dataIndex: 'dias_asistidos', width: 120, align: 'center' },
         { title: 'Estado', width: 240, render: (_, c) => c.disponible
           ? <Tag color="green" icon={<CheckCircleOutlined />}>Disponible</Tag>
           : <Tag>{c.motivo ?? 'No disponible'}</Tag> },
       ]}
     />
 
-    <Button type="primary" loading={aplicando} disabled={!seleccion.length} onClick={aplicar}>
+    <Checkbox checked={aprobacionConfirmada} onChange={(e) => setAprobacionConfirmada(e.target.checked)}>Confirmo que Gerencia aprobó los colaboradores seleccionados y el monto indicado.</Checkbox>
+    <Button type="primary" loading={aplicando} disabled={!seleccion.length || !aprobacionConfirmada} onClick={aplicar}>
       Aplicar bono a {seleccion.length} colaborador{seleccion.length === 1 ? '' : 'es'}
     </Button>
-    <p className="text-xs text-gray-500">Se crea una nueva planilla complementaria solo con los colaboradores seleccionados; la boleta original ya pagada no se modifica.</p>
+    <p className="text-xs text-gray-500">El filtro usa los días pagados consolidados en la boleta (máximo laboral de 30), por lo que no cuenta descansos como días adicionales. Se crea una nueva planilla complementaria solo con los colaboradores seleccionados; la boleta original ya pagada no se modifica.</p>
+    </>}
   </div>;
 }

@@ -1,8 +1,9 @@
 import { PrinterOutlined } from '@ant-design/icons';
-import { App, Button, Modal } from 'antd';
+import { App, Button, Modal, Segmented } from 'antd';
 import { useEffect, useState } from 'react';
 import { useColaboradores } from '../hooks/useColaboradores';
 import CarnetColaborador from './CarnetColaborador';
+import CarnetColaboradorReverso from './CarnetColaboradorReverso';
 
 /**
  * Compartido entre la ficha del colaborador y la fila "Acciones" del
@@ -16,6 +17,11 @@ export default function VerCarnetModal({ colaborador, onClose }) {
   const { fetchFotoPerfil } = useColaboradores();
   const { message } = App.useApp();
   const [fotoUrl, setFotoUrl] = useState(null);
+  const [cara, setCara] = useState('frente');
+
+  useEffect(() => {
+    setCara('frente');
+  }, [colaborador]);
 
   useEffect(() => {
     setFotoUrl(null);
@@ -64,7 +70,6 @@ export default function VerCarnetModal({ colaborador, onClose }) {
     ventana.document.write(`<!doctype html>
       <html>
         <head>
-          <title>Carnet — ${colaborador.nombre_completo}</title>
           ${estilos}
           <style>
             @page { size: 54mm 86mm; margin: 0; }
@@ -81,6 +86,12 @@ export default function VerCarnetModal({ colaborador, onClose }) {
         <body><div id="carnet-imprimible-pagina">${contenedor.outerHTML}</div></body>
       </html>`);
     ventana.document.close();
+    // Título asignado como propiedad (no interpolado en el HTML crudo de
+    // arriba): document.title siempre se trata como texto plano, así un
+    // nombre de colaborador con `</title><script>` no puede inyectar
+    // markup/JS en esta ventana — a diferencia del <title> de antes, que sí
+    // era vulnerable a eso.
+    ventana.document.title = `Carnet — ${colaborador.nombre_completo}${cara === 'reverso' ? ' (reverso)' : ''}`;
     ventana.onload = () => {
       ventana.focus();
       ventana.print();
@@ -99,8 +110,17 @@ export default function VerCarnetModal({ colaborador, onClose }) {
       centered
     >
       {colaborador && (
-        <div className="flex justify-center py-2">
-          <CarnetColaborador colaborador={colaborador} fotoUrl={fotoUrl} />
+        <div className="flex flex-col items-center gap-4 py-2">
+          <Segmented
+            options={[{ label: 'Frente', value: 'frente' }, { label: 'Reverso', value: 'reverso' }]}
+            value={cara}
+            onChange={setCara}
+          />
+          {cara === 'frente' ? (
+            <CarnetColaborador colaborador={colaborador} fotoUrl={fotoUrl} />
+          ) : (
+            <CarnetColaboradorReverso colaborador={colaborador} />
+          )}
         </div>
       )}
     </Modal>

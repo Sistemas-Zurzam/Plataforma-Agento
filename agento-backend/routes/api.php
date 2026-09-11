@@ -19,6 +19,7 @@ use App\Modules\Configuracion\Http\Controllers\SedeController;
 use App\Modules\Configuracion\Http\Controllers\UsuarioController;
 use App\Modules\Nominas\Http\Controllers\BeneficioSocialController;
 use App\Modules\Nominas\Http\Controllers\BoletaController;
+use App\Modules\Nominas\Http\Controllers\BonoAsistenciaController;
 use App\Modules\Nominas\Http\Controllers\CicloRemunerativoController;
 use App\Modules\Nominas\Http\Controllers\ConceptoDefinicionPlameController;
 use App\Modules\Nominas\Http\Controllers\ConceptoRemuneracionController;
@@ -246,6 +247,17 @@ Route::middleware('jwt')->group(function () {
     Route::post('/planillas-complementarias/{complementaria}/bbva-netcash/exportar', [PlanillaComplementariaController::class, 'exportarBbva'])->middleware('permiso:nominas.bbva_netcash_exportar');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/telecredito-bcp/exportar-masivo', [PlanillaComplementariaController::class, 'exportarBcpMasivo'])->middleware('permiso:nominas.telecredito_exportar');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/bbva-netcash/exportar-masivo', [PlanillaComplementariaController::class, 'exportarBbvaMasivo'])->middleware('permiso:nominas.bbva_netcash_exportar');
+
+    // Bono de Asistencia (política Livex, personal comercial) — se calcula y
+    // aplica DENTRO del ciclo normal de planilla, ANTES de pagarlo. Nunca es
+    // Planilla Complementaria (eso es para ciclos YA PAGADOS).
+    Route::post('/ciclos-remunerativos/{ciclo}/bono-asistencia', [BonoAsistenciaController::class, 'generar'])->middleware('permiso:nominas.calcular');
+    Route::get('/ciclos-remunerativos/{ciclo}/bono-asistencia-lotes', [BonoAsistenciaController::class, 'index'])->middleware('permiso:nominas.calcular');
+    Route::get('/bono-asistencia-lotes/{lote}', [BonoAsistenciaController::class, 'show'])->middleware('permiso:nominas.calcular');
+    Route::get('/bono-asistencia-lotes/{lote}/exportar', [BonoAsistenciaController::class, 'exportar'])->middleware('permiso:nominas.calcular');
+    Route::post('/bono-asistencia-lotes/{lote}/importar', [BonoAsistenciaController::class, 'importar'])->middleware('permiso:nominas.calcular');
+    Route::post('/bono-asistencia-lotes/{lote}/aplicar', [BonoAsistenciaController::class, 'aplicar'])->middleware('permiso:nominas.aprobar');
+    Route::delete('/bono-asistencia-lotes/{lote}', [BonoAsistenciaController::class, 'anular'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'listarConceptos'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'registrarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos/{conceptoPeriodo}', [CicloRemunerativoController::class, 'actualizarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');

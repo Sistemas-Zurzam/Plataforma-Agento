@@ -39,6 +39,7 @@ class UpdateEmpresaRequest extends FormRequest
             'numero_registro_remype' => ['nullable', 'string', 'max:255', 'required_if:inscrita_remype,true'],
             'seguro_salud' => ['nullable', Rule::in(['essalud', 'sis'])],
             'descanso_flexible_automatico' => ['nullable', 'boolean'],
+            'bono_asistencia_habilitado' => ['nullable', 'boolean'],
         ];
     }
 

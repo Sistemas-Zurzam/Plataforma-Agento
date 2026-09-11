@@ -574,6 +574,62 @@ export function useRemuneraciones() {
   }, []);
 
   /**
+   * Bono de asistencia (política Livex) — se calcula y aplica DENTRO del
+   * ciclo normal de planilla, antes de pagarlo. Es un flujo independiente de
+   * Planillas Complementarias (esas son para ciclos YA PAGADOS): un
+   * BonoAsistenciaLote pasa por generar → exportar Excel para Livex →
+   * reimportar el Excel revisado → aplicar (escribe en
+   * colaborador_conceptos_periodo, que el "Calcular planilla" del ciclo ya
+   * lee automáticamente).
+   */
+  const crearBonoAsistenciaLote = useCallback(async (cicloId, values) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/bono-asistencia`, values);
+    return data.data;
+  }, []);
+
+  const fetchBonoAsistenciaLotes = useCallback(async (cicloId) => {
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/bono-asistencia-lotes`);
+    return data.data;
+  }, []);
+
+  const fetchBonoAsistenciaLote = useCallback(async (loteId) => {
+    const { data } = await api.get(`/bono-asistencia-lotes/${loteId}`);
+    return data.data;
+  }, []);
+
+  const exportarBonoAsistenciaLote = useCallback(async (loteId) => {
+    const response = await api.get(`/bono-asistencia-lotes/${loteId}/exportar`, { responseType: 'blob' });
+    const disposicion = response.headers?.['content-disposition'] ?? '';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? `Bono_asistencia_${loteId}.xlsx`;
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
+  const importarBonoAsistenciaLote = useCallback(async (loteId, archivo) => {
+    const formulario = new FormData();
+    formulario.append('archivo', archivo);
+    const { data } = await api.post(`/bono-asistencia-lotes/${loteId}/importar`, formulario, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data.data;
+  }, []);
+
+  const aplicarBonoAsistenciaLote = useCallback(async (loteId) => {
+    const { data } = await api.post(`/bono-asistencia-lotes/${loteId}/aplicar`);
+    return data.data;
+  }, []);
+
+  const eliminarBonoAsistenciaLote = useCallback(async (loteId, motivo) => {
+    await api.delete(`/bono-asistencia-lotes/${loteId}`, { data: { motivo } });
+  }, []);
+
+  /**
    * Previsualización mensual continua — no requiere ciclo (Sección 5/32 de
    * la documentación funcional). Nunca persiste nada en el backend.
    */
@@ -619,6 +675,13 @@ export function useRemuneraciones() {
     agregarHorasExtraComplementaria,
     fetchColaboradoresPorAsistencia,
     aplicarBonoPorAsistencia,
+    crearBonoAsistenciaLote,
+    fetchBonoAsistenciaLotes,
+    fetchBonoAsistenciaLote,
+    exportarBonoAsistenciaLote,
+    importarBonoAsistenciaLote,
+    aplicarBonoAsistenciaLote,
+    eliminarBonoAsistenciaLote,
     crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,
     eliminarConceptoComplementaria,

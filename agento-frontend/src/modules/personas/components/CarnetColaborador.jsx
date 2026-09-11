@@ -60,6 +60,10 @@ export default function CarnetColaborador({ colaborador, fotoUrl }) {
 
   return (
     <div
+      // Mismo id que usa CarnetColaboradorReverso — VerCarnetModal solo
+      // monta una de las dos caras a la vez (nunca ambas), así que
+      // reutilizar el id deja imprimirCarnet() sin cambios sin importar
+      // cuál de las dos esté visible.
       id="carnet-colaborador-imprimible"
       className="relative flex flex-col overflow-hidden rounded-3xl bg-white shadow-lg"
       style={{ width: 260, height: 414 }}

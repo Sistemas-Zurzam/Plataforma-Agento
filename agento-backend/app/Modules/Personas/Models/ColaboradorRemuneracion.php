@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['colaborador_id', 'salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'vigencia_desde'])]
+#[Fillable(['colaborador_id', 'salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'bono_asistencia_base', 'vigencia_desde'])]
 class ColaboradorRemuneracion extends Model
 {
     /**
