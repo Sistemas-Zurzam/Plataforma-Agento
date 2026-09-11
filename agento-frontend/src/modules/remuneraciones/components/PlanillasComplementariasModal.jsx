@@ -11,7 +11,7 @@ import HorasExtraComplementariaPanel from './HorasExtraComplementariaPanel';
 const soles = (valor) => `S/ ${Number(valor || 0).toFixed(2)}`;
 const nombreConcepto = (codigo) => codigo === 'DESCUENTO_FALTA_BASICO' ? 'Faltas descontadas de la remuneración básica' : CONCEPTOS_REGISTRABLES.find((c) => c.codigo === codigo)?.nombre ?? codigo;
 
-export default function PlanillasComplementariasModal({ open, onCancel, ciclo, boletaIds, api, permisos, catalogoConceptos = [] }) {
+export default function PlanillasComplementariasModal({ open, onCancel, ciclo, boletaIds, api, permisos, catalogoConceptos = [], crearComisionesComplementaria }) {
   const { message } = App.useApp();
   const { cuentas, fetchCuentas } = useCuentasBancariasEmpresa(ciclo?.empresa?.id);
   const [items, setItems] = useState([]);
@@ -23,6 +23,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [reabriendo, setReabriendo] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [tipoRegularizacion, setTipoRegularizacion] = useState('reintegro_descuentos');
+  const [montoComision, setMontoComision] = useState(null);
   const [semanasDescanso, setSemanasDescanso] = useState([]);
   const [semanasSeleccionadas, setSemanasSeleccionadas] = useState([]);
   const [cargandoSemanas, setCargandoSemanas] = useState(false);
@@ -95,6 +96,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       setBusquedaDescuentos('');
       setFiltroDescuento(null);
       setTipoRegularizacion('reintegro_descuentos');
+      setMontoComision(null);
       setSemanasDescanso([]);
       setSemanasSeleccionadas([]);
       setConfirmarDescansos(false);
@@ -122,6 +124,14 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const crear = async () => {
     if (!motivo.trim()) return message.warning('Ingresa el motivo de la regularización.');
     if (!boletaIds.length) return message.warning('Selecciona las boletas pagadas que deseas regularizar.');
+    if (tipoRegularizacion === 'comisiones') {
+      if (!montoComision || montoComision <= 0) return message.warning('Ingresa el monto de la comisión.');
+      setCreando(true);
+      try { await api.crearComisionesComplementaria(ciclo.id, boletaIds, montoComision, motivo.trim()); message.success('Comisiones generadas.'); setMotivo(''); await cargar(); }
+      catch (e) { message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudieron generar las comisiones.'); }
+      finally { setCreando(false); }
+      return;
+    }
     if (tipoRegularizacion === 'feriado_historico' && !fechaFeriado) return message.warning('Selecciona la fecha del feriado trabajado.');
     if (tipoRegularizacion === 'feriado_historico' && !sinDescansoSustitutorio) return message.warning('Confirma que no se otorgó descanso sustitutorio.');
     setCreando(true);
@@ -263,6 +273,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               { value: 'feriado_historico', label: 'Feriado trabajado no pagado' },
               { value: 'horas_extra', label: 'Pagar horas extra pendientes' },
               { value: 'bono_asistencia', label: 'Bono por asistencia' },
+              { value: 'comisiones', label: 'Comisiones pendientes' },
             ]} />
             {tipoRegularizacion === 'feriado_historico' && (
               <DatePicker value={fechaFeriado} onChange={setFechaFeriado} format="DD/MM/YYYY" placeholder="Fecha del feriado"
@@ -375,10 +386,11 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           {tipoRegularizacion === 'bono_asistencia' && (
             <BonoAsistenciaComplementariaPanel ciclo={ciclo} api={api} onUpdated={cargar} catalogo={catalogoConceptos} />
           )}
+          {tipoRegularizacion === 'comisiones' && <InputNumber className="mb-2 w-48" min={0.01} precision={2} value={montoComision} onChange={setMontoComision} placeholder="Monto comisión" />}
           {!['horas_extra', 'bono_asistencia'].includes(tipoRegularizacion) && <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
             <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>
-              {tipoRegularizacion === 'reintegro_descuentos' && agregaABorrador ? 'Agregar al borrador' : ['reintegro_descuentos', 'descanso_semanal'].includes(tipoRegularizacion) ? 'Generar reintegro' : tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
+              {tipoRegularizacion === 'comisiones' ? 'Generar comisiones' : tipoRegularizacion === 'reintegro_descuentos' && agregaABorrador ? 'Agregar al borrador' : ['reintegro_descuentos', 'descanso_semanal'].includes(tipoRegularizacion) ? 'Generar reintegro' : tipoRegularizacion === 'feriado_historico' ? 'Calcular feriado' : 'Calcular diferencia'}
             </Button>
           </div>}
         </div>

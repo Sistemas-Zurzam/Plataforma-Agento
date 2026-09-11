@@ -47,6 +47,16 @@ class PlanillaComplementariaService
             ->latest()->get();
     }
 
+    public function crearComisiones(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds, float $monto, string $motivo, int $usuarioId): PlanillaComplementaria
+    {
+        if ($monto <= 0) throw ValidationException::withMessages(['monto' => 'El monto debe ser mayor a cero.']);
+        $item = PlanillaComplementaria::create(['empresa_id' => $empresa->id, 'ciclo_id' => $ciclo->id, 'nombre' => 'Comisiones pendientes '.$ciclo->nombre, 'motivo' => $motivo, 'estado' => 'calculada', 'creado_por' => $usuarioId]);
+        $item = $this->agregarColaboradores($empresa, $item, $boletaIds);
+        $concepto = ConceptoRemuneracion::where('codigo', 'COMISION')->where('activo', true)->firstOrFail();
+        foreach ($item->detalles as $detalle) $item = $this->agregarConcepto($empresa, $detalle, $concepto->id, null, $monto, $motivo, $usuarioId);
+        return $item;
+    }
+
     public function colaboradoresDisponibles(Empresa $empresa, PlanillaComplementaria $item, ?string $busqueda = null): Collection
     {
         $this->verificarItem($empresa, $item);

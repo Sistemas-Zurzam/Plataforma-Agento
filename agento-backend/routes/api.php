@@ -231,6 +231,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/descansos-semanales', [PlanillaComplementariaController::class, 'reintegrarDescansosSemanales'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias/descuentos', [PlanillaComplementariaController::class, 'descuentos'])->middleware('permiso:nominas.calcular');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/reintegrar-descuentos', [PlanillaComplementariaController::class, 'reintegrarDescuentos'])->middleware('permiso:nominas.calcular');
+    Route::post('/ciclos-remunerativos/{ciclo}/complementarias/comisiones', [PlanillaComplementariaController::class, 'comisiones'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias/feriados-historicos', [PlanillaComplementariaController::class, 'feriadosDisponibles'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias/horas-extra-pendientes', [PlanillaComplementariaController::class, 'horasExtraPendientes'])->middleware('permiso:nominas.calcular');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/horas-extra', [PlanillaComplementariaController::class, 'crearConHorasExtra'])->middleware('permiso:nominas.calcular');

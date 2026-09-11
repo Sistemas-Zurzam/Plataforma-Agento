@@ -150,6 +150,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const crearComisionesComplementaria = useCallback(async (cicloId, boletaIds, monto, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/comisiones`, { boleta_ids: boletaIds, monto, motivo });
+    return data.data;
+  }, []);
+
   const fetchDescuentosComplementaria = useCallback(async (cicloId, boletaIds) => {
     const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/descuentos`, { params: { boleta_ids: boletaIds } });
     return data.data;
@@ -652,6 +657,7 @@ export function useRemuneraciones() {
     fetchResumenContable,
     fetchComplementarias,
     crearComplementaria,
+    crearComisionesComplementaria,
     fetchFeriadosHistoricos,
     fetchHorasExtraPendientesComplementaria,
     crearComplementariaHorasExtra,
