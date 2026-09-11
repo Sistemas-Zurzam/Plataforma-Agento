@@ -122,6 +122,7 @@ export default function BoletaDocumento({ detalle }) {
   const sistemaPrevisional = detalle?.colaborador?.sistema_previsional === 'onp' ? 'ONP' : 'AFP';
   const reintegros = detalle?.reintegros ?? [];
   const totalReintegros = reintegros.reduce((suma, r) => suma + Number(r.monto ?? 0), 0);
+  const totalAfpReintegros = reintegros.reduce((suma, r) => suma + Number(r.afp_retenido ?? 0), 0);
   const netoConReintegros = Number(detalle?.neto_a_pagar ?? 0) + totalReintegros;
 
   return (
@@ -214,7 +215,17 @@ export default function BoletaDocumento({ detalle }) {
           <Tarjeta
             titulo="Reintegros pagados con posterioridad"
             icono={<DollarCircleOutlined />}
-            pie={<FilaTotal label="Total reintegros" valor={totalReintegros} />}
+            pie={
+              <>
+                <FilaTotal label="Total reintegros" valor={totalReintegros} />
+                {totalAfpReintegros !== 0 && (
+                  <div className="flex justify-between bg-gray-50 px-3 py-1 text-[10px] text-gray-500 print:py-0.5">
+                    <span>AFP/ONP retenido en reintegros</span>
+                    <span>{soles(totalAfpReintegros)}</span>
+                  </div>
+                )}
+              </>
+            }
           >
             <table className="w-full text-[11px]">
               <tbody>
@@ -228,6 +239,11 @@ export default function BoletaDocumento({ detalle }) {
                     </td>
                     <td className={`py-1 text-right align-top font-semibold whitespace-nowrap print:py-0.5 ${Number(r.monto) >= 0 ? 'text-green-700' : 'text-red-600'}`}>
                       {soles(r.monto)}
+                      {Number(r.afp_retenido) !== 0 && (
+                        <span className="block text-[9px] leading-tight font-normal text-gray-400">
+                          AFP/ONP: {soles(r.afp_retenido)}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

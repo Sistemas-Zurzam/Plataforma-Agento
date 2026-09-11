@@ -175,7 +175,7 @@ class BoletaService
      * calculada/aprobada todavía no es dinero que el colaborador haya
      * recibido, mostrarlo en su boleta sería prematuro.
      *
-     * @return array<int, array{nombre: string, tipo: string, motivo: ?string, monto: float, pagado_at: ?string, referencia_pago: ?string}>
+     * @return array<int, array{nombre: string, tipo: string, motivo: ?string, monto: float, afp_retenido: float, pagado_at: ?string, referencia_pago: ?string}>
      */
     private function resolverReintegros(Boleta $boleta): array
     {
@@ -198,6 +198,10 @@ class BoletaService
                     'tipo' => $tipo,
                     'motivo' => $motivo,
                     'monto' => (float) $detalle->diferencia_neta,
+                    // diferencia_egresos: descuento adicional (AFP/ONP, principalmente)
+                    // que generó este reintegro puntual — ver recalcularTotalesSnapshot()
+                    // en PlanillaComplementariaService, neto = ingresos - egresos.
+                    'afp_retenido' => (float) $detalle->diferencia_egresos,
                     'pagado_at' => $detalle->complementaria->pagado_at?->toDateTimeString(),
                     'referencia_pago' => $detalle->complementaria->referencia_pago,
                 ];
