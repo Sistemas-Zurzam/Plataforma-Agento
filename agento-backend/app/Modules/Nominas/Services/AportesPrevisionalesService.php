@@ -38,22 +38,24 @@ class AportesPrevisionalesService
 
         $complementarias = PlanillaComplementariaDetalle::whereHas('complementaria', fn ($q) => $q
             ->where('ciclo_id', $ciclo->id)->where('estado', 'pagada'))
-            ->get(['boleta_original_id', 'calculo_snapshot']);
-        $adicionales = $complementarias->groupBy('boleta_original_id')->map(function ($detalles) {
-            $lineas = $detalles->flatMap(fn ($d) => collect($d->calculo_snapshot['egresos'] ?? [])->whereIn('codigo', self::CODIGOS));
-            $bases = $lineas->filter(fn ($l) => in_array($l['codigo'] ?? null, ['AFP_APORTE_OBLIGATORIO', 'ONP'], true))->sum(fn ($l) => (float) ($l['base_utilizada'] ?? 0));
-            return ['base' => $bases, 'aporte' => $lineas->whereIn('codigo', ['AFP_APORTE_OBLIGATORIO', 'ONP'])->sum('monto'), 'prima' => $lineas->where('codigo', 'AFP_PRIMA_SEGURO')->sum('monto'), 'comision' => $lineas->where('codigo', 'AFP_COMISION')->sum('monto')];
-        });
+            ->with('complementaria:id,pagado_at')
+            ->get(['id', 'planilla_complementaria_id', 'boleta_original_id', 'calculo_snapshot']);
+        $consolidados = $complementarias->groupBy('boleta_original_id')->map(fn ($detalles) => $detalles
+            ->sortByDesc(fn ($detalle) => [$detalle->complementaria?->pagado_at?->timestamp ?? 0, $detalle->id])
+            ->first());
 
-        $colaboradores = $boletas->map(function (Boleta $boleta) use ($empresa, $adicionales) {
+        $colaboradores = $boletas->map(function (Boleta $boleta) use ($empresa, $consolidados) {
             $porCodigo = $boleta->conceptos->keyBy(fn (BoletaConcepto $c) => $c->concepto->codigo);
             $esOnp = $boleta->colaborador->sistema_previsional === 'onp';
             $codigoPrincipal = $esOnp ? 'ONP' : 'AFP_APORTE_OBLIGATORIO';
 
-            $aporteObligatorio = (float) ($porCodigo->get($codigoPrincipal)?->monto ?? 0);
-            $primaSeguro = $esOnp ? null : (float) ($porCodigo->get('AFP_PRIMA_SEGURO')?->monto ?? 0);
-            $comision = $esOnp ? null : (float) ($porCodigo->get('AFP_COMISION')?->monto ?? 0);
-            $extra = $adicionales->get($boleta->id, ['base' => 0, 'aporte' => 0, 'prima' => 0, 'comision' => 0]);
+            $detalle = $consolidados->get($boleta->id);
+            $snapshotPorCodigo = collect($detalle?->calculo_snapshot['egresos'] ?? [])->keyBy('codigo');
+            $lineaPrincipal = $snapshotPorCodigo->get($codigoPrincipal);
+            $aporteObligatorio = (float) ($lineaPrincipal['monto'] ?? $porCodigo->get($codigoPrincipal)?->monto ?? 0);
+            $primaSeguro = $esOnp ? null : (float) (($snapshotPorCodigo->get('AFP_PRIMA_SEGURO')['monto'] ?? null) ?? $porCodigo->get('AFP_PRIMA_SEGURO')?->monto ?? 0);
+            $comision = $esOnp ? null : (float) (($snapshotPorCodigo->get('AFP_COMISION')['monto'] ?? null) ?? $porCodigo->get('AFP_COMISION')?->monto ?? 0);
+            $baseAsegurable = (float) ($lineaPrincipal['base_utilizada'] ?? $porCodigo->get($codigoPrincipal)?->base_utilizada ?? 0);
 
             return [
                 'colaborador_id' => $boleta->colaborador_id,
@@ -62,11 +64,11 @@ class AportesPrevisionalesService
                 'empresa' => $empresa->nombre_comercial,
                 'sistema_previsional' => $boleta->colaborador->sistema_previsional,
                 'afp_nombre' => $boleta->colaborador->afp?->nombre,
-                'remuneracion_asegurable' => (float) ($porCodigo->get($codigoPrincipal)?->base_utilizada ?? 0) + $extra['base'],
-                'aporte_obligatorio' => $aporteObligatorio + $extra['aporte'],
-                'prima_seguro' => $esOnp ? null : $primaSeguro + $extra['prima'],
-                'comision' => $esOnp ? null : $comision + $extra['comision'],
-                'total' => round($aporteObligatorio + $extra['aporte'] + ($primaSeguro ?? 0) + $extra['prima'] + ($comision ?? 0) + $extra['comision'], 2),
+                'remuneracion_asegurable' => $baseAsegurable,
+                'aporte_obligatorio' => $aporteObligatorio,
+                'prima_seguro' => $primaSeguro,
+                'comision' => $comision,
+                'total' => round($aporteObligatorio + ($primaSeguro ?? 0) + ($comision ?? 0), 2),
                 'estado' => $boleta->estado,
             ];
         })->values();
