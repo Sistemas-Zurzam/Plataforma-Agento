@@ -86,8 +86,8 @@ class PlanillaComplementariaController extends Controller
 
     public function comisiones(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
-        $datos = $request->validate(['boleta_ids' => ['required', 'array', 'min:1'], 'boleta_ids.*' => ['required', 'integer', 'distinct'], 'monto' => ['required', 'numeric', 'decimal:0,2', 'min:0.01'], 'motivo' => ['required', 'string', 'max:1000']]);
-        $item = $this->service->crearComisiones($this->empresa($request, $ciclo), $ciclo, $datos['boleta_ids'], (float) $datos['monto'], $datos['motivo'], $request->user('api')->id);
+        $datos = $request->validate(['comisiones' => ['required', 'array', 'min:1'], 'comisiones.*.boleta_id' => ['required', 'integer', 'distinct'], 'comisiones.*.monto' => ['required', 'numeric', 'decimal:0,2', 'min:0.01'], 'motivo' => ['required', 'string', 'max:1000']]);
+        $item = $this->service->crearComisiones($this->empresa($request, $ciclo), $ciclo, $datos['comisiones'], $datos['motivo'], $request->user('api')->id);
         return response()->json(['data' => $this->presentar($item)], 201);
     }
 

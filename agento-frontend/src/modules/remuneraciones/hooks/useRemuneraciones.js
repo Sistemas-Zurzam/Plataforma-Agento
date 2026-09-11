@@ -150,8 +150,8 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
-  const crearComisionesComplementaria = useCallback(async (cicloId, boletaIds, monto, motivo) => {
-    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/comisiones`, { boleta_ids: boletaIds, monto, motivo });
+  const crearComisionesComplementaria = useCallback(async (cicloId, comisiones, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/comisiones`, { comisiones, motivo });
     return data.data;
   }, []);
 

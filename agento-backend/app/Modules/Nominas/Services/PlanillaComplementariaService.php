@@ -47,13 +47,18 @@ class PlanillaComplementariaService
             ->latest()->get();
     }
 
-    public function crearComisiones(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds, float $monto, string $motivo, int $usuarioId): PlanillaComplementaria
+    public function crearComisiones(Empresa $empresa, CicloRemunerativo $ciclo, array $comisiones, string $motivo, int $usuarioId): PlanillaComplementaria
     {
-        if ($monto <= 0) throw ValidationException::withMessages(['monto' => 'El monto debe ser mayor a cero.']);
+        $boletaIds = array_column($comisiones, 'boleta_id');
+        $montos = collect($comisiones)->keyBy('boleta_id');
         $item = PlanillaComplementaria::create(['empresa_id' => $empresa->id, 'ciclo_id' => $ciclo->id, 'nombre' => 'Comisiones pendientes '.$ciclo->nombre, 'motivo' => $motivo, 'estado' => 'calculada', 'creado_por' => $usuarioId]);
         $item = $this->agregarColaboradores($empresa, $item, $boletaIds);
         $concepto = ConceptoRemuneracion::where('codigo', 'COMISION')->where('activo', true)->firstOrFail();
-        foreach ($item->detalles as $detalle) $item = $this->agregarConcepto($empresa, $detalle, $concepto->id, null, $monto, $motivo, $usuarioId);
+        foreach ($item->detalles as $detalle) {
+            $monto = (float) ($montos->get($detalle->boleta_original_id)['monto'] ?? 0);
+            if ($monto <= 0) throw ValidationException::withMessages(['comisiones' => 'Ingresa un monto válido para cada colaborador.']);
+            $item = $this->agregarConcepto($empresa, $detalle, $concepto->id, null, $monto, $motivo, $usuarioId);
+        }
         return $item;
     }
 

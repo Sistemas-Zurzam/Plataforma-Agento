@@ -11,7 +11,7 @@ import HorasExtraComplementariaPanel from './HorasExtraComplementariaPanel';
 const soles = (valor) => `S/ ${Number(valor || 0).toFixed(2)}`;
 const nombreConcepto = (codigo) => codigo === 'DESCUENTO_FALTA_BASICO' ? 'Faltas descontadas de la remuneración básica' : CONCEPTOS_REGISTRABLES.find((c) => c.codigo === codigo)?.nombre ?? codigo;
 
-export default function PlanillasComplementariasModal({ open, onCancel, ciclo, boletaIds, api, permisos, catalogoConceptos = [], crearComisionesComplementaria }) {
+export default function PlanillasComplementariasModal({ open, onCancel, ciclo, boletaIds, boletasSeleccionadas = [], api, permisos, catalogoConceptos = [], crearComisionesComplementaria }) {
   const { message } = App.useApp();
   const { cuentas, fetchCuentas } = useCuentasBancariasEmpresa(ciclo?.empresa?.id);
   const [items, setItems] = useState([]);
@@ -24,6 +24,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const [motivo, setMotivo] = useState('');
   const [tipoRegularizacion, setTipoRegularizacion] = useState('reintegro_descuentos');
   const [montoComision, setMontoComision] = useState(null);
+  const [montosComision, setMontosComision] = useState({});
   const [semanasDescanso, setSemanasDescanso] = useState([]);
   const [semanasSeleccionadas, setSemanasSeleccionadas] = useState([]);
   const [cargandoSemanas, setCargandoSemanas] = useState(false);
@@ -97,6 +98,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       setFiltroDescuento(null);
       setTipoRegularizacion('reintegro_descuentos');
       setMontoComision(null);
+      setMontosComision(Object.fromEntries(boletasSeleccionadas.map((b) => [b.id, null])));
       setSemanasDescanso([]);
       setSemanasSeleccionadas([]);
       setConfirmarDescansos(false);
@@ -126,8 +128,10 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
     if (!boletaIds.length) return message.warning('Selecciona las boletas pagadas que deseas regularizar.');
     if (tipoRegularizacion === 'comisiones') {
       if (!montoComision || montoComision <= 0) return message.warning('Ingresa el monto de la comisión.');
+      const comisiones = boletasSeleccionadas.map((b) => ({ boleta_id: b.id, monto: Number(montosComision[b.id]) || 0 }));
+      if (!comisiones.length || comisiones.some((c) => c.monto <= 0)) return message.warning('Ingresa la comisión de cada colaborador.');
       setCreando(true);
-      try { await api.crearComisionesComplementaria(ciclo.id, boletaIds, montoComision, motivo.trim()); message.success('Comisiones generadas.'); setMotivo(''); await cargar(); }
+      try { await crearComisionesComplementaria(ciclo.id, comisiones, motivo.trim()); message.success('Comisiones generadas.'); setMotivo(''); await cargar(); }
       catch (e) { message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudieron generar las comisiones.'); }
       finally { setCreando(false); }
       return;
@@ -386,6 +390,12 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           {tipoRegularizacion === 'bono_asistencia' && (
             <BonoAsistenciaComplementariaPanel ciclo={ciclo} api={api} onUpdated={cargar} catalogo={catalogoConceptos} />
           )}
+          {tipoRegularizacion === 'comisiones' && boletasSeleccionadas.map((boleta) => (
+            <div key={boleta.id} className="mb-2 flex items-center justify-between gap-3">
+              <span>{boleta.colaborador?.nombre_completo ?? boleta.colaborador?.nombres ?? `Boleta #${boleta.id}`}</span>
+              <InputNumber min={0.01} precision={2} value={montosComision[boleta.id]} onChange={(value) => setMontosComision((prev) => ({ ...prev, [boleta.id]: value }))} placeholder="Monto comisión" />
+            </div>
+          ))}
           {tipoRegularizacion === 'comisiones' && <InputNumber className="mb-2 w-48" min={0.01} precision={2} value={montoComision} onChange={setMontoComision} placeholder="Monto comisión" />}
           {!['horas_extra', 'bono_asistencia'].includes(tipoRegularizacion) && <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />

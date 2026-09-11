@@ -1320,7 +1320,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setImprimirMasivoOpen(false)}
         cicloId={cicloId}
         boletaIds={boletasSeleccionadas}
-        crearComisionesComplementaria={crearComisionesComplementaria}
         imprimirBoletasMasivo={imprimirBoletasMasivo}
       />
 
@@ -1354,6 +1353,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setTelecreditoBcpModalOpen(false)}
         ciclo={cicloActivo}
         boletaIds={boletasSeleccionadas}
+        boletasSeleccionadas={boletas.filter((boleta) => boletasSeleccionadas.includes(boleta.id))}
         fetchValidacion={fetchTelecreditoBcpValidacion}
         exportarTelecreditoBcp={exportarTelecreditoBcp}
       />
@@ -1387,6 +1387,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         api={{ exportarExcelBono, importarExcelBono, fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, crearComplementariaHorasExtra, agregarHorasExtraComplementaria, fetchColaboradoresPorAsistencia, aplicarBonoPorAsistencia, fetchCatalogoConceptos, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, reabrirComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo }}
         permisos={{ calcular: puedeCalcular, aprobar: puedeAprobar, pagar: puedePagar, telecredito: puedeExportarTelecredito, bbva: puedeExportarBbvaNetCash }}
         catalogoConceptos={catalogoConceptos}
+        crearComisionesComplementaria={crearComisionesComplementaria}
       />
     </div>
   );
