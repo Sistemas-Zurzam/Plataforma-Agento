@@ -222,10 +222,10 @@ class BoletaService
                     'tipo' => $tipo,
                     'motivo' => $motivo,
                     'monto' => (float) $detalle->diferencia_neta,
-                    // diferencia_egresos: descuento adicional (AFP/ONP, principalmente)
-                    // que generó este reintegro puntual — ver recalcularTotalesSnapshot()
-                    // en PlanillaComplementariaService, neto = ingresos - egresos.
-                    'afp_retenido' => (float) $detalle->diferencia_egresos,
+                    // Solo un egreso adicional positivo representa AFP/ONP
+                    // retenido. Una devolución tiene diferencia_egresos
+                    // negativa y forma parte íntegra del neto reintegrado.
+                    'afp_retenido' => max(0, (float) $detalle->diferencia_egresos),
                     'pagado_at' => $detalle->complementaria->pagado_at?->toDateTimeString(),
                     'referencia_pago' => $detalle->complementaria->referencia_pago,
                 ];
