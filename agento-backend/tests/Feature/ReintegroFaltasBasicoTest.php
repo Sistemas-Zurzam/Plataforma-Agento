@@ -11,6 +11,7 @@ use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
 use App\Modules\Configuracion\Models\ParametroLaboralDefinicion;
 use App\Modules\Configuracion\Models\ParametroLaboralValor;
 use App\Modules\Configuracion\Services\ParametroLaboralService;
+use App\Modules\Nominas\Application\AfpNet\AfpNetCicloDatosLoader;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
@@ -350,5 +351,39 @@ class ReintegroFaltasBasicoTest extends TestCase
 
         $this->expectException(ValidationException::class);
         $service->reabrir($empresa, $pagada, $usuario->id, 'No debe permitirse');
+    }
+
+    public function test_afpnet_toma_la_base_actualizada_de_un_reintegro_pagado(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $claveAfp = Afp::firstOrFail()->clave;
+        $boleta->colaborador->update(['sistema_previsional' => $claveAfp]);
+
+        $base = $service->baseParaReintegro($boleta);
+        $linea = collect($base['egresos'])->search(fn (array $item) => $item['codigo'] === 'AFP_APORTE_OBLIGATORIO');
+        $base['egresos'][$linea]['base_utilizada'] = 2667.42;
+
+        $complementaria = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Reintegro AFPnet', 'motivo' => 'Prueba de consolidación',
+            'estado' => 'pagada', 'creado_por' => $usuario->id,
+        ]);
+        PlanillaComplementariaDetalle::create([
+            'planilla_complementaria_id' => $complementaria->id,
+            'boleta_original_id' => $boleta->id,
+            'colaborador_id' => $boleta->colaborador_id,
+            'neto_original' => $boleta->neto_a_pagar,
+            'neto_recalculado' => $boleta->neto_a_pagar,
+            'diferencia_ingresos' => 1415, 'diferencia_egresos' => 160.90,
+            'diferencia_aportaciones' => 0, 'diferencia_neta' => 1254.10,
+            // Los snapshots reales no incluyen regimen_laboral.
+            'calculo_snapshot' => $base,
+        ]);
+
+        $contexto = AfpNetCicloDatosLoader::cargar($ciclo->fresh());
+        $lineaAfp = $contexto->boletasAfp->first()->conceptos
+            ->first(fn ($concepto) => $concepto->concepto?->codigo === 'AFP_APORTE_OBLIGATORIO');
+
+        $this->assertSame('2667.42', $lineaAfp->base_utilizada);
     }
 }

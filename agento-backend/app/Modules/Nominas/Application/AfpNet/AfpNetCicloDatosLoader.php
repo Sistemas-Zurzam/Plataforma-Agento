@@ -77,11 +77,16 @@ final class AfpNetCicloDatosLoader
             'complementaria',
             fn ($q) => $q->where('ciclo_id', $ciclo->id)->whereIn('estado', ['aprobada', 'pagada']),
         )
-            ->where('calculo_snapshot->regimen_laboral', '!=', 'Locacion de Servicios')
+            // Los snapshots creados por PlanillaComplementariaService no
+            // guardan `regimen_laboral`. Filtrar por esa clave JSON hacía
+            // que SQL descartara todos esos reintegros porque NULL != valor
+            // no es verdadero. La población de boletas ya excluye locadores;
+            // acotarla por la boleta original es además el vínculo inequívoco.
+            ->whereIn('boleta_original_id', $boletas->pluck('id'))
             ->latest('id')
             ->get()
-            ->unique('colaborador_id')
-            ->keyBy('colaborador_id');
+            ->unique('boleta_original_id')
+            ->keyBy('boleta_original_id');
 
         if ($detalles->isEmpty()) {
             return;
@@ -89,7 +94,7 @@ final class AfpNetCicloDatosLoader
 
         foreach ($boletas as $boleta) {
             /** @var PlanillaComplementariaDetalle|null $detalle */
-            $detalle = $detalles->get($boleta->colaborador_id);
+            $detalle = $detalles->get($boleta->id);
             if (! $detalle) {
                 continue;
             }
