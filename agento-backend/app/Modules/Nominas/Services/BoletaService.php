@@ -147,12 +147,17 @@ class BoletaService
         return $boletas;
     }
 
+    /** Conceptos previsionales (AFP/ONP) que se desglosan en la boleta entre
+     * lo generado por la remuneración regular y lo generado por reintegros. */
+    private const CODIGOS_PREVISIONALES = ['AFP_APORTE_OBLIGATORIO', 'AFP_PRIMA_SEGURO', 'AFP_COMISION', 'ONP'];
+
     /** @return array<string, mixed> */
     private function relacionesImprimibles(): array
     {
         return [
             'colaborador.empresa',
             'colaborador.area' => fn ($query) => $query->withoutGlobalScope(EmpresaScope::class),
+            'colaborador.sede',
             'colaborador.banco',
             'conceptos.concepto',
             'ciclo',
@@ -163,8 +168,29 @@ class BoletaService
 
     private function adjuntarDatosImprimibles(Boleta $boleta): void
     {
+        $detallesPagados = $this->detallesReintegrosPagados($boleta);
+
         $boleta->setAttribute('ausencias_periodo', $this->resolverAusenciasPeriodo($boleta));
-        $boleta->setAttribute('reintegros', $this->resolverReintegros($boleta));
+        $boleta->setAttribute('reintegros', $this->resolverReintegros($detallesPagados));
+        $boleta->setAttribute('desglose_previsional', $this->resolverDesglosePrevisional($boleta, $detallesPagados));
+    }
+
+    /**
+     * Detalles de planilla complementaria ya PAGADOS sobre esta boleta,
+     * ordenados cronológicamente por fecha de pago — extraído para que
+     * resolverReintegros() y resolverDesglosePrevisional() compartan la
+     * misma consulta sin duplicarla.
+     *
+     * @return Collection<int, PlanillaComplementariaDetalle>
+     */
+    private function detallesReintegrosPagados(Boleta $boleta): Collection
+    {
+        return PlanillaComplementariaDetalle::where('boleta_original_id', $boleta->id)
+            ->whereHas('complementaria', fn ($q) => $q->where('estado', 'pagada'))
+            ->with('complementaria')
+            ->get()
+            ->sortBy(fn (PlanillaComplementariaDetalle $detalle) => $detalle->complementaria->pagado_at)
+            ->values();
     }
 
     /**
@@ -175,14 +201,12 @@ class BoletaService
      * calculada/aprobada todavía no es dinero que el colaborador haya
      * recibido, mostrarlo en su boleta sería prematuro.
      *
+     * @param  Collection<int, PlanillaComplementariaDetalle>  $detallesPagados
      * @return array<int, array{nombre: string, tipo: string, motivo: ?string, monto: float, afp_retenido: float, pagado_at: ?string, referencia_pago: ?string}>
      */
-    private function resolverReintegros(Boleta $boleta): array
+    private function resolverReintegros(Collection $detallesPagados): array
     {
-        return PlanillaComplementariaDetalle::where('boleta_original_id', $boleta->id)
-            ->whereHas('complementaria', fn ($q) => $q->where('estado', 'pagada'))
-            ->with('complementaria')
-            ->get()
+        return $detallesPagados
             ->map(function (PlanillaComplementariaDetalle $detalle) {
                 $tipo = $detalle->tipoReintegro();
                 $motivo = $detalle->complementaria->motivo;
@@ -204,6 +228,46 @@ class BoletaService
                     'afp_retenido' => (float) $detalle->diferencia_egresos,
                     'pagado_at' => $detalle->complementaria->pagado_at?->toDateTimeString(),
                     'referencia_pago' => $detalle->complementaria->referencia_pago,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Desglosa cada concepto previsional (AFP/ONP) de la boleta entre lo
+     * generado por la remuneración regular del período y lo generado por
+     * reintegros de planillas complementarias ya pagadas — sin recalcular
+     * nada: "de remuneración" es el monto de la boleta original (congelado,
+     * nunca se modifica) y "vigente" es el snapshot de la última
+     * complementaria pagada (que ya recalcula estas líneas completas, ver
+     * PlanillaComplementariaService::recalcularAfpEssalud()); la diferencia
+     * entre ambos es lo atribuible a reintegros.
+     *
+     * @param  Collection<int, PlanillaComplementariaDetalle>  $detallesPagados
+     * @return array<int, array{codigo: string, nombre: string, tasa_aplicada: ?float, de_remuneracion: float, de_reintegros: float}>
+     */
+    private function resolverDesglosePrevisional(Boleta $boleta, Collection $detallesPagados): array
+    {
+        if ($detallesPagados->isEmpty()) {
+            return [];
+        }
+
+        $snapshotVigente = collect($detallesPagados->last()->calculo_snapshot['egresos'] ?? []);
+
+        return $boleta->conceptos
+            ->filter(fn (BoletaConcepto $concepto) => in_array($concepto->concepto?->codigo, self::CODIGOS_PREVISIONALES, true))
+            ->map(function (BoletaConcepto $concepto) use ($snapshotVigente) {
+                $codigo = $concepto->concepto->codigo;
+                $deRemuneracion = (float) $concepto->monto;
+                $vigente = (float) ($snapshotVigente->first(fn (array $linea) => ($linea['codigo'] ?? null) === $codigo)['monto'] ?? $deRemuneracion);
+
+                return [
+                    'codigo' => $codigo,
+                    'nombre' => $concepto->concepto->nombre,
+                    'tasa_aplicada' => $concepto->tasa_aplicada !== null ? (float) $concepto->tasa_aplicada : null,
+                    'de_remuneracion' => $deRemuneracion,
+                    'de_reintegros' => round($vigente - $deRemuneracion, 2),
                 ];
             })
             ->values()
