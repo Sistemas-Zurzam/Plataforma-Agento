@@ -27,6 +27,7 @@ use App\Modules\Nominas\Http\Resources\ColaboradorConceptoPeriodoResource;
 use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
 use App\Modules\Nominas\Infrastructure\Plame\Export\PlameZipBuilder;
 use App\Modules\Nominas\Infrastructure\PlanillaPagada\Export\PlanillaPagadaExcelExporter;
+use App\Modules\Nominas\Infrastructure\ReporteEjecutivo\Export\ReporteEjecutivoRemuneracionesExcelExporter;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
@@ -92,7 +93,12 @@ class CicloRemunerativoController extends Controller
         $boletas = $ciclo->boletas()
             ->where('es_version_vigente', true)
             ->where('estado', 'pagada')
-            ->with(['colaborador:id,nombres,apellidos,numero_documento', 'datosPago.banco:id,nombre'])
+            ->with([
+                'colaborador:id,nombres,apellidos,numero_documento,cargo,sede_id,area_id',
+                'colaborador.sede:id,nombre',
+                'colaborador.area:id,nombre',
+                'datosPago.banco:id,nombre',
+            ])
             ->get()
             ->sortBy(fn ($boleta) => mb_strtolower(trim(($boleta->colaborador?->apellidos ?? '').' '.($boleta->colaborador?->nombres ?? ''))))
             ->values();
@@ -103,6 +109,44 @@ class CicloRemunerativoController extends Controller
         $nombre = sprintf('%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
 
         Log::info('planilla_pagada.excel_exportado', [
+            'usuario_id' => $request->user('api')->id,
+            'empresa_id' => $empresa->id,
+            'ciclo_id' => $ciclo->id,
+            'boletas' => $boletas->count(),
+        ]);
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
+    }
+
+    /**
+     * Vista gerencial de la planilla pagada — desglose de AFP/ONP y ESSALUD
+     * por colaborador más un resumen en lenguaje llano, aparte del listado de
+     * pago de exportarPlanillaPagadaExcel(). Mismas condiciones de acceso y
+     * de elegibilidad (ciclo pagado, boletas vigentes y pagadas).
+     */
+    public function exportarReporteEjecutivoExcel(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        abort_unless($ciclo->estado === 'pagado', 422, 'El reporte ejecutivo solo está disponible cuando el ciclo está pagado.');
+
+        $boletas = $ciclo->boletas()
+            ->where('es_version_vigente', true)
+            ->where('estado', 'pagada')
+            ->with(['colaborador:id,nombres,apellidos,numero_documento', 'conceptos.concepto:id,codigo'])
+            ->get()
+            ->sortBy(fn ($boleta) => mb_strtolower(trim(($boleta->colaborador?->apellidos ?? '').' '.($boleta->colaborador?->nombres ?? ''))))
+            ->values();
+
+        abort_if($boletas->isEmpty(), 422, 'El ciclo no tiene boletas pagadas para exportar.');
+
+        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($ciclo->loadMissing('empresa'), $boletas);
+        $nombre = sprintf('reporte_ejecutivo_%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
+
+        Log::info('reporte_ejecutivo_remuneraciones.excel_exportado', [
             'usuario_id' => $request->user('api')->id,
             'empresa_id' => $empresa->id,
             'ciclo_id' => $ciclo->id,
