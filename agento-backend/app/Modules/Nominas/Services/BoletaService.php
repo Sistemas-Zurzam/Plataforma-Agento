@@ -274,26 +274,21 @@ class BoletaService
             ->all();
 
         /*
-         * Los primeros reintegros que se pagaron pueden tener un snapshot
-         * anterior a la recalculación previsional. En ese caso el snapshot
-         * vigente no contiene todo el AFP/ONP retenido, aunque
-         * diferencia_egresos sí conserva el importe que efectivamente se
-         * descontó en cada pago. Completa únicamente la diferencia faltante
-         * en el aporte obligatorio (o ONP), evitando duplicar lo que ya está
-         * desglosado en el snapshot.
+         * Los snapshots antiguos pueden no traer todas las líneas AFP/ONP.
+         * El aporte obligatorio se determina sobre la remuneración bruta
+         * reintegrada; no debe absorber la prima de seguro ni la comisión.
          */
-        $retenidoRegistrado = round($detallesPagados->sum(fn (PlanillaComplementariaDetalle $detalle) => (float) $detalle->diferencia_egresos), 2);
-        $retenidoDesglosado = round(collect($desgloses)->sum('de_reintegros'), 2);
-        $residual = round($retenidoRegistrado - $retenidoDesglosado, 2);
+        $codigoObligatorio = $boleta->conceptos->contains(fn (BoletaConcepto $concepto) => $concepto->concepto?->codigo === 'ONP')
+            ? 'ONP'
+            : 'AFP_APORTE_OBLIGATORIO';
+        $obligatorio = collect($desgloses)->firstWhere('codigo', $codigoObligatorio);
+        $tasaObligatoria = (float) ($obligatorio['tasa_aplicada'] ?? 0);
+        $baseReintegros = (float) $detallesPagados->sum(fn (PlanillaComplementariaDetalle $detalle) => (float) $detalle->diferencia_ingresos);
 
-        if (abs($residual) >= 0.01) {
-            $codigoObjetivo = $boleta->conceptos->contains(fn (BoletaConcepto $concepto) => $concepto->concepto?->codigo === 'ONP')
-                ? 'ONP'
-                : 'AFP_APORTE_OBLIGATORIO';
-
+        if ($tasaObligatoria > 0 && abs($baseReintegros) >= 0.01) {
             foreach ($desgloses as &$desglose) {
-                if ($desglose['codigo'] === $codigoObjetivo) {
-                    $desglose['de_reintegros'] = round($desglose['de_reintegros'] + $residual, 2);
+                if ($desglose['codigo'] === $codigoObligatorio) {
+                    $desglose['de_reintegros'] = round($baseReintegros * $tasaObligatoria, 2);
                     break;
                 }
             }
