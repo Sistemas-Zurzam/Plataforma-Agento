@@ -83,32 +83,30 @@ final class AfpNetCicloDatosLoader
             // no es verdadero. La población de boletas ya excluye locadores;
             // acotarla por la boleta original es además el vínculo inequívoco.
             ->whereIn('boleta_original_id', $boletas->pluck('id'))
-            ->latest('id')
-            ->get()
-            ->unique('boleta_original_id')
-            ->keyBy('boleta_original_id');
+            ->get(['id', 'boleta_original_id', 'diferencia_ingresos', 'calculo_snapshot'])
+            ->groupBy('boleta_original_id');
 
         if ($detalles->isEmpty()) {
             return;
         }
 
         foreach ($boletas as $boleta) {
-            /** @var PlanillaComplementariaDetalle|null $detalle */
-            $detalle = $detalles->get($boleta->id);
-            if (! $detalle) {
+            $detallesBoleta = $detalles->get($boleta->id, collect());
+            if ($detallesBoleta->isEmpty()) {
                 continue;
             }
 
-            $lineaAfp = collect($detalle->calculo_snapshot['egresos'] ?? [])
-                ->first(fn (array $l) => $l['codigo'] === 'AFP_APORTE_OBLIGATORIO');
-            if (! $lineaAfp) {
+            $conceptoAfp = $boleta->conceptos->first(fn ($c) => $c->concepto?->codigo === 'AFP_APORTE_OBLIGATORIO');
+            if (! $conceptoAfp) {
                 continue; // colaborador ONP — ya excluido por el filtro AFP de cargar(), resguardo explícito
             }
 
-            $conceptoAfp = $boleta->conceptos->first(fn ($c) => $c->concepto?->codigo === 'AFP_APORTE_OBLIGATORIO');
-            if ($conceptoAfp) {
-                $conceptoAfp->base_utilizada = $lineaAfp['base_utilizada'];
-            }
+            // Cada detalle representa el incremento de ingresos de su
+            // reintegro. Se acumulan sobre la base AFP original para que
+            // AFPnet incluya todos los reintegros, no solo el último snapshot.
+            $baseOriginal = (float) $conceptoAfp->base_utilizada;
+            $baseReintegros = (float) $detallesBoleta->sum(fn (PlanillaComplementariaDetalle $detalle) => (float) $detalle->diferencia_ingresos);
+            $conceptoAfp->base_utilizada = number_format($baseOriginal + $baseReintegros, 2, '.', '');
         }
     }
 
