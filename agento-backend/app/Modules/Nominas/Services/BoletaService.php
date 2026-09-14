@@ -255,7 +255,7 @@ class BoletaService
 
         $snapshotVigente = collect($detallesPagados->last()->calculo_snapshot['egresos'] ?? []);
 
-        return $boleta->conceptos
+        $desgloses = $boleta->conceptos
             ->filter(fn (BoletaConcepto $concepto) => in_array($concepto->concepto?->codigo, self::CODIGOS_PREVISIONALES, true))
             ->map(function (BoletaConcepto $concepto) use ($snapshotVigente) {
                 $codigo = $concepto->concepto->codigo;
@@ -272,6 +272,35 @@ class BoletaService
             })
             ->values()
             ->all();
+
+        /*
+         * Los primeros reintegros que se pagaron pueden tener un snapshot
+         * anterior a la recalculación previsional. En ese caso el snapshot
+         * vigente no contiene todo el AFP/ONP retenido, aunque
+         * diferencia_egresos sí conserva el importe que efectivamente se
+         * descontó en cada pago. Completa únicamente la diferencia faltante
+         * en el aporte obligatorio (o ONP), evitando duplicar lo que ya está
+         * desglosado en el snapshot.
+         */
+        $retenidoRegistrado = round($detallesPagados->sum(fn (PlanillaComplementariaDetalle $detalle) => (float) $detalle->diferencia_egresos), 2);
+        $retenidoDesglosado = round(collect($desgloses)->sum('de_reintegros'), 2);
+        $residual = round($retenidoRegistrado - $retenidoDesglosado, 2);
+
+        if (abs($residual) >= 0.01) {
+            $codigoObjetivo = $boleta->conceptos->contains(fn (BoletaConcepto $concepto) => $concepto->concepto?->codigo === 'ONP')
+                ? 'ONP'
+                : 'AFP_APORTE_OBLIGATORIO';
+
+            foreach ($desgloses as &$desglose) {
+                if ($desglose['codigo'] === $codigoObjetivo) {
+                    $desglose['de_reintegros'] = round($desglose['de_reintegros'] + $residual, 2);
+                    break;
+                }
+            }
+            unset($desglose);
+        }
+
+        return $desgloses;
     }
 
     /**
