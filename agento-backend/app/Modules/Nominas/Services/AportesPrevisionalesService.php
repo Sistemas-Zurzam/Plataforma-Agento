@@ -39,7 +39,7 @@ class AportesPrevisionalesService
         $complementarias = PlanillaComplementariaDetalle::whereHas('complementaria', fn ($q) => $q
             ->where('ciclo_id', $ciclo->id)->where('estado', 'pagada'))
             ->with('complementaria:id,pagado_at')
-            ->get(['id', 'planilla_complementaria_id', 'boleta_original_id', 'calculo_snapshot']);
+            ->get(['id', 'planilla_complementaria_id', 'boleta_original_id', 'diferencia_ingresos', 'calculo_snapshot']);
         $consolidados = $complementarias->groupBy('boleta_original_id')->map(fn ($detalles) => $detalles
             ->sortByDesc(fn ($detalle) => [$detalle->complementaria?->pagado_at?->timestamp ?? 0, $detalle->id])
             ->first());
@@ -56,6 +56,22 @@ class AportesPrevisionalesService
             $primaSeguro = $esOnp ? null : (float) (($snapshotPorCodigo->get('AFP_PRIMA_SEGURO')['monto'] ?? null) ?? $porCodigo->get('AFP_PRIMA_SEGURO')?->monto ?? 0);
             $comision = $esOnp ? null : (float) (($snapshotPorCodigo->get('AFP_COMISION')['monto'] ?? null) ?? $porCodigo->get('AFP_COMISION')?->monto ?? 0);
             $baseAsegurable = (float) ($lineaPrincipal['base_utilizada'] ?? $porCodigo->get($codigoPrincipal)?->base_utilizada ?? 0);
+
+            // AFP Net debe reflejar también los reintegros pagados cuyo
+            // snapshot histórico todavía no consolidaba todas sus líneas.
+            $baseReintegros = (float) $complementarias
+                ->where('boleta_original_id', $boleta->id)
+                ->sum(fn (PlanillaComplementariaDetalle $item) => (float) $item->diferencia_ingresos);
+            if (abs($baseReintegros) >= 0.01) {
+                $tasaPrincipal = (float) ($porCodigo->get($codigoPrincipal)?->tasa_aplicada ?? 0);
+                $aporteObligatorio = round((float) ($porCodigo->get($codigoPrincipal)?->monto ?? $aporteObligatorio) + $baseReintegros * $tasaPrincipal, 2);
+                $baseAsegurable = round((float) ($porCodigo->get($codigoPrincipal)?->base_utilizada ?? $baseAsegurable) + $baseReintegros, 2);
+
+                if (! $esOnp) {
+                    $tasaPrima = (float) ($porCodigo->get('AFP_PRIMA_SEGURO')?->tasa_aplicada ?? 0);
+                    $primaSeguro = round((float) ($porCodigo->get('AFP_PRIMA_SEGURO')?->monto ?? $primaSeguro) + $baseReintegros * $tasaPrima, 2);
+                }
+            }
 
             return [
                 'colaborador_id' => $boleta->colaborador_id,
