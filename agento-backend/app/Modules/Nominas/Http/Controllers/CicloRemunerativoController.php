@@ -16,6 +16,7 @@ use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashExportService;
 use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashValidator;
 use App\Modules\Nominas\Application\Plame\PlameExportService;
 use App\Modules\Nominas\Application\Plame\PlameValidator;
+use App\Modules\Nominas\Application\ReporteEjecutivo\ReporteEjecutivoRemuneracionesCalculador;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpExportService;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpValidator;
 use App\Modules\Nominas\Domain\AfpNet\AfpNetExportResultado;
@@ -28,6 +29,7 @@ use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
 use App\Modules\Nominas\Infrastructure\Plame\Export\PlameZipBuilder;
 use App\Modules\Nominas\Infrastructure\PlanillaPagada\Export\PlanillaPagadaExcelExporter;
 use App\Modules\Nominas\Infrastructure\ReporteEjecutivo\Export\ReporteEjecutivoRemuneracionesExcelExporter;
+use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
@@ -39,6 +41,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -123,33 +126,24 @@ class CicloRemunerativoController extends Controller
     }
 
     /**
-     * Vista gerencial de la planilla pagada — desglose de AFP/ONP y ESSALUD
-     * por colaborador más un resumen en lenguaje llano, aparte del listado de
-     * pago de exportarPlanillaPagadaExcel(). Mismas condiciones de acceso y
-     * de elegibilidad (ciclo pagado, boletas vigentes y pagadas).
+     * Vista gerencial consolidada de la planilla pagada de un período —
+     * desglose de AFP/ONP y ESSALUD por colaborador agrupado por empresa,
+     * más un resumen en lenguaje llano. A diferencia de
+     * exportarPlanillaPagadaExcel() (un listado de pago por ciclo puntual),
+     * este junta TODAS las empresas autorizadas del usuario que tengan
+     * boletas pagadas en el período, igual que resumenContable().
      */
-    public function exportarReporteEjecutivoExcel(Request $request, CicloRemunerativo $ciclo): Response
+    public function exportarReporteEjecutivoExcel(Request $request): Response
     {
-        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
-        abort_unless($ciclo->estado === 'pagado', 422, 'El reporte ejecutivo solo está disponible cuando el ciclo está pagado.');
+        [$datos, $boletas, $periodoLabel] = $this->resolverReporteEjecutivo($request);
 
-        $boletas = $ciclo->boletas()
-            ->where('es_version_vigente', true)
-            ->where('estado', 'pagada')
-            ->with(['colaborador:id,nombres,apellidos,numero_documento', 'conceptos.concepto:id,codigo'])
-            ->get()
-            ->sortBy(fn ($boleta) => mb_strtolower(trim(($boleta->colaborador?->apellidos ?? '').' '.($boleta->colaborador?->nombres ?? ''))))
-            ->values();
-
-        abort_if($boletas->isEmpty(), 422, 'El ciclo no tiene boletas pagadas para exportar.');
-
-        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($ciclo->loadMissing('empresa'), $boletas);
-        $nombre = sprintf('reporte_ejecutivo_%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
+        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas);
+        $nombre = sprintf('reporte_ejecutivo_remuneraciones_%s.xlsx', $datos['periodo']);
 
         Log::info('reporte_ejecutivo_remuneraciones.excel_exportado', [
             'usuario_id' => $request->user('api')->id,
-            'empresa_id' => $empresa->id,
-            'ciclo_id' => $ciclo->id,
+            'periodo' => $datos['periodo'],
+            'empresas' => $boletas->pluck('empresa_id')->unique()->count(),
             'boletas' => $boletas->count(),
         ]);
 
@@ -158,6 +152,81 @@ class CicloRemunerativoController extends Controller
             'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
             'Content-Length' => (string) strlen($contenido),
         ]);
+    }
+
+    /**
+     * Mismos datos que exportarReporteEjecutivoExcel() pero en JSON, para la
+     * vista imprimible en PDF del frontend (window.print del navegador,
+     * mismo mecanismo que la boleta — ver EstilosImpresionBoleta.jsx).
+     */
+    public function datosReporteEjecutivo(Request $request): JsonResponse
+    {
+        [, $boletas, $periodoLabel] = $this->resolverReporteEjecutivo($request);
+
+        $filas = ReporteEjecutivoRemuneracionesCalculador::filas($periodoLabel, $boletas);
+
+        return response()->json([
+            'periodo' => $periodoLabel,
+            'empresas' => ReporteEjecutivoRemuneracionesCalculador::agruparPorEmpresa($filas)
+                ->map(fn ($grupo, $empresa) => [
+                    'empresa' => $empresa,
+                    'colaboradores' => $grupo['colaboradores'],
+                    'filas' => $grupo['filas']->values(),
+                    'subtotal' => $grupo['subtotal'],
+                ])
+                ->values(),
+            'total_general' => ReporteEjecutivoRemuneracionesCalculador::totalGeneral($filas),
+            'total_colaboradores' => $filas->count(),
+        ]);
+    }
+
+    /**
+     * Valida periodo/estado/categoria, resuelve las boletas pagadas de todas
+     * las empresas autorizadas que caen en ese período, y arma la etiqueta
+     * legible del período — compartido entre el Excel y el JSON del PDF
+     * para no duplicar la consulta ni el criterio de elegibilidad.
+     *
+     * @return array{0: array{periodo: string, estado: ?string, categoria: ?string}, 1: Collection<int, Boleta>, 2: string}
+     */
+    private function resolverReporteEjecutivo(Request $request): array
+    {
+        $datos = $request->validate([
+            'periodo' => ['required', 'date_format:Y-m'],
+            'estado' => ['nullable', Rule::in(['borrador', 'abierto', 'calculado', 'cerrado', 'reabierto', 'pagado'])],
+            'categoria' => ['nullable', Rule::in(['planilla', 'honorarios'])],
+        ]);
+
+        $inicio = Carbon::createFromFormat('Y-m', $datos['periodo'])->startOfMonth()->toDateString();
+        $fin = Carbon::createFromFormat('Y-m', $datos['periodo'])->endOfMonth()->toDateString();
+
+        $cicloIds = CicloRemunerativo::whereIn('empresa_id', $this->empresaIdsAutorizadas($request))
+            ->whereDate('fecha_inicio', '<=', $fin)
+            ->whereDate('fecha_fin', '>=', $inicio)
+            ->when($datos['estado'] ?? null, fn ($query, $estado) => $query->where('estado', $estado))
+            ->pluck('id');
+
+        $boletas = Boleta::whereIn('ciclo_id', $cicloIds)
+            ->where('es_version_vigente', true)
+            ->where('estado', 'pagada')
+            ->when(($datos['categoria'] ?? null) === 'honorarios', fn ($query) => $query->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
+            ->when(($datos['categoria'] ?? null) === 'planilla', fn ($query) => $query->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
+            ->with(['colaborador:id,nombres,apellidos,numero_documento', 'conceptos.concepto:id,codigo', 'empresa:id,nombre_comercial'])
+            ->get()
+            // Orden estable en dos pasadas: por colaborador primero y luego por
+            // empresa, para que el resultado final quede agrupado por empresa
+            // y, dentro de cada una, por colaborador (Collection::sortBy usa
+            // uasort, estable desde PHP 8).
+            ->sortBy(fn ($boleta) => mb_strtolower(trim(($boleta->colaborador?->apellidos ?? '').' '.($boleta->colaborador?->nombres ?? ''))))
+            ->values()
+            ->sortBy(fn ($boleta) => mb_strtolower($boleta->empresa?->nombre_comercial ?? ''))
+            ->values();
+
+        abort_if($boletas->isEmpty(), 422, 'No hay boletas pagadas para el período y filtros seleccionados.');
+
+        $fechaPeriodo = Carbon::createFromFormat('Y-m', $datos['periodo']);
+        $periodoLabel = ucfirst(mb_strtolower($fechaPeriodo->translatedFormat('F'), 'UTF-8')).' '.$fechaPeriodo->format('Y');
+
+        return [$datos, $boletas, $periodoLabel];
     }
 
     /**

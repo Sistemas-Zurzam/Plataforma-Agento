@@ -171,6 +171,8 @@ Route::middleware('jwt')->group(function () {
 
     Route::get('/ciclos-remunerativos', [CicloRemunerativoController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos-resumen-contable', [CicloRemunerativoController::class, 'resumenContable'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos-reporte-ejecutivo/excel', [CicloRemunerativoController::class, 'exportarReporteEjecutivoExcel'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos-reporte-ejecutivo/datos', [CicloRemunerativoController::class, 'datosReporteEjecutivo'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos', [CicloRemunerativoController::class, 'store'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'actualizar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::delete('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'eliminar'])->middleware('permiso:nominas.gestionar_ciclos');
@@ -182,7 +184,6 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/ciclos-remunerativos/{ciclo}/reabrir', [CicloRemunerativoController::class, 'reabrir'])->middleware('permiso:nominas.cerrar_periodo');
     Route::patch('/ciclos-remunerativos/{ciclo}/marcar-pagado', [CicloRemunerativoController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
     Route::get('/ciclos-remunerativos/{ciclo}/planilla-pagada/excel', [CicloRemunerativoController::class, 'exportarPlanillaPagadaExcel'])->middleware('permiso:nominas.ver');
-    Route::get('/ciclos-remunerativos/{ciclo}/reporte-ejecutivo/excel', [CicloRemunerativoController::class, 'exportarReporteEjecutivoExcel'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/plame-validacion', [CicloRemunerativoController::class, 'validarPlame'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/planilla', [CicloRemunerativoController::class, 'exportarPlamePlanilla'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/rh', [CicloRemunerativoController::class, 'exportarPlameRh'])->middleware('permiso:nominas.ver');

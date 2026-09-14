@@ -129,6 +129,11 @@ export function useRemuneraciones() {
     return data;
   }, []);
 
+  const fetchReporteEjecutivoDatos = useCallback(async (params) => {
+    const { data } = await api.get('/ciclos-remunerativos-reporte-ejecutivo/datos', { params });
+    return data;
+  }, []);
+
   const fetchComplementarias = useCallback(async (cicloId) => {
     const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias`);
     return data.data;
@@ -514,8 +519,11 @@ export function useRemuneraciones() {
     window.URL.revokeObjectURL(url);
   }, []);
 
-  const exportarReporteEjecutivoExcel = useCallback(async (cicloId) => {
-    const response = await api.get(`/ciclos-remunerativos/${cicloId}/reporte-ejecutivo/excel`, { responseType: 'blob' });
+  const exportarReporteEjecutivoExcel = useCallback(async ({ periodo, estado, categoria }) => {
+    const response = await api.get('/ciclos-remunerativos-reporte-ejecutivo/excel', {
+      params: { periodo, estado: estado || undefined, categoria: categoria || undefined },
+      responseType: 'blob',
+    });
     const disposicion = response.headers?.['content-disposition'] ?? '';
     const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Reporte_ejecutivo_remuneraciones.xlsx';
     const url = window.URL.createObjectURL(response.data);
@@ -669,6 +677,7 @@ export function useRemuneraciones() {
     resumenLoading,
     fetchResumen,
     fetchResumenContable,
+    fetchReporteEjecutivoDatos,
     fetchComplementarias,
     crearComplementaria,
     crearComisionesComplementaria,

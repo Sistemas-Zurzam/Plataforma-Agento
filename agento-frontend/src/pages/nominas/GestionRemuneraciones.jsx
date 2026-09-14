@@ -216,7 +216,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
-    resumen, fetchResumen, fetchResumenContable,
+    resumen, fetchResumen, fetchResumenContable, fetchReporteEjecutivoDatos,
     verBoleta, imprimirBoletasMasivo, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
@@ -245,7 +245,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [creandoCiclo, setCreandoCiclo] = useState(false);
   const [calculando, setCalculando] = useState(false);
   const [exportandoPlanilla, setExportandoPlanilla] = useState(false);
-  const [exportandoReporteEjecutivo, setExportandoReporteEjecutivo] = useState(false);
   const [exportandoComplementarias, setExportandoComplementarias] = useState(false);
 
   const [configuracionColaborador, setConfiguracionColaborador] = useState(null);
@@ -572,20 +571,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       message.error('No se pudo generar el Excel de la planilla pagada');
     } finally {
       setExportandoPlanilla(false);
-    }
-  };
-
-  const handleExportarReporteEjecutivo = async () => {
-    if (!cicloActivo) return;
-
-    setExportandoReporteEjecutivo(true);
-    try {
-      await exportarReporteEjecutivoExcel(cicloActivo.id);
-      message.success('Reporte ejecutivo de remuneraciones generado');
-    } catch {
-      message.error('No se pudo generar el reporte ejecutivo de remuneraciones');
-    } finally {
-      setExportandoReporteEjecutivo(false);
     }
   };
 
@@ -1058,16 +1043,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             Excel planilla pagada
           </Button>
         </Tooltip>
-        <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Desglose de AFP/ONP y ESSALUD por colaborador, con resumen ejecutivo' : 'Disponible para ciclos pagados'}>
-          <Button
-            icon={<FileExcelOutlined />}
-            disabled={cicloActivo?.estado !== 'pagado'}
-            loading={exportandoReporteEjecutivo}
-            onClick={handleExportarReporteEjecutivo}
-          >
-            Reporte ejecutivo
-          </Button>
-        </Tooltip>
         <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Exporta el detalle de todos los reintegros del ciclo' : 'Disponible para ciclos pagados'}>
           <Button
             icon={<FileExcelOutlined />}
@@ -1404,6 +1379,8 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setResumenContableModalOpen(false)}
         ciclo={cicloActivo}
         fetchResumenContable={fetchResumenContable}
+        fetchReporteEjecutivoDatos={fetchReporteEjecutivoDatos}
+        exportarReporteEjecutivoExcel={exportarReporteEjecutivoExcel}
         onVerPlanilla={(id) => {
           setCicloId(id);
           setTabActiva('planilla');
