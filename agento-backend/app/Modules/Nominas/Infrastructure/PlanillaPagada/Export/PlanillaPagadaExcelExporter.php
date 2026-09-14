@@ -22,9 +22,9 @@ final class PlanillaPagadaExcelExporter
         $hoja = $libro->getActiveSheet();
         $hoja->setTitle('Planilla pagada');
 
-        $totalIngresos = $boletas->sum(fn ($boleta) => (float) $boleta->total_ingresos);
-        $totalDescuentos = $boletas->sum(fn ($boleta) => (float) $boleta->total_egresos);
-        $totalNeto = $boletas->sum(fn ($boleta) => (float) $boleta->neto_a_pagar);
+        $totalIngresos = round($boletas->sum(fn ($boleta) => (float) $boleta->total_ingresos), 2);
+        $totalDescuentos = round($boletas->sum(fn ($boleta) => (float) $boleta->total_egresos), 2);
+        $totalNeto = round($boletas->sum(fn ($boleta) => (float) $boleta->neto_a_pagar), 2);
 
         $hoja->fromArray([
             'Empresa', $ciclo->empresa->nombre_comercial,
@@ -45,9 +45,9 @@ final class PlanillaPagadaExcelExporter
             $hoja->setCellValue("C{$fila}", $colaborador?->sede?->nombre ?? '');
             $hoja->setCellValue("D{$fila}", $colaborador?->area?->nombre ?? '');
             $hoja->setCellValue("E{$fila}", $colaborador?->cargo ?? '');
-            $hoja->setCellValue("F{$fila}", (float) $boleta->total_ingresos);
-            $hoja->setCellValue("G{$fila}", (float) $boleta->total_egresos);
-            $hoja->setCellValue("H{$fila}", (float) $boleta->neto_a_pagar);
+            $hoja->setCellValue("F{$fila}", round((float) $boleta->total_ingresos, 2));
+            $hoja->setCellValue("G{$fila}", round((float) $boleta->total_egresos, 2));
+            $hoja->setCellValue("H{$fila}", round((float) $boleta->neto_a_pagar, 2));
             $hoja->setCellValue("I{$fila}", $datosPago?->banco?->nombre ?? 'Sin banco');
             $hoja->setCellValue("J{$fila}", $datosPago?->tipo_cuenta_snapshot ?? '');
             $hoja->setCellValueExplicit("K{$fila}", (string) ($datosPago?->numero_cuenta_snapshot ?? ''), DataType::TYPE_STRING);
@@ -86,7 +86,18 @@ final class PlanillaPagadaExcelExporter
         $hoja->getHeaderFooter()->setOddHeader('&L'.$ciclo->empresa->nombre_comercial.'&R'.$ciclo->nombre);
 
         $flujo = fopen('php://temp', 'w+b');
-        (new Xlsx($libro))->save($flujo);
+        // PhpSpreadsheet reconstruye la parte decimal de cada float restando
+        // su parte entera (StringHelper::convertToString), lo que expone el
+        // ruido binario de punto flotante (ej. 2300.09 → "2300.090000000000146")
+        // y hace que Excel "repare" el archivo al abrirlo. Bajar `precision`
+        // durante el guardado evita que ese ruido se escriba en el XML.
+        $precisionOriginal = ini_get('precision');
+        ini_set('precision', 10);
+        try {
+            (new Xlsx($libro))->save($flujo);
+        } finally {
+            ini_set('precision', $precisionOriginal);
+        }
         rewind($flujo);
         $contenido = stream_get_contents($flujo);
         fclose($flujo);

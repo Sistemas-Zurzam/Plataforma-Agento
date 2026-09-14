@@ -48,7 +48,16 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         $libro->setActiveSheetIndex(0);
 
         $flujo = fopen('php://temp', 'w+b');
-        (new Xlsx($libro))->save($flujo);
+        // Ver PlanillaPagadaExcelExporter::generar() — PhpSpreadsheet expone
+        // ruido binario de punto flotante al reconstruir la parte decimal de
+        // cada float, lo que hace que Excel "repare" el archivo al abrirlo.
+        $precisionOriginal = ini_get('precision');
+        ini_set('precision', 10);
+        try {
+            (new Xlsx($libro))->save($flujo);
+        } finally {
+            ini_set('precision', $precisionOriginal);
+        }
         rewind($flujo);
         $contenido = stream_get_contents($flujo);
         fclose($flujo);
@@ -68,14 +77,14 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         $colaborador = $boleta->colaborador;
         $conceptos = $boleta->conceptos;
 
-        $totalIngresos = (float) $boleta->total_ingresos;
+        $totalIngresos = round((float) $boleta->total_ingresos, 2);
         $sueldoBruto = self::sumarConceptos($conceptos, self::CODIGOS_INGRESO_BASE);
         $aporteObligatorio = self::sumarConceptos($conceptos, self::CODIGOS_APORTE_OBLIGATORIO);
         $primaSeguro = self::sumarConceptos($conceptos, ['AFP_PRIMA_SEGURO']);
         $comisionAfp = self::sumarConceptos($conceptos, ['AFP_COMISION']);
-        $baseAfp = (float) ($conceptos->first(
+        $baseAfp = round((float) ($conceptos->first(
             fn (BoletaConcepto $c) => in_array($c->concepto?->codigo, self::CODIGOS_APORTE_OBLIGATORIO, true)
-        )?->base_utilizada ?? 0);
+        )?->base_utilizada ?? 0), 2);
         $totalAfp = round($aporteObligatorio + $primaSeguro + $comisionAfp, 2);
         $essalud = self::sumarConceptos($conceptos, self::CODIGOS_APORTACION_SALUD);
 
@@ -95,7 +104,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
             // Todo egreso que no es AFP/ONP: tardanzas, faltas, adelantos,
             // renta de 5ta, descuentos operativos, etc., en una sola columna.
             'otros_descuentos' => round((float) $boleta->total_egresos - $totalAfp, 2),
-            'neto' => (float) $boleta->neto_a_pagar,
+            'neto' => round((float) $boleta->neto_a_pagar, 2),
             'essalud' => $essalud,
             'costo_empresa' => round($totalIngresos + $essalud, 2),
             'estado' => $boleta->estado === 'pagada' ? 'Pagado' : ucfirst((string) $boleta->estado),
@@ -105,9 +114,9 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
     /** @param  Collection<int, BoletaConcepto>  $conceptos */
     private static function sumarConceptos(Collection $conceptos, array $codigos): float
     {
-        return (float) $conceptos
+        return round((float) $conceptos
             ->filter(fn (BoletaConcepto $c) => in_array($c->concepto?->codigo, $codigos, true))
-            ->sum('monto');
+            ->sum('monto'), 2);
     }
 
     /** @param  Collection<int, array<string, mixed>>  $filas */
