@@ -44,7 +44,7 @@ class AportesPrevisionalesService
             ->sortByDesc(fn ($detalle) => [$detalle->complementaria?->pagado_at?->timestamp ?? 0, $detalle->id])
             ->first());
 
-        $colaboradores = $boletas->map(function (Boleta $boleta) use ($empresa, $consolidados) {
+        $colaboradores = $boletas->map(function (Boleta $boleta) use ($empresa, $consolidados, $complementarias) {
             $porCodigo = $boleta->conceptos->keyBy(fn (BoletaConcepto $c) => $c->concepto->codigo);
             $esOnp = $boleta->colaborador->sistema_previsional === 'onp';
             $codigoPrincipal = $esOnp ? 'ONP' : 'AFP_APORTE_OBLIGATORIO';
