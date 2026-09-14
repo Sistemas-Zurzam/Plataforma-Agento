@@ -18,6 +18,9 @@ final class ConceptosPlame
     public const NO_EXPORTABLES_REM = [
         'HONORARIO_BRUTO', 'RETENCION_RENTA_4TA',
         'CTS_PROVISION', 'GRATIFICACION_LEGAL', 'BONIFICACION_EXTRAORDINARIA', 'VACACIONES_PROVISION',
+        // Aportes del empleador: SUNAT los administra como encabezado/aporte
+        // y no se declaran como una línea individual del archivo .rem.
+        'ESSALUD', 'SIS_APORTACION',
     ];
 
     /** Requieren una ConceptoDefinicionPlame concreta, no basta el código genérico. */
