@@ -82,11 +82,11 @@ final class PlanillaComplementariaExcelExporter
             'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF'.$azul]],
         ]);
-        $hoja->getStyle('H1')->getNumberFormat()->setFormatCode('S/ #,##0.00');
-        $hoja->getStyle('J1')->getNumberFormat()->setFormatCode('S/ #,##0.00');
+        $hoja->getStyle('H1')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
+        $hoja->getStyle('J1')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
 
         $ultimaFila = max(4, $filas->count() + 3);
-        $hoja->getStyle("F4:H{$ultimaFila}")->getNumberFormat()->setFormatCode('S/ #,##0.00');
+        $hoja->getStyle("F4:H{$ultimaFila}")->getNumberFormat()->setFormatCode('"S/" #,##0.00');
         $hoja->getStyle("E4:E{$ultimaFila}")->getNumberFormat()->setFormatCode('@');
         $hoja->freezePane('A4');
         $hoja->setAutoFilter("A3:L{$ultimaFila}");

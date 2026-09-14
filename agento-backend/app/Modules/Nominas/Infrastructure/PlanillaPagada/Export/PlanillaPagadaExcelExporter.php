@@ -64,12 +64,12 @@ final class PlanillaPagadaExcelExporter
             'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF'.$azul]],
         ]);
-        $hoja->getStyle('D1')->getNumberFormat()->setFormatCode('S/ #,##0.00');
-        $hoja->getStyle('F1')->getNumberFormat()->setFormatCode('S/ #,##0.00');
-        $hoja->getStyle('H1')->getNumberFormat()->setFormatCode('S/ #,##0.00');
+        $hoja->getStyle('D1')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
+        $hoja->getStyle('F1')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
+        $hoja->getStyle('H1')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
 
         $ultimaFila = max(4, $boletas->count() + 3);
-        $hoja->getStyle("F4:H{$ultimaFila}")->getNumberFormat()->setFormatCode('S/ #,##0.00');
+        $hoja->getStyle("F4:H{$ultimaFila}")->getNumberFormat()->setFormatCode('"S/" #,##0.00');
         $hoja->getStyle("A4:A{$ultimaFila}")->getNumberFormat()->setFormatCode('@');
         $hoja->getStyle("K4:L{$ultimaFila}")->getNumberFormat()->setFormatCode('@');
         $hoja->freezePane('A4');

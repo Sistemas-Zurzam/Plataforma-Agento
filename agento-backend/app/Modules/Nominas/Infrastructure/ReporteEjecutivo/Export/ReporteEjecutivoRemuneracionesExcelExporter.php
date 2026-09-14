@@ -158,7 +158,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         ]);
 
         $ultimaFila = max(2, $filas->count() + 1);
-        $hoja->getStyle("F2:P{$ultimaFila}")->getNumberFormat()->setFormatCode('S/ #,##0.00');
+        $hoja->getStyle("F2:P{$ultimaFila}")->getNumberFormat()->setFormatCode('"S/" #,##0.00');
         $hoja->getStyle("C2:C{$ultimaFila}")->getNumberFormat()->setFormatCode('@');
         $hoja->freezePane('A2');
         $hoja->setAutoFilter("A1:Q{$ultimaFila}");
@@ -209,7 +209,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
             'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF'.$azul]],
         ]);
-        $hoja->getStyle('B9:G9')->getNumberFormat()->setFormatCode('S/ #,##0.00');
+        $hoja->getStyle('B9:G9')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
 
         $hoja->setCellValue('A11', 'LECTURA EJECUTIVA');
         $hoja->getStyle('A11')->getFont()->setBold(true);
@@ -225,7 +225,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
             ['Neto pagado', 'Importe efectivamente entregado al colaborador', $totalNeto, 'Colaborador'],
             ['Costo empresa', 'Bruto + aportes patronales aplicables (ESSALUD / SIS)', $totalCostoEmpresa, 'Empresa'],
         ], null, 'A13');
-        $hoja->getStyle('C13:C16')->getNumberFormat()->setFormatCode('S/ #,##0.00');
+        $hoja->getStyle('C13:C16')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
 
         foreach (['A' => 24, 'B' => 46, 'C' => 18, 'D' => 22] as $columna => $ancho) {
             $hoja->getColumnDimension($columna)->setWidth($ancho);
