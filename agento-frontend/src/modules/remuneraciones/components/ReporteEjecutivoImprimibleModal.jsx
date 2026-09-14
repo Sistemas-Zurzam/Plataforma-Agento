@@ -26,6 +26,7 @@ const COLUMNAS = [
   { titulo: 'Comisión AFP', clave: 'comision_afp' },
   { titulo: 'Total AFP', clave: 'total_afp' },
   { titulo: 'Otros descuentos', clave: 'otros_descuentos' },
+  { titulo: 'Reintegros', clave: 'reintegros' },
   { titulo: 'Neto a pagar', clave: 'neto' },
   { titulo: 'ESSALUD', clave: 'essalud' },
   { titulo: 'Costo empresa', clave: 'costo_empresa' },

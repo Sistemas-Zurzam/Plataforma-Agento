@@ -33,18 +33,22 @@ final class ReporteEjecutivoRemuneracionesCalculador
     /** Columnas monetarias sumables de una fila (misma clave que fila()), usadas para subtotales y total general. */
     public const COLUMNAS_MONTO = [
         'sueldo_bruto', 'bonos', 'base_afp', 'aporte_obligatorio', 'prima_seguro',
-        'comision_afp', 'total_afp', 'otros_descuentos', 'neto', 'essalud', 'costo_empresa',
+        'comision_afp', 'total_afp', 'otros_descuentos', 'reintegros', 'neto', 'essalud', 'costo_empresa',
     ];
 
     /**
      * @param  string  $periodo  Etiqueta legible del período (ej. "Julio 2026").
      * @param  Collection<int, Boleta>  $boletas  Con `colaborador`, `conceptos.concepto`
      *   y `empresa` ya precargados, y ya ordenadas por empresa y luego por colaborador.
+     * @param  Collection<int, float>  $reintegrosPorBoleta  Ajuste neto de planillas
+     *   complementarias aprobadas/pagadas del período, indexado por boleta_id — mismo
+     *   criterio que ResumenContableService::complementariasPorEmpresa(), a nivel de
+     *   colaborador en vez de empresa.
      * @return Collection<int, array<string, mixed>>
      */
-    public static function filas(string $periodo, Collection $boletas): Collection
+    public static function filas(string $periodo, Collection $boletas, Collection $reintegrosPorBoleta = new Collection()): Collection
     {
-        return $boletas->map(fn (Boleta $boleta) => self::fila($periodo, $boleta))->values();
+        return $boletas->map(fn (Boleta $boleta) => self::fila($periodo, $boleta, (float) $reintegrosPorBoleta->get($boleta->id, 0.0)))->values();
     }
 
     /**
@@ -88,10 +92,10 @@ final class ReporteEjecutivoRemuneracionesCalculador
     /**
      * @return array{empresa: string, periodo: string, dni: string, nombre: string, tipo: string,
      *   sueldo_bruto: float, bonos: float, base_afp: float, aporte_obligatorio: float, prima_seguro: float,
-     *   comision_afp: float, total_afp: float, otros_descuentos: float, neto: float, essalud: float,
-     *   costo_empresa: float, estado: string}
+     *   comision_afp: float, total_afp: float, otros_descuentos: float, reintegros: float, neto: float,
+     *   essalud: float, costo_empresa: float, estado: string}
      */
-    private static function fila(string $periodo, Boleta $boleta): array
+    private static function fila(string $periodo, Boleta $boleta, float $reintegros = 0.0): array
     {
         $colaborador = $boleta->colaborador;
         $conceptos = $boleta->conceptos;
@@ -123,7 +127,12 @@ final class ReporteEjecutivoRemuneracionesCalculador
             // Todo egreso que no es AFP/ONP: tardanzas, faltas, adelantos,
             // renta de 5ta, descuentos operativos, etc., en una sola columna.
             'otros_descuentos' => round((float) $boleta->total_egresos - $totalAfp, 2),
-            'neto' => round((float) $boleta->neto_a_pagar, 2),
+            // Ajuste de planillas complementarias — la boleta original nunca
+            // se modifica (ver PlanillaComplementariaService), así que el
+            // neto "real" de este período es el de la boleta más este
+            // ajuste, mismo criterio que ResumenContableService::consolidar().
+            'reintegros' => round($reintegros, 2),
+            'neto' => round((float) $boleta->neto_a_pagar + $reintegros, 2),
             'essalud' => $essalud,
             'costo_empresa' => round($totalIngresos + $essalud, 2),
             'estado' => $boleta->estado === 'pagada' ? 'Pagado' : ucfirst((string) $boleta->estado),

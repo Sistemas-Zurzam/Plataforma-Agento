@@ -36,10 +36,11 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
      * @param  string  $periodo  Etiqueta legible del período consolidado (ej. "Julio 2026").
      * @param  Collection<int, Boleta>  $boletas  De una o varias empresas, con `colaborador`,
      *   `conceptos.concepto` y `empresa` ya precargados, y ya ordenadas por empresa y luego por colaborador.
+     * @param  Collection<int, float>  $reintegrosPorBoleta  Ver ReporteEjecutivoRemuneracionesCalculador::filas().
      */
-    public static function generar(string $periodo, Collection $boletas): string
+    public static function generar(string $periodo, Collection $boletas, Collection $reintegrosPorBoleta = new Collection()): string
     {
-        $filas = ReporteEjecutivoRemuneracionesCalculador::filas($periodo, $boletas);
+        $filas = ReporteEjecutivoRemuneracionesCalculador::filas($periodo, $boletas, $reintegrosPorBoleta);
         $porEmpresa = ReporteEjecutivoRemuneracionesCalculador::agruparPorEmpresa($filas);
         $totalGeneral = ReporteEjecutivoRemuneracionesCalculador::totalGeneral($filas);
 
@@ -79,7 +80,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         $hoja->fromArray([
             'Empresa', 'Periodo', 'DNI', 'Colaborador', 'Tipo', 'Sueldo bruto', 'Bonos / HE',
             'Base AFP', 'AFP 10%', 'Prima seguro', 'Comisión AFP', 'Total AFP', 'Otros descuentos',
-            'Neto a pagar', 'ESSALUD', 'Costo empresa', 'Estado',
+            'Reintegros', 'Neto a pagar', 'ESSALUD', 'Costo empresa', 'Estado',
         ], null, 'A1');
 
         $numeroFila = 2;
@@ -103,20 +104,21 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
                 $hoja->setCellValue("K{$numeroFila}", $fila['comision_afp']);
                 $hoja->setCellValue("L{$numeroFila}", $fila['total_afp']);
                 $hoja->setCellValue("M{$numeroFila}", $fila['otros_descuentos']);
-                $hoja->setCellValue("N{$numeroFila}", $fila['neto']);
-                $hoja->setCellValue("O{$numeroFila}", $fila['essalud']);
-                $hoja->setCellValue("P{$numeroFila}", $fila['costo_empresa']);
-                $hoja->setCellValue("Q{$numeroFila}", $fila['estado']);
+                $hoja->setCellValue("N{$numeroFila}", $fila['reintegros']);
+                $hoja->setCellValue("O{$numeroFila}", $fila['neto']);
+                $hoja->setCellValue("P{$numeroFila}", $fila['essalud']);
+                $hoja->setCellValue("Q{$numeroFila}", $fila['costo_empresa']);
+                $hoja->setCellValue("R{$numeroFila}", $fila['estado']);
                 $numeroFila++;
             }
 
             $finBloque = $numeroFila - 1;
-            $hoja->getStyle("A{$inicioBloque}:Q{$finBloque}")->applyFromArray([
+            $hoja->getStyle("A{$inicioBloque}:R{$finBloque}")->applyFromArray([
                 'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => $colores['claro']]],
             ]);
 
             self::escribirFilaTotales($hoja, $numeroFila, "Total {$empresa} ({$grupo['colaboradores']} colaboradores)", $grupo['subtotal']);
-            $hoja->getStyle("A{$numeroFila}:Q{$numeroFila}")->applyFromArray([
+            $hoja->getStyle("A{$numeroFila}:R{$numeroFila}")->applyFromArray([
                 'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
                 'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => $colores['oscuro']]],
             ]);
@@ -128,25 +130,25 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         $filaTotalGeneral = $numeroFila;
         self::escribirFilaTotales($hoja, $filaTotalGeneral, 'Total general ('.$filas->count().' colaboradores)', $totalGeneral);
         $azul = '0B4F94';
-        $hoja->getStyle("A{$filaTotalGeneral}:Q{$filaTotalGeneral}")->applyFromArray([
+        $hoja->getStyle("A{$filaTotalGeneral}:R{$filaTotalGeneral}")->applyFromArray([
             'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF'.$azul]],
         ]);
 
-        $hoja->getStyle('A1:Q1')->applyFromArray([
+        $hoja->getStyle('A1:R1')->applyFromArray([
             'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF'.$azul]],
         ]);
 
-        $hoja->getStyle("F2:P{$filaTotalGeneral}")->getNumberFormat()->setFormatCode('"S/" #,##0.00');
+        $hoja->getStyle("F2:Q{$filaTotalGeneral}")->getNumberFormat()->setFormatCode('"S/" #,##0.00');
         $hoja->getStyle("C2:C{$filaTotalGeneral}")->getNumberFormat()->setFormatCode('@');
         $hoja->freezePane('A2');
-        $hoja->setAutoFilter("A1:Q".($filaTotalGeneral - 1));
+        $hoja->setAutoFilter("A1:R".($filaTotalGeneral - 1));
 
         foreach ([
             'A' => 18, 'B' => 16, 'C' => 16, 'D' => 34, 'E' => 12,
             'F' => 16, 'G' => 14, 'H' => 14, 'I' => 14, 'J' => 14,
-            'K' => 14, 'L' => 14, 'M' => 16, 'N' => 16, 'O' => 14, 'P' => 16, 'Q' => 12,
+            'K' => 14, 'L' => 14, 'M' => 16, 'N' => 16, 'O' => 16, 'P' => 14, 'Q' => 16, 'R' => 12,
         ] as $columna => $ancho) {
             $hoja->getColumnDimension($columna)->setWidth($ancho);
         }
@@ -165,9 +167,10 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         $hoja->setCellValue("K{$fila}", $subtotal['comision_afp']);
         $hoja->setCellValue("L{$fila}", $subtotal['total_afp']);
         $hoja->setCellValue("M{$fila}", $subtotal['otros_descuentos']);
-        $hoja->setCellValue("N{$fila}", $subtotal['neto']);
-        $hoja->setCellValue("O{$fila}", $subtotal['essalud']);
-        $hoja->setCellValue("P{$fila}", $subtotal['costo_empresa']);
+        $hoja->setCellValue("N{$fila}", $subtotal['reintegros']);
+        $hoja->setCellValue("O{$fila}", $subtotal['neto']);
+        $hoja->setCellValue("P{$fila}", $subtotal['essalud']);
+        $hoja->setCellValue("Q{$fila}", $subtotal['costo_empresa']);
     }
 
     /**
@@ -181,10 +184,14 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         $totalEmpresas = $filas->pluck('empresa')->unique()->count();
         $totalBruto = round($totalGeneral['sueldo_bruto'] + $totalGeneral['bonos'], 2);
         $totalAfp = $totalGeneral['total_afp'];
+        $totalReintegros = $totalGeneral['reintegros'];
         $totalNeto = $totalGeneral['neto'];
         $totalEssalud = $totalGeneral['essalud'];
         $totalCostoEmpresa = $totalGeneral['costo_empresa'];
-        $totalDescuentos = round($totalBruto - $totalNeto, 2);
+        // Con reintegros positivos, el neto puede superar al bruto — se
+        // resta el ajuste para que "Descuentos" siga siendo solo lo
+        // retenido al colaborador, no un neto de ambos efectos.
+        $totalDescuentos = round($totalBruto - $totalNeto + $totalReintegros, 2);
 
         $azul = '0B4F94';
 
@@ -205,13 +212,13 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         ], null, 'A3');
         $hoja->getStyle('A3:A6')->getFont()->setBold(true);
 
-        $hoja->fromArray(['Colaboradores', 'Bruto', 'Descuentos', 'Total AFP', 'Neto pagado', 'ESSALUD', 'Costo empresa'], null, 'A8');
-        $hoja->fromArray([$filas->count(), $totalBruto, $totalDescuentos, $totalAfp, $totalNeto, $totalEssalud, $totalCostoEmpresa], null, 'A9');
-        $hoja->getStyle('A8:G8')->applyFromArray([
+        $hoja->fromArray(['Colaboradores', 'Bruto', 'Descuentos', 'Total AFP', 'Reintegros', 'Neto pagado', 'ESSALUD', 'Costo empresa'], null, 'A8');
+        $hoja->fromArray([$filas->count(), $totalBruto, $totalDescuentos, $totalAfp, $totalReintegros, $totalNeto, $totalEssalud, $totalCostoEmpresa], null, 'A9');
+        $hoja->getStyle('A8:H8')->applyFromArray([
             'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF'.$azul]],
         ]);
-        $hoja->getStyle('B9:G9')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
+        $hoja->getStyle('B9:H9')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
 
         $hoja->setCellValue('A11', 'LECTURA EJECUTIVA');
         $hoja->getStyle('A11')->getFont()->setBold(true);
@@ -229,7 +236,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         ], null, 'A13');
         $hoja->getStyle('C13:C16')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
 
-        foreach (['A' => 24, 'B' => 46, 'C' => 18, 'D' => 22, 'E' => 16, 'F' => 14, 'G' => 18] as $columna => $ancho) {
+        foreach (['A' => 24, 'B' => 46, 'C' => 18, 'D' => 22, 'E' => 16, 'F' => 16, 'G' => 14, 'H' => 18] as $columna => $ancho) {
             $hoja->getColumnDimension($columna)->setWidth($ancho);
         }
     }

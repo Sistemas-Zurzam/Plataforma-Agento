@@ -33,6 +33,7 @@ use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Services\BoletaService;
 use App\Modules\Nominas\Services\CicloRemunerativoService;
 use App\Modules\Nominas\Services\ResumenContableService;
@@ -135,9 +136,9 @@ class CicloRemunerativoController extends Controller
      */
     public function exportarReporteEjecutivoExcel(Request $request): Response
     {
-        [$datos, $boletas, $periodoLabel] = $this->resolverReporteEjecutivo($request);
+        [$datos, $boletas, $periodoLabel, $reintegrosPorBoleta] = $this->resolverReporteEjecutivo($request);
 
-        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas);
+        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas, $reintegrosPorBoleta);
         $nombre = sprintf('reporte_ejecutivo_remuneraciones_%s.xlsx', $datos['periodo']);
 
         Log::info('reporte_ejecutivo_remuneraciones.excel_exportado', [
@@ -161,9 +162,9 @@ class CicloRemunerativoController extends Controller
      */
     public function datosReporteEjecutivo(Request $request): JsonResponse
     {
-        [, $boletas, $periodoLabel] = $this->resolverReporteEjecutivo($request);
+        [, $boletas, $periodoLabel, $reintegrosPorBoleta] = $this->resolverReporteEjecutivo($request);
 
-        $filas = ReporteEjecutivoRemuneracionesCalculador::filas($periodoLabel, $boletas);
+        $filas = ReporteEjecutivoRemuneracionesCalculador::filas($periodoLabel, $boletas, $reintegrosPorBoleta);
 
         return response()->json([
             'periodo' => $periodoLabel,
@@ -186,7 +187,7 @@ class CicloRemunerativoController extends Controller
      * legible del período — compartido entre el Excel y el JSON del PDF
      * para no duplicar la consulta ni el criterio de elegibilidad.
      *
-     * @return array{0: array{periodo: string, estado: ?string, categoria: ?string}, 1: Collection<int, Boleta>, 2: string}
+     * @return array{0: array{periodo: string, estado: ?string, categoria: ?string}, 1: Collection<int, Boleta>, 2: string, 3: Collection<int, float>}
      */
     private function resolverReporteEjecutivo(Request $request): array
     {
@@ -226,7 +227,16 @@ class CicloRemunerativoController extends Controller
         $fechaPeriodo = Carbon::createFromFormat('Y-m', $datos['periodo']);
         $periodoLabel = ucfirst(mb_strtolower($fechaPeriodo->translatedFormat('F'), 'UTF-8')).' '.$fechaPeriodo->format('Y');
 
-        return [$datos, $boletas, $periodoLabel];
+        // Mismo criterio que ResumenContableService::complementariasPorEmpresa()
+        // (aprobada/pagada, nunca calculada) pero indexado por boleta en vez
+        // de por empresa, para desglosarlo a nivel de colaborador.
+        $reintegrosPorBoleta = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
+            ->whereHas('complementaria', fn ($query) => $query->whereIn('estado', ['aprobada', 'pagada']))
+            ->selectRaw('boleta_original_id, COALESCE(SUM(diferencia_neta), 0) as total')
+            ->groupBy('boleta_original_id')
+            ->pluck('total', 'boleta_original_id');
+
+        return [$datos, $boletas, $periodoLabel, $reintegrosPorBoleta];
     }
 
     /**
