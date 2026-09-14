@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Application\Plame;
 
 use App\Modules\Asistencia\Domain\Plame\ResolverSuspensionSunat;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Domain\Plame\ConceptosPlame;
 use App\Modules\Nominas\Domain\Plame\RequisitoRucPlame;
@@ -84,7 +85,7 @@ class PlameValidator
         $condicionesPorColaborador = PlameCicloDatosLoader::condicionesPorColaborador($colaboradorIds);
 
         $hallazgos = [...$hallazgos, ...$this->validarPlanilla($boletasPlanilla, $ciclo, $mapeos, $condicionesPorColaborador)];
-        $hallazgos = [...$hallazgos, ...$this->validarJor($boletasPlanilla)];
+        $hallazgos = [...$hallazgos, ...$this->validarJor($boletasPlanilla, $ciclo)];
         $hallazgos = [...$hallazgos, ...$this->validarSnl($boletasPlanilla, $ciclo, $mapeos)];
         $hallazgos = [...$hallazgos, ...$this->validarRem($boletasPlanilla)];
         $hallazgos = [...$hallazgos, ...$this->validarRh($boletasRh, $mapeos)];
@@ -243,12 +244,21 @@ class PlameValidator
 
     // ===================== .jor =====================
 
-    private function validarJor(Collection $boletas): array
+    private function validarJor(Collection $boletas, CicloRemunerativo $ciclo): array
     {
         $hallazgos = [];
+        $procesadas = AsistenciaResultadoDiario::query()
+            ->whereIn('colaborador_id', $boletas->pluck('colaborador_id'))
+            ->whereBetween('fecha', [$ciclo->fecha_inicio, $ciclo->fecha_fin])
+            ->selectRaw('colaborador_id, COUNT(*) as total')
+            ->groupBy('colaborador_id')
+            ->pluck('total', 'colaborador_id');
 
         foreach ($boletas as $boleta) {
-            if (! $boleta->asistencia_procesada) {
+            // Una boleta pagada puede conservar el indicador histórico en
+            // false si la asistencia se reprocesó después. Los resultados
+            // diarios del período son la fuente actual de verdad.
+            if (! $boleta->asistencia_procesada && (int) ($procesadas[$boleta->colaborador_id] ?? 0) === 0) {
                 $hallazgos[] = $this->hallazgoColaborador(
                     'PLAME_JOR_ASISTENCIA_SIN_PROCESAR', 'error', ['jor'], self::GRUPO_JORNADA, $boleta->colaborador,
                     'La asistencia del período no fue procesada — no se pueden determinar horas ordinarias/extra reales.',
