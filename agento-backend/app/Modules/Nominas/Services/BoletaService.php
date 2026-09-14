@@ -285,11 +285,11 @@ class BoletaService
         $tasaObligatoria = (float) ($obligatorio['tasa_aplicada'] ?? 0);
         $baseReintegros = (float) $detallesPagados->sum(fn (PlanillaComplementariaDetalle $detalle) => (float) $detalle->diferencia_ingresos);
 
-        if ($tasaObligatoria > 0 && abs($baseReintegros) >= 0.01) {
+        if (abs($baseReintegros) >= 0.01) {
             foreach ($desgloses as &$desglose) {
-                if ($desglose['codigo'] === $codigoObligatorio) {
-                    $desglose['de_reintegros'] = round($baseReintegros * $tasaObligatoria, 2);
-                    break;
+                if (in_array($desglose['codigo'], [$codigoObligatorio, 'AFP_PRIMA_SEGURO'], true)
+                    && (float) ($desglose['tasa_aplicada'] ?? 0) > 0) {
+                    $desglose['de_reintegros'] = round($baseReintegros * (float) $desglose['tasa_aplicada'], 2);
                 }
             }
             unset($desglose);
