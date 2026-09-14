@@ -60,7 +60,8 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
     /**
      * @return array{empresa: string, periodo: string, dni: string, nombre: string, tipo: string,
      *   sueldo_bruto: float, bonos: float, base_afp: float, aporte_obligatorio: float, prima_seguro: float,
-     *   comision_afp: float, total_afp: float, neto: float, essalud: float, costo_empresa: float, estado: string}
+     *   comision_afp: float, total_afp: float, otros_descuentos: float, neto: float, essalud: float,
+     *   costo_empresa: float, estado: string}
      */
     private static function calcularFila(CicloRemunerativo $ciclo, Boleta $boleta): array
     {
@@ -75,6 +76,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         $baseAfp = (float) ($conceptos->first(
             fn (BoletaConcepto $c) => in_array($c->concepto?->codigo, self::CODIGOS_APORTE_OBLIGATORIO, true)
         )?->base_utilizada ?? 0);
+        $totalAfp = round($aporteObligatorio + $primaSeguro + $comisionAfp, 2);
         $essalud = self::sumarConceptos($conceptos, self::CODIGOS_APORTACION_SALUD);
 
         return [
@@ -89,7 +91,10 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
             'aporte_obligatorio' => $aporteObligatorio,
             'prima_seguro' => $primaSeguro,
             'comision_afp' => $comisionAfp,
-            'total_afp' => round($aporteObligatorio + $primaSeguro + $comisionAfp, 2),
+            'total_afp' => $totalAfp,
+            // Todo egreso que no es AFP/ONP: tardanzas, faltas, adelantos,
+            // renta de 5ta, descuentos operativos, etc., en una sola columna.
+            'otros_descuentos' => round((float) $boleta->total_egresos - $totalAfp, 2),
             'neto' => (float) $boleta->neto_a_pagar,
             'essalud' => $essalud,
             'costo_empresa' => round($totalIngresos + $essalud, 2),
@@ -112,7 +117,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
 
         $hoja->fromArray([
             'Empresa', 'Periodo', 'DNI', 'Colaborador', 'Tipo', 'Sueldo bruto', 'Bonos / HE',
-            'Base AFP', 'AFP 10%', 'Prima seguro', 'Comisión AFP', 'Total AFP',
+            'Base AFP', 'AFP 10%', 'Prima seguro', 'Comisión AFP', 'Total AFP', 'Otros descuentos',
             'Neto a pagar', 'ESSALUD', 'Costo empresa', 'Estado',
         ], null, 'A1');
 
@@ -130,28 +135,29 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
             $hoja->setCellValue("J{$numeroFila}", $fila['prima_seguro']);
             $hoja->setCellValue("K{$numeroFila}", $fila['comision_afp']);
             $hoja->setCellValue("L{$numeroFila}", $fila['total_afp']);
-            $hoja->setCellValue("M{$numeroFila}", $fila['neto']);
-            $hoja->setCellValue("N{$numeroFila}", $fila['essalud']);
-            $hoja->setCellValue("O{$numeroFila}", $fila['costo_empresa']);
-            $hoja->setCellValue("P{$numeroFila}", $fila['estado']);
+            $hoja->setCellValue("M{$numeroFila}", $fila['otros_descuentos']);
+            $hoja->setCellValue("N{$numeroFila}", $fila['neto']);
+            $hoja->setCellValue("O{$numeroFila}", $fila['essalud']);
+            $hoja->setCellValue("P{$numeroFila}", $fila['costo_empresa']);
+            $hoja->setCellValue("Q{$numeroFila}", $fila['estado']);
         }
 
         $azul = '0B4F94';
-        $hoja->getStyle('A1:P1')->applyFromArray([
+        $hoja->getStyle('A1:Q1')->applyFromArray([
             'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF'.$azul]],
         ]);
 
         $ultimaFila = max(2, $filas->count() + 1);
-        $hoja->getStyle("F2:O{$ultimaFila}")->getNumberFormat()->setFormatCode('S/ #,##0.00');
+        $hoja->getStyle("F2:P{$ultimaFila}")->getNumberFormat()->setFormatCode('S/ #,##0.00');
         $hoja->getStyle("C2:C{$ultimaFila}")->getNumberFormat()->setFormatCode('@');
         $hoja->freezePane('A2');
-        $hoja->setAutoFilter("A1:P{$ultimaFila}");
+        $hoja->setAutoFilter("A1:Q{$ultimaFila}");
 
         foreach ([
             'A' => 18, 'B' => 16, 'C' => 16, 'D' => 34, 'E' => 12,
             'F' => 16, 'G' => 14, 'H' => 14, 'I' => 14, 'J' => 14,
-            'K' => 14, 'L' => 14, 'M' => 16, 'N' => 14, 'O' => 16, 'P' => 12,
+            'K' => 14, 'L' => 14, 'M' => 16, 'N' => 16, 'O' => 14, 'P' => 16, 'Q' => 12,
         ] as $columna => $ancho) {
             $hoja->getColumnDimension($columna)->setWidth($ancho);
         }

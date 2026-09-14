@@ -62,10 +62,11 @@ class ReporteEjecutivoRemuneracionesExcelExporterTest extends TestCase
             $this->assertSame(140.0, $detalle->getCell('I2')->getValue());
             $this->assertSame(19.18, $detalle->getCell('J2')->getValue());
             $this->assertSame(159.18, $detalle->getCell('L2')->getValue());
-            $this->assertSame(1240.82, $detalle->getCell('M2')->getValue());
-            $this->assertSame(126.0, $detalle->getCell('N2')->getValue());
-            $this->assertSame(1526.0, $detalle->getCell('O2')->getValue());
-            $this->assertSame('Pagado', $detalle->getCell('P2')->getValue());
+            $this->assertSame(0.0, $detalle->getCell('M2')->getValue());
+            $this->assertSame(1240.82, $detalle->getCell('N2')->getValue());
+            $this->assertSame(126.0, $detalle->getCell('O2')->getValue());
+            $this->assertSame(1526.0, $detalle->getCell('P2')->getValue());
+            $this->assertSame('Pagado', $detalle->getCell('Q2')->getValue());
 
             $ejecutivo = $libro->getSheetByName('Reporte_Ejecutivo');
             $this->assertNotNull($ejecutivo);
