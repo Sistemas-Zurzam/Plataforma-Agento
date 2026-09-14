@@ -227,7 +227,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
         ], null, 'A13');
         $hoja->getStyle('C13:C16')->getNumberFormat()->setFormatCode('"S/" #,##0.00');
 
-        foreach (['A' => 24, 'B' => 46, 'C' => 18, 'D' => 22] as $columna => $ancho) {
+        foreach (['A' => 24, 'B' => 46, 'C' => 18, 'D' => 22, 'E' => 16, 'F' => 14, 'G' => 18] as $columna => $ancho) {
             $hoja->getColumnDimension($columna)->setWidth($ancho);
         }
     }
