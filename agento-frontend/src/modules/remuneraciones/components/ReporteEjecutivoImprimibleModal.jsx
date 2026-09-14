@@ -69,6 +69,7 @@ export default function ReporteEjecutivoImprimibleModal({ open, onCancel, period
       title="Reporte ejecutivo de remuneraciones"
       open={open}
       onCancel={onCancel}
+      rootClassName="reporte-ejecutivo-print-root"
       footer={[
         <Button key="cerrar" onClick={onCancel}>Cerrar</Button>,
         <Button key="imprimir" type="primary" icon={<PrinterOutlined />} disabled={!datos} onClick={() => window.print()}>
