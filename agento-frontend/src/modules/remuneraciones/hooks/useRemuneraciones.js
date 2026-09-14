@@ -514,6 +514,20 @@ export function useRemuneraciones() {
     window.URL.revokeObjectURL(url);
   }, []);
 
+  const exportarReporteEjecutivoExcel = useCallback(async (cicloId) => {
+    const response = await api.get(`/ciclos-remunerativos/${cicloId}/reporte-ejecutivo/excel`, { responseType: 'blob' });
+    const disposicion = response.headers?.['content-disposition'] ?? '';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Reporte_ejecutivo_remuneraciones.xlsx';
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
   const exportarComplementariasExcel = useCallback(async (cicloId) => {
     const response = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/excel`, { responseType: 'blob' });
     const disposicion = response.headers?.['content-disposition'] ?? '';
@@ -715,6 +729,7 @@ export function useRemuneraciones() {
     fetchAfpNetValidacion,
     exportarAfpNet,
     exportarPlanillaPagadaExcel,
+    exportarReporteEjecutivoExcel,
     exportarComplementariasExcel,
     fetchTelecreditoBcpValidacion,
     exportarTelecreditoBcp,
