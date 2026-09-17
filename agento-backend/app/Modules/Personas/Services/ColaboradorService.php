@@ -122,7 +122,7 @@ class ColaboradorService
 
         return $colaborador->load([
             'empresa', 'sede', 'area', 'horario.dias', 'remuneraciones', 'remuneracionVigente',
-            'calendario', 'asignacionesHorario.horario', 'documentos',
+            'condicionLaboralVigente', 'calendario', 'asignacionesHorario.horario', 'documentos',
         ]);
     }
 
