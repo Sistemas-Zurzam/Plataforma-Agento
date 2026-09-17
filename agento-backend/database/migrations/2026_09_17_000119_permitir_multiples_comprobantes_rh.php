@@ -10,6 +10,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('boleta_comprobantes_rh', function (Blueprint $table) {
+            // MySQL usa el indice UNIQUE original para sostener la FK. Debe
+            // existir primero un indice no unico antes de retirar UNIQUE.
+            $table->index('boleta_id', 'boleta_comprobantes_rh_boleta_id_index');
             $table->dropUnique(['boleta_id']);
             $table->decimal('monto_total_servicio', 12, 2)->nullable()->after('fecha_pago');
             $table->unique(['boleta_id', 'serie', 'numero'], 'boleta_rh_comprobante_unico');
@@ -31,6 +34,7 @@ return new class extends Migration
             $table->dropUnique('boleta_rh_comprobante_unico');
             $table->dropColumn('monto_total_servicio');
             $table->unique('boleta_id');
+            $table->dropIndex('boleta_comprobantes_rh_boleta_id_index');
         });
     }
 };
