@@ -6,7 +6,6 @@ use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaComprobanteRh;
 use App\Modules\Nominas\Models\CicloRemunerativo;
-use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -23,7 +22,10 @@ class ImportarComprobantesRhService
             ->with('colaborador')->get()->groupBy(fn (Boleta $b) => $this->normalizarDocumento($b->colaborador?->numero_documento));
         $filas = []; $errores = []; $omitidas = []; $vistos = [];
 
-        foreach ($hoja->toArray(null, true, true, false) as $indice => $fila) {
+        // formatData=false conserva las fechas nativas como seriales de Excel. Si se
+        // solicita el valor formateado, PhpSpreadsheet puede aplicar el locale del
+        // servidor e intercambiar dia y mes (p. ej. 03/08 -> 8 de marzo).
+        foreach ($hoja->toArray(null, true, false, false) as $indice => $fila) {
             $documento = preg_replace('/\D/', '', (string) ($fila[5] ?? ''));
             $comprobanteTexto = strtoupper(trim((string) ($fila[2] ?? '')));
             if ($documento === '' || ! preg_match('/^([A-Z0-9]{1,4})\s*-\s*([0-9]{1,8})$/', $comprobanteTexto, $partes)) continue;
@@ -55,7 +57,7 @@ class ImportarComprobantesRhService
             try { $fechaEmision = $this->fecha($fila[0] ?? null); }
             catch (\Throwable) { $errores[] = ['fila' => $numeroFila, 'mensaje' => 'Fecha de emision invalida.']; continue; }
             if ($fechaEmision < $ciclo->fecha_inicio->toDateString() || $fechaEmision > $ciclo->fecha_fin->toDateString()) {
-                $errores[] = ['fila' => $numeroFila, 'mensaje' => 'La fecha de emision no pertenece al ciclo seleccionado.']; continue;
+                $errores[] = ['fila' => $numeroFila, 'mensaje' => "La fecha de emision {$fechaEmision} no pertenece al ciclo {$ciclo->fecha_inicio->toDateString()} a {$ciclo->fecha_fin->toDateString()}."]; continue;
             }
             $monto = $this->numero($fila[10] ?? null);
             $retencion = $this->numero($fila[11] ?? 0);
@@ -92,7 +94,17 @@ class ImportarComprobantesRhService
     private function fecha(mixed $valor): string
     {
         if (is_numeric($valor)) return Date::excelToDateTimeObject((float) $valor)->format('Y-m-d');
-        return Carbon::createFromFormat('j/n/Y', trim((string) $valor))->format('Y-m-d');
+
+        $texto = trim((string) $valor);
+        foreach (['!d/m/Y', '!j/n/Y', '!d/m/y', '!j/n/y'] as $formato) {
+            $fecha = \DateTimeImmutable::createFromFormat($formato, $texto);
+            $errores = \DateTimeImmutable::getLastErrors();
+            if ($fecha !== false && ($errores === false || ($errores['warning_count'] === 0 && $errores['error_count'] === 0))) {
+                return $fecha->format('Y-m-d');
+            }
+        }
+
+        throw new \InvalidArgumentException('Fecha de emision invalida.');
     }
 
     private function numero(mixed $valor): float
