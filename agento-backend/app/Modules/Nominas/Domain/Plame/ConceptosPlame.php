@@ -18,9 +18,10 @@ final class ConceptosPlame
     public const NO_EXPORTABLES_REM = [
         'HONORARIO_BRUTO', 'RETENCION_RENTA_4TA',
         'CTS_PROVISION', 'GRATIFICACION_LEGAL', 'BONIFICACION_EXTRAORDINARIA', 'VACACIONES_PROVISION',
-        // Aportes del empleador: SUNAT los administra como encabezado/aporte
-        // y no se declaran como una línea individual del archivo .rem.
-        'ONP', 'ESSALUD', 'SIS_APORTACION',
+        // ONP (0607) y EsSalud regular (0804) son códigos administrados por
+        // SUNAT que no se declaran como línea individual del .rem. El SIS
+        // (0811) sí es declarable y conserva el monto calculado por trabajador.
+        'ONP', 'ESSALUD',
     ];
 
     /** Requieren una ConceptoDefinicionPlame concreta, no basta el código genérico. */
