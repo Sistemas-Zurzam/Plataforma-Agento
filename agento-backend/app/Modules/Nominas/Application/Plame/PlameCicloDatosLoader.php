@@ -20,10 +20,11 @@ use Illuminate\Support\Collection;
  */
 final class PlameCicloDatosLoader
 {
-    public static function boletasPlanilla(CicloRemunerativo $ciclo): Collection
+    public static function boletasPlanilla(CicloRemunerativo $ciclo, array $boletaIds = []): Collection
     {
         $boletas = Boleta::where('ciclo_id', $ciclo->id)
             ->where('es_version_vigente', true)
+            ->when($boletaIds !== [], fn ($q) => $q->whereIn('id', $boletaIds))
             ->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios')
             ->with(['colaborador', 'conceptos.concepto'])
             ->get();
@@ -125,10 +126,11 @@ final class PlameCicloDatosLoader
         }
     }
 
-    public static function boletasRh(CicloRemunerativo $ciclo): Collection
+    public static function boletasRh(CicloRemunerativo $ciclo, array $boletaIds = []): Collection
     {
         return Boleta::where('ciclo_id', $ciclo->id)
             ->where('es_version_vigente', true)
+            ->when($boletaIds !== [], fn ($q) => $q->whereIn('id', $boletaIds))
             ->where('regimen_laboral_snapshot', '=', 'Locacion de Servicios')
             ->with(['colaborador', 'conceptos.concepto', 'comprobanteRh'])
             ->get();

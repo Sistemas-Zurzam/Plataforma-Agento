@@ -468,22 +468,45 @@ class CicloRemunerativoController extends Controller
     {
         $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
-        return response()->json($this->plameValidator->validar($ciclo));
+        return response()->json($this->plameValidator->validar($ciclo, $this->boletaIdsPlame($request, $ciclo)));
     }
 
     public function exportarPlamePlanilla(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
     {
-        return $this->responderExportacion($request, $ciclo, 'planilla', fn () => $this->plameExportService->exportarPlanilla($ciclo));
+        $boletaIds = $this->boletaIdsPlame($request, $ciclo);
+
+        return $this->responderExportacion($request, $ciclo, 'planilla', fn () => $this->plameExportService->exportarPlanilla($ciclo, $boletaIds));
     }
 
     public function exportarPlameRh(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
     {
-        return $this->responderExportacion($request, $ciclo, 'rh', fn () => $this->plameExportService->exportarRh($ciclo));
+        $boletaIds = $this->boletaIdsPlame($request, $ciclo);
+
+        return $this->responderExportacion($request, $ciclo, 'rh', fn () => $this->plameExportService->exportarRh($ciclo, $boletaIds));
     }
 
     public function exportarPlameCompleto(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
     {
-        return $this->responderExportacion($request, $ciclo, 'completo', fn () => $this->plameExportService->exportarCompleto($ciclo));
+        $boletaIds = $this->boletaIdsPlame($request, $ciclo);
+
+        return $this->responderExportacion($request, $ciclo, 'completo', fn () => $this->plameExportService->exportarCompleto($ciclo, $boletaIds));
+    }
+
+    /** @return array<int, int> */
+    private function boletaIdsPlame(Request $request, CicloRemunerativo $ciclo): array
+    {
+        $datos = $request->validate([
+            'boleta_ids' => ['sometimes', 'array', 'min:1'],
+            'boleta_ids.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('boletas', 'id')->where(fn ($query) => $query
+                    ->where('ciclo_id', $ciclo->id)
+                    ->where('es_version_vigente', true)),
+            ],
+        ]);
+
+        return array_map('intval', $datos['boleta_ids'] ?? []);
     }
 
     /**

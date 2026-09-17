@@ -1344,6 +1344,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         open={plameModalOpen}
         onCancel={() => setPlameModalOpen(false)}
         ciclo={cicloActivo}
+        boletaIds={boletasSeleccionadas}
         fetchValidacion={fetchPlameValidacion}
         exportarPlame={exportarPlame}
       />

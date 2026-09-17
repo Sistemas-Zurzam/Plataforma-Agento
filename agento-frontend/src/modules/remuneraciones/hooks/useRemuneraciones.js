@@ -391,8 +391,9 @@ export function useRemuneraciones() {
     await api.delete(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/conceptos/${conceptoPeriodoId}`);
   }, []);
 
-  const fetchPlameValidacion = useCallback(async (cicloId) => {
-    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/plame-validacion`);
+  const fetchPlameValidacion = useCallback(async (cicloId, boletaIds = []) => {
+    const params = boletaIds.length > 0 ? { boleta_ids: boletaIds } : {};
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/plame-validacion`, { params });
     return data;
   }, []);
 
@@ -405,10 +406,14 @@ export function useRemuneraciones() {
    * caso JSON llega igual como Blob y hay que decodificarlo a mano
    * mirando el Content-Type real de la respuesta.
    */
-  const exportarPlame = useCallback(async (cicloId, tipo) => {
+  const exportarPlame = useCallback(async (cicloId, tipo, boletaIds = []) => {
     let response;
     try {
-      response = await api.post(`/ciclos-remunerativos/${cicloId}/plame/exportar/${tipo}`, {}, { responseType: 'blob' });
+      response = await api.post(
+        `/ciclos-remunerativos/${cicloId}/plame/exportar/${tipo}`,
+        boletaIds.length > 0 ? { boleta_ids: boletaIds } : {},
+        { responseType: 'blob' },
+      );
     } catch (err) {
       if (err.response) {
         response = err.response;
