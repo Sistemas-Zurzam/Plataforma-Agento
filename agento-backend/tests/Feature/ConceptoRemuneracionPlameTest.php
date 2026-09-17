@@ -16,6 +16,19 @@ class ConceptoRemuneracionPlameTest extends TestCase
 {
     use RefreshDatabase, CreaColaboradorDePrueba;
 
+    public function test_descuento_compra_mercaderia_tiene_codigo_plame_0706_por_defecto(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+
+        $concepto = ConceptoRemuneracion::where('codigo', 'DESCUENTO_COMPRA_MERCADERIA')->firstOrFail();
+
+        $this->assertSame('0706', $concepto->codigo_plame);
+        $this->assertDatabaseHas('concepto_codigos_plame', [
+            'concepto_remuneracion_id' => $concepto->id,
+            'codigo_plame' => '0706',
+        ]);
+    }
+
     public function test_al_configurar_codigo_completa_solo_snapshots_vacios_del_concepto(): void
     {
         $this->seed(DatabaseSeeder::class);
