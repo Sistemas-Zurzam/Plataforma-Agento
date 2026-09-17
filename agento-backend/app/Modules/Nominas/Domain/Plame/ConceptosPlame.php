@@ -18,10 +18,10 @@ final class ConceptosPlame
     public const NO_EXPORTABLES_REM = [
         'HONORARIO_BRUTO', 'RETENCION_RENTA_4TA',
         'CTS_PROVISION', 'GRATIFICACION_LEGAL', 'BONIFICACION_EXTRAORDINARIA', 'VACACIONES_PROVISION',
-        // ONP (0607) y EsSalud regular (0804) son códigos administrados por
-        // SUNAT que no se declaran como línea individual del .rem. El SIS
-        // (0811) sí es declarable y conserva el monto calculado por trabajador.
-        'ONP', 'ESSALUD',
+        // ONP (0607) permanece administrado por SUNAT. Los aportes de salud
+        // se exportan según la línea calculada en la boleta: ESSALUD=0804 o
+        // SIS_APORTACION=0811; nunca se generan ambos para el mismo cálculo.
+        'ONP',
     ];
 
     /** Requieren una ConceptoDefinicionPlame concreta, no basta el código genérico. */
@@ -37,6 +37,6 @@ final class ConceptosPlame
      */
     public const CODIGOS_EXCLUIDOS_REM = [
         '0100', '0200', '0300', '0400', '0500', '0600', '0603', '0604', '0607', '0610', '0612', '0616',
-        '0800', '0802', '0804', '0806', '0808',
+        '0800', '0802', '0806', '0808',
     ];
 }

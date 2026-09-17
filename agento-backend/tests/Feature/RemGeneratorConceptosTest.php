@@ -33,6 +33,7 @@ class RemGeneratorConceptosTest extends TestCase
         $boleta->setRelation('conceptos', collect([
             $this->linea('RENTA_5TA', '0605', '125.50'),
             $this->linea('SIS_APORTACION', '0811', '20.00'),
+            $this->linea('ESSALUD', '0804', '101.70'),
         ]));
         $contexto = new PlameExportContext(
             new Empresa(),
@@ -46,6 +47,7 @@ class RemGeneratorConceptosTest extends TestCase
 
         $this->assertContains(['01', '12345678', '0605', '125.50', '125.50'], $filas);
         $this->assertContains(['01', '12345678', '0811', '20.00', '20.00'], $filas);
+        $this->assertContains(['01', '12345678', '0804', '101.70', '101.70'], $filas);
     }
 
     private function linea(string $codigoInterno, string $codigoPlame, string $monto): BoletaConcepto

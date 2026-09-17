@@ -24,4 +24,10 @@ class ConceptosPlameTest extends TestCase
         $this->assertNotContains('SIS_APORTACION', ConceptosPlame::NO_EXPORTABLES_REM);
         $this->assertNotContains('0811', ConceptosPlame::CODIGOS_EXCLUIDOS_REM);
     }
+
+    public function test_essalud_se_exporta_con_codigo_0804(): void
+    {
+        $this->assertNotContains('ESSALUD', ConceptosPlame::NO_EXPORTABLES_REM);
+        $this->assertNotContains('0804', ConceptosPlame::CODIGOS_EXCLUIDOS_REM);
+    }
 }
