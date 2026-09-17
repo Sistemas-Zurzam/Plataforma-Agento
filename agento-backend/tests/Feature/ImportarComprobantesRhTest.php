@@ -44,13 +44,22 @@ class ImportarComprobantesRhTest extends TestCase
         $hoja->fromArray([
             ['3/8/2026', 'RH', 'E001-51', 'NO ANULADO', 'RUC', '10489126384', 'LOCADOR', 'A', 'NO', 'SOLES', 183.33, 0, 183.33],
             ['26/8/2026', 'RH', 'E001-53', 'NO ANULADO', 'RUC', '10489126384', 'LOCADOR', 'A', 'NO', 'SOLES', 366.67, 0, 366.67],
+            ['26/8/2026', 'RH', 'E001-99', 'NO ANULADO', 'RUC', '10999999999', 'SIN BOLETA', 'A', 'NO', 'SOLES', 100, 0, 100],
         ], null, 'A6');
         $ruta = tempnam(sys_get_temp_dir(), 'rh_').'.xlsx'; (new Xlsx($libro))->save($ruta); $libro->disconnectWorksheets();
         try {
             $resultado = app(ImportarComprobantesRhService::class)->importar($empresa, $ciclo, $ruta, '2026-08-31', User::firstOrFail()->id);
             $this->assertSame(2, $resultado['validos']);
+            $this->assertSame(2, $resultado['importados']);
+            $this->assertSame(1, $resultado['errores']);
             $this->assertCount(2, $boleta->comprobantesRh()->get());
             $this->assertEquals(550, $boleta->comprobantesRh()->sum('monto_total_servicio'));
+
+            $segundaRevision = app(ImportarComprobantesRhService::class)->revisar($empresa, $ciclo, $ruta, '2026-08-31');
+            $this->assertFalse($segundaRevision['listo']);
+            $this->assertSame(0, $segundaRevision['resumen']['validos']);
+            $this->assertSame(2, $segundaRevision['resumen']['omitidos']);
+            $this->assertSame(1, $segundaRevision['resumen']['errores']);
         } finally { @unlink($ruta); }
     }
 

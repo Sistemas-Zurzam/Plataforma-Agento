@@ -18,7 +18,7 @@ export default function ImportarComprobantesRhModal({ open, ciclo, importar, onC
     setLoading(true);
     try {
       const data = await importar(ciclo.id, archivo, fechaPago.format('YYYY-MM-DD'), confirmar);
-      if (confirmar) { message.success(`${data.validos} comprobante(s) RH importado(s).`); onCancel(); }
+      if (confirmar) { message.success(`${data.importados ?? data.validos} comprobante(s) RH importado(s).`); onCancel(); }
       else setRevision(data);
     } catch (e) { message.error(e.response?.data?.message ?? 'No se pudo procesar el Excel.'); }
     finally { setLoading(false); }
@@ -34,7 +34,7 @@ export default function ImportarComprobantesRhModal({ open, ciclo, importar, onC
       <Button type="primary" loading={loading} onClick={() => ejecutar(false)}>Revisar archivo</Button>
     </div>
     {revision && <>
-      <Alert className="mb-3" type={revision.listo ? 'success' : 'error'} showIcon message={`${revision.resumen.validos} válidos · ${revision.resumen.omitidos} anulados/revertidos · ${revision.resumen.errores} errores`} />
+      <Alert className="mb-3" type={revision.listo ? (revision.resumen.errores ? 'warning' : 'success') : 'error'} showIcon message={`${revision.resumen.validos} válidos · ${revision.resumen.omitidos} omitidos · ${revision.resumen.errores} errores`} />
       <Table size="small" pagination={{ pageSize: 8 }} rowKey={(r) => `${r.fila}-${r.serie}-${r.numero}`} dataSource={revision.filas}
         columns={[{ title: 'Fila', dataIndex: 'fila' }, { title: 'Documento Excel', dataIndex: 'documento' },
           { title: 'Match', render: (_, r) => r.tipo_match === 'dni_desde_ruc' ? `DNI ${r.documento_match}` : 'Exacto' },

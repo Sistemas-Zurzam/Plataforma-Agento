@@ -20,6 +20,15 @@ class ImportarComprobantesRhService
         $boletas = Boleta::where('empresa_id', $empresa->id)->where('ciclo_id', $ciclo->id)
             ->where('es_version_vigente', true)->where('regimen_laboral_snapshot', 'Locacion de Servicios')
             ->with('colaborador')->get()->groupBy(fn (Boleta $b) => $this->normalizarDocumento($b->colaborador?->numero_documento));
+        $colaboradorIds = $boletas->flatten()->pluck('colaborador_id')->unique()->values();
+        $comprobantesExistentes = BoletaComprobanteRh::query()
+            ->whereHas('boleta', fn ($query) => $query->whereIn('colaborador_id', $colaboradorIds))
+            ->with('boleta:id,colaborador_id')->get()
+            ->keyBy(fn (BoletaComprobanteRh $comprobante) => $this->claveComprobante(
+                $comprobante->boleta->colaborador_id,
+                $comprobante->serie,
+                $comprobante->numero,
+            ));
         $filas = []; $errores = []; $omitidas = []; $vistos = [];
 
         // formatData=false conserva las fechas nativas como seriales de Excel. Si se
@@ -62,9 +71,16 @@ class ImportarComprobantesRhService
             $monto = $this->numero($fila[10] ?? null);
             $retencion = $this->numero($fila[11] ?? 0);
             if ($monto <= 0) { $errores[] = ['fila' => $numeroFila, 'mensaje' => 'La renta bruta debe ser mayor a cero.']; continue; }
-            $clave = $boleta->id.'|'.$partes[1].'|'.$partes[2];
-            if (isset($vistos[$clave])) { $errores[] = ['fila' => $numeroFila, 'mensaje' => 'Comprobante duplicado dentro del Excel.']; continue; }
+            $clave = $this->claveComprobante($boleta->colaborador_id, $partes[1], $partes[2]);
+            if (isset($vistos[$clave])) {
+                $omitidas[] = ['fila' => $numeroFila, 'documento' => $documento, 'comprobante' => $comprobanteTexto, 'motivo' => 'DUPLICADO_EN_EXCEL'];
+                continue;
+            }
             $vistos[$clave] = true;
+            if ($comprobantesExistentes->has($clave)) {
+                $omitidas[] = ['fila' => $numeroFila, 'documento' => $documento, 'comprobante' => $comprobanteTexto, 'motivo' => 'YA_IMPORTADO'];
+                continue;
+            }
             $filas[] = ['fila' => $numeroFila, 'boleta_id' => $boleta->id, 'colaborador' => trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos),
                 'documento' => $documento, 'documento_match' => $documentoMatch, 'tipo_match' => $tipoMatch,
                 'tipo_comprobante' => 'R', 'serie' => $partes[1], 'numero' => $partes[2],
@@ -72,7 +88,7 @@ class ImportarComprobantesRhService
                 'indicador_retencion_4ta' => $retencion > 0, 'indicador_retencion_regimen_pensionario' => '3'];
         }
         $hoja->getParent()->disconnectWorksheets();
-        return ['filas' => $filas, 'errores' => $errores, 'omitidas' => $omitidas, 'listo' => $filas !== [] && $errores === [],
+        return ['filas' => $filas, 'errores' => $errores, 'omitidas' => $omitidas, 'listo' => $filas !== [],
             'resumen' => ['validos' => count($filas), 'errores' => count($errores), 'omitidos' => count($omitidas)]];
     }
 
@@ -81,13 +97,15 @@ class ImportarComprobantesRhService
         return DB::transaction(function () use ($empresa, $ciclo, $ruta, $fechaPago, $usuarioId) {
             $revision = $this->revisar($empresa, $ciclo, $ruta, $fechaPago);
             if (! $revision['listo']) throw ValidationException::withMessages(['archivo' => collect($revision['errores'])->map(fn ($e) => "Fila {$e['fila']}: {$e['mensaje']}")->all() ?: ['No hay comprobantes validos.']]);
+            $importados = 0;
             foreach ($revision['filas'] as $fila) {
-                BoletaComprobanteRh::updateOrCreate(
+                $comprobante = BoletaComprobanteRh::firstOrCreate(
                     ['boleta_id' => $fila['boleta_id'], 'serie' => $fila['serie'], 'numero' => $fila['numero']],
                     [...collect($fila)->except(['fila', 'colaborador', 'documento', 'documento_match', 'tipo_match'])->all(), 'importe_aporte_regimen_pensionario' => null, 'registrado_por' => $usuarioId],
                 );
+                if ($comprobante->wasRecentlyCreated) $importados++;
             }
-            return $revision['resumen'];
+            return [...$revision['resumen'], 'importados' => $importados];
         });
     }
 
@@ -121,5 +139,10 @@ class ImportarComprobantesRhService
     private function esRucPersonaNatural(string $documento): bool
     {
         return strlen($documento) === 11 && str_starts_with($documento, '10');
+    }
+
+    private function claveComprobante(int $colaboradorId, string $serie, string $numero): string
+    {
+        return $colaboradorId.'|'.mb_strtoupper(trim($serie)).'|'.ltrim(trim($numero), '0');
     }
 }
