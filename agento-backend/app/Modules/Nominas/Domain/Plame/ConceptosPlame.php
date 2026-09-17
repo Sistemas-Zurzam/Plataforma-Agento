@@ -20,7 +20,7 @@ final class ConceptosPlame
         'CTS_PROVISION', 'GRATIFICACION_LEGAL', 'BONIFICACION_EXTRAORDINARIA', 'VACACIONES_PROVISION',
         // Aportes del empleador: SUNAT los administra como encabezado/aporte
         // y no se declaran como una línea individual del archivo .rem.
-        'ESSALUD', 'SIS_APORTACION',
+        'ONP', 'ESSALUD', 'SIS_APORTACION',
     ];
 
     /** Requieren una ConceptoDefinicionPlame concreta, no basta el código genérico. */
