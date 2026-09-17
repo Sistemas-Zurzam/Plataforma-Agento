@@ -188,6 +188,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/planilla', [CicloRemunerativoController::class, 'exportarPlamePlanilla'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/rh', [CicloRemunerativoController::class, 'exportarPlameRh'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/plame/exportar/completo', [CicloRemunerativoController::class, 'exportarPlameCompleto'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/comprobantes-rh/importar', [CicloRemunerativoController::class, 'importarComprobantesRh'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/ciclos-remunerativos/{ciclo}/afpnet-validacion', [CicloRemunerativoController::class, 'validarAfpNet'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/afpnet/exportar/excel', [CicloRemunerativoController::class, 'exportarAfpNetExcel'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/afpnet/exportar/txt', [CicloRemunerativoController::class, 'exportarAfpNetTxt'])->middleware('permiso:nominas.ver');

@@ -221,6 +221,13 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const importarComprobantesRh = useCallback(async (cicloId, archivo, fechaPago, confirmar = false) => {
+    const form = new FormData();
+    form.append('archivo', archivo); form.append('fecha_pago', fechaPago); form.append('confirmar', confirmar ? '1' : '0');
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/comprobantes-rh/importar`, form);
+    return data.data;
+  }, []);
+
   const agregarConceptoComplementaria = useCallback(async (detalleId, conceptoId, conceptoDefinicionId, monto, motivo) => {
     const { data } = await api.post(`/planillas-complementarias-detalles/${detalleId}/conceptos`, {
       concepto_id: conceptoId, concepto_definicion_id: conceptoDefinicionId, monto, motivo,
@@ -692,7 +699,7 @@ export function useRemuneraciones() {
     agregarHorasExtraComplementaria,
     fetchColaboradoresPorAsistencia,
     exportarExcelBono,
-    importarExcelBono,
+    importarExcelBono, importarComprobantesRh,
     aplicarBonoPorAsistencia,
     crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,

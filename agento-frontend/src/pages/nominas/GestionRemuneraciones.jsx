@@ -20,6 +20,7 @@ import {
   SettingOutlined,
   TeamOutlined,
   UnlockOutlined,
+  UploadOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
 import { App, Avatar, Button, DatePicker, Empty, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
@@ -37,6 +38,7 @@ import AportesPrevisionalesTab from '../../modules/remuneraciones/components/Apo
 import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCashModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
+import ImportarComprobantesRhModal from '../../modules/remuneraciones/components/ImportarComprobantesRhModal';
 import PlanillasComplementariasModal from '../../modules/remuneraciones/components/PlanillasComplementariasModal';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
 import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
@@ -232,7 +234,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     exportarComplementariasExcel,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
-    exportarExcelBono, importarExcelBono, crearComisionesComplementaria,
+    exportarExcelBono, importarExcelBono, importarComprobantesRh, crearComisionesComplementaria,
     fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, crearComplementariaHorasExtra, agregarHorasExtraComplementaria, fetchColaboradoresPorAsistencia, aplicarBonoPorAsistencia, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, reabrirComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo,
   } = useRemuneraciones();
 
@@ -267,6 +269,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [comprobanteRhBoletaId, setComprobanteRhBoletaId] = useState(null);
   const [guardandoComprobanteRh, setGuardandoComprobanteRh] = useState(false);
   const [plameModalOpen, setPlameModalOpen] = useState(false);
+  const [importarRhOpen, setImportarRhOpen] = useState(false);
   const [afpNetModalOpen, setAfpNetModalOpen] = useState(false);
   const [telecreditoBcpModalOpen, setTelecreditoBcpModalOpen] = useState(false);
   const [bbvaNetCashModalOpen, setBbvaNetCashModalOpen] = useState(false);
@@ -1028,6 +1031,9 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             PDT PLAME
           </Button>
         </Tooltip>
+        <Tooltip title={cicloActivo ? 'Importa comprobantes RH por documento dentro de esta empresa y ciclo' : 'Selecciona un ciclo'}>
+          <Button icon={<UploadOutlined />} disabled={!cicloActivo} onClick={() => setImportarRhOpen(true)}>Importar RH</Button>
+        </Tooltip>
         <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Regulariza diferencias sin modificar la planilla pagada' : 'Disponible para ciclos pagados'}>
           <Button icon={<PlusOutlined />} disabled={cicloActivo?.estado !== 'pagado'} onClick={() => setComplementariasModalOpen(true)}>
             Planilla complementaria
@@ -1348,6 +1354,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         fetchValidacion={fetchPlameValidacion}
         exportarPlame={exportarPlame}
       />
+      <ImportarComprobantesRhModal open={importarRhOpen} onCancel={() => setImportarRhOpen(false)} ciclo={cicloActivo} importar={importarComprobantesRh} />
 
       <AfpNetModal
         open={afpNetModalOpen}

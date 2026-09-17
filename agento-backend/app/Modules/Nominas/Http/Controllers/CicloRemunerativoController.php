@@ -36,6 +36,7 @@ use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Services\BoletaService;
 use App\Modules\Nominas\Services\CicloRemunerativoService;
+use App\Modules\Nominas\Services\ImportarComprobantesRhService;
 use App\Modules\Nominas\Services\ResumenContableService;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
@@ -490,6 +491,22 @@ class CicloRemunerativoController extends Controller
         $boletaIds = $this->boletaIdsPlame($request, $ciclo);
 
         return $this->responderExportacion($request, $ciclo, 'completo', fn () => $this->plameExportService->exportarCompleto($ciclo, $boletaIds));
+    }
+
+    public function importarComprobantesRh(Request $request, CicloRemunerativo $ciclo, ImportarComprobantesRhService $service): JsonResponse
+    {
+        $datos = $request->validate([
+            'archivo' => ['required', 'file', 'mimes:xlsx,xls', 'max:10240'],
+            'fecha_pago' => ['required', 'date', 'after_or_equal:'.$ciclo->fecha_inicio->toDateString()],
+            'confirmar' => ['sometimes', 'boolean'],
+        ]);
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $ruta = $request->file('archivo')->getRealPath();
+        $resultado = $request->boolean('confirmar')
+            ? $service->importar($empresa, $ciclo, $ruta, $datos['fecha_pago'], $request->user('api')->id)
+            : $service->revisar($empresa, $ciclo, $ruta, $datos['fecha_pago']);
+
+        return response()->json(['data' => $resultado]);
     }
 
     /** @return array<int, int> */

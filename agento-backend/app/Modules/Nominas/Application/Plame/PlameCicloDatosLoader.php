@@ -132,7 +132,7 @@ final class PlameCicloDatosLoader
             ->where('es_version_vigente', true)
             ->when($boletaIds !== [], fn ($q) => $q->whereIn('id', $boletaIds))
             ->where('regimen_laboral_snapshot', '=', 'Locacion de Servicios')
-            ->with(['colaborador', 'conceptos.concepto', 'comprobanteRh'])
+            ->with(['colaborador', 'conceptos.concepto', 'comprobanteRh', 'comprobantesRh'])
             ->get();
     }
 

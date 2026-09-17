@@ -435,6 +435,7 @@ class PlameValidator
                 'numero' => $comprobante->numero,
                 'fecha_emision' => $comprobante->fecha_emision,
                 'fecha_pago' => $comprobante->fecha_pago,
+                'monto_total_servicio' => $comprobante->monto_total_servicio,
             ])->filter(fn ($v) => blank($v))->keys();
 
             if ($camposFaltantes->isNotEmpty()) {
