@@ -51,4 +51,44 @@ class ImportarComprobantesRhTest extends TestCase
             $this->assertEquals(550, $boleta->comprobantesRh()->sum('monto_total_servicio'));
         } finally { @unlink($ruta); }
     }
+
+    public function test_encuentra_por_dni_al_colaborador_cuando_el_excel_trae_su_ruc_personal(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $empresa = Empresa::firstOrFail();
+        $colaborador = $this->crearColaborador($empresa, [
+            'numero_documento' => '48912638', 'tipo_documento' => 'dni',
+            'tipo_trabajador' => 'locador', 'tipo_contrato' => 'locacion_servicios',
+            'regimen_laboral' => 'Locacion de Servicios', 'categoria_trabajador' => null,
+        ]);
+        $ciclo = CicloRemunerativo::create([
+            'empresa_id' => $empresa->id, 'nombre' => 'Agosto 2026', 'fecha_inicio' => '2026-08-01',
+            'fecha_fin' => '2026-08-31', 'fecha_corte_asistencia' => '2026-08-31', 'fecha_pago' => '2026-08-31', 'estado' => 'pagado',
+        ]);
+        $boleta = Boleta::create([
+            'empresa_id' => $empresa->id, 'ciclo_id' => $ciclo->id, 'colaborador_id' => $colaborador->id,
+            'regimen_laboral_snapshot' => 'Locacion de Servicios', 'sueldo_basico_snapshot' => 1500, 'dias_pagados' => 0,
+            'total_ingresos' => 1500, 'total_egresos' => 0, 'total_aportaciones' => 0, 'neto_a_pagar' => 1500,
+            'estado' => 'pagada', 'es_version_vigente' => true, 'snapshot_parametros_version' => 'test',
+            'snapshot_reglas_version' => 'test', 'calculado_at' => now(),
+        ]);
+        $libro = new Spreadsheet();
+        $libro->getActiveSheet()->fromArray([
+            ['3/8/2026', 'RH', 'E001-51', 'NO ANULADO', 'RUC', '10489126384', 'LOCADOR', 'A', 'NO', 'SOLES', 183.33, 0, 183.33],
+        ], null, 'A6');
+        $ruta = tempnam(sys_get_temp_dir(), 'rh_').'.xlsx';
+        (new Xlsx($libro))->save($ruta); $libro->disconnectWorksheets();
+
+        try {
+            $revision = app(ImportarComprobantesRhService::class)->revisar($empresa, $ciclo, $ruta, '2026-08-31');
+            $this->assertTrue($revision['listo']);
+            $this->assertSame('48912638', $revision['filas'][0]['documento_match']);
+            $this->assertSame('dni_desde_ruc', $revision['filas'][0]['tipo_match']);
+
+            app(ImportarComprobantesRhService::class)->importar($empresa, $ciclo, $ruta, '2026-08-31', User::firstOrFail()->id);
+            $this->assertDatabaseHas('boleta_comprobantes_rh', [
+                'boleta_id' => $boleta->id, 'serie' => 'E001', 'numero' => '51', 'monto_total_servicio' => 183.33,
+            ]);
+        } finally { @unlink($ruta); }
+    }
 }

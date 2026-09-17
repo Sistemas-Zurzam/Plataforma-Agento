@@ -20,7 +20,7 @@ class ImportarComprobantesRhService
         $hoja = IOFactory::load($ruta)->getActiveSheet();
         $boletas = Boleta::where('empresa_id', $empresa->id)->where('ciclo_id', $ciclo->id)
             ->where('es_version_vigente', true)->where('regimen_laboral_snapshot', 'Locacion de Servicios')
-            ->with('colaborador')->get()->keyBy(fn (Boleta $b) => preg_replace('/\D/', '', (string) $b->colaborador?->numero_documento));
+            ->with('colaborador')->get()->groupBy(fn (Boleta $b) => $this->normalizarDocumento($b->colaborador?->numero_documento));
         $filas = []; $errores = []; $omitidas = []; $vistos = [];
 
         foreach ($hoja->toArray(null, true, true, false) as $indice => $fila) {
@@ -33,8 +33,25 @@ class ImportarComprobantesRhService
                 $omitidas[] = ['fila' => $numeroFila, 'documento' => $documento, 'comprobante' => $comprobanteTexto, 'motivo' => $estado];
                 continue;
             }
-            $boleta = $boletas->get($documento);
-            if (! $boleta) { $errores[] = ['fila' => $numeroFila, 'mensaje' => "No existe boleta RH de esta empresa/ciclo para el documento {$documento}."]; continue; }
+            $documentoMatch = $documento;
+            $tipoMatch = 'documento_exacto';
+            $candidatas = $boletas->get($documentoMatch, collect());
+
+            if ($candidatas->isEmpty() && $this->esRucPersonaNatural($documento)) {
+                $documentoMatch = substr($documento, 2, 8);
+                $tipoMatch = 'dni_desde_ruc';
+                $candidatas = $boletas->get($documentoMatch, collect());
+            }
+
+            if ($candidatas->isEmpty()) {
+                $errores[] = ['fila' => $numeroFila, 'mensaje' => "No existe boleta RH de esta empresa/ciclo para el documento {$documento}."];
+                continue;
+            }
+            if ($candidatas->count() > 1) {
+                $errores[] = ['fila' => $numeroFila, 'mensaje' => "El documento {$documento} coincide con mas de una boleta RH de esta empresa/ciclo."];
+                continue;
+            }
+            $boleta = $candidatas->first();
             try { $fechaEmision = $this->fecha($fila[0] ?? null); }
             catch (\Throwable) { $errores[] = ['fila' => $numeroFila, 'mensaje' => 'Fecha de emision invalida.']; continue; }
             if ($fechaEmision < $ciclo->fecha_inicio->toDateString() || $fechaEmision > $ciclo->fecha_fin->toDateString()) {
@@ -47,7 +64,8 @@ class ImportarComprobantesRhService
             if (isset($vistos[$clave])) { $errores[] = ['fila' => $numeroFila, 'mensaje' => 'Comprobante duplicado dentro del Excel.']; continue; }
             $vistos[$clave] = true;
             $filas[] = ['fila' => $numeroFila, 'boleta_id' => $boleta->id, 'colaborador' => trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos),
-                'documento' => $documento, 'tipo_comprobante' => 'R', 'serie' => $partes[1], 'numero' => $partes[2],
+                'documento' => $documento, 'documento_match' => $documentoMatch, 'tipo_match' => $tipoMatch,
+                'tipo_comprobante' => 'R', 'serie' => $partes[1], 'numero' => $partes[2],
                 'fecha_emision' => $fechaEmision, 'fecha_pago' => $fechaPago, 'monto_total_servicio' => round($monto, 2),
                 'indicador_retencion_4ta' => $retencion > 0, 'indicador_retencion_regimen_pensionario' => '3'];
         }
@@ -64,7 +82,7 @@ class ImportarComprobantesRhService
             foreach ($revision['filas'] as $fila) {
                 BoletaComprobanteRh::updateOrCreate(
                     ['boleta_id' => $fila['boleta_id'], 'serie' => $fila['serie'], 'numero' => $fila['numero']],
-                    [...collect($fila)->except(['fila', 'colaborador', 'documento'])->all(), 'importe_aporte_regimen_pensionario' => null, 'registrado_por' => $usuarioId],
+                    [...collect($fila)->except(['fila', 'colaborador', 'documento', 'documento_match', 'tipo_match'])->all(), 'importe_aporte_regimen_pensionario' => null, 'registrado_por' => $usuarioId],
                 );
             }
             return $revision['resumen'];
@@ -81,5 +99,15 @@ class ImportarComprobantesRhService
     {
         if (is_numeric($valor)) return (float) $valor;
         return (float) str_replace([',', ' '], ['', ''], trim((string) $valor));
+    }
+
+    private function normalizarDocumento(mixed $documento): string
+    {
+        return preg_replace('/\D/', '', (string) $documento);
+    }
+
+    private function esRucPersonaNatural(string $documento): bool
+    {
+        return strlen($documento) === 11 && str_starts_with($documento, '10');
     }
 }

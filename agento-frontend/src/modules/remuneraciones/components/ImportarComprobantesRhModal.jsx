@@ -25,7 +25,7 @@ export default function ImportarComprobantesRhModal({ open, ciclo, importar, onC
   };
   return <Modal title="Importar comprobantes de recibos por honorarios" open={open} onCancel={onCancel} footer={null} width={900} destroyOnHidden>
     <Alert type="info" showIcon className="mb-4" message={`Empresa: ${ciclo?.empresa?.nombre_comercial ?? ''} · Ciclo: ${ciclo?.nombre ?? ''}`}
-      description="El match se realiza únicamente contra las boletas RH de esta empresa y ciclo, usando el número de documento del emisor." />
+      description="El match se realiza únicamente contra las boletas RH de esta empresa y ciclo. Se busca primero el documento exacto y, para un RUC personal que empieza en 10, también el DNI contenido en el RUC." />
     <div className="mb-4 flex flex-wrap items-end gap-3">
       <Upload accept=".xlsx,.xls" maxCount={1} fileList={archivo ? [archivo] : []} beforeUpload={(f) => { setArchivo(f); setRevision(null); return false; }} onRemove={() => { setArchivo(null); setRevision(null); }}>
         <Button icon={<UploadOutlined />}>Seleccionar Excel RH</Button>
@@ -36,7 +36,9 @@ export default function ImportarComprobantesRhModal({ open, ciclo, importar, onC
     {revision && <>
       <Alert className="mb-3" type={revision.listo ? 'success' : 'error'} showIcon message={`${revision.resumen.validos} válidos · ${revision.resumen.omitidos} anulados/revertidos · ${revision.resumen.errores} errores`} />
       <Table size="small" pagination={{ pageSize: 8 }} rowKey={(r) => `${r.fila}-${r.serie}-${r.numero}`} dataSource={revision.filas}
-        columns={[{ title: 'Fila', dataIndex: 'fila' }, { title: 'Documento', dataIndex: 'documento' }, { title: 'Colaborador', dataIndex: 'colaborador' }, { title: 'Comprobante', render: (_, r) => `${r.serie}-${r.numero}` }, { title: 'Emisión', dataIndex: 'fecha_emision' }, { title: 'Renta bruta', dataIndex: 'monto_total_servicio', render: (v) => `S/ ${Number(v).toFixed(2)}` }]} />
+        columns={[{ title: 'Fila', dataIndex: 'fila' }, { title: 'Documento Excel', dataIndex: 'documento' },
+          { title: 'Match', render: (_, r) => r.tipo_match === 'dni_desde_ruc' ? `DNI ${r.documento_match}` : 'Exacto' },
+          { title: 'Colaborador', dataIndex: 'colaborador' }, { title: 'Comprobante', render: (_, r) => `${r.serie}-${r.numero}` }, { title: 'Emisión', dataIndex: 'fecha_emision' }, { title: 'Renta bruta', dataIndex: 'monto_total_servicio', render: (v) => `S/ ${Number(v).toFixed(2)}` }]} />
       {revision.errores?.map((e) => <Alert key={`${e.fila}-${e.mensaje}`} className="mt-2" type="error" message={`Fila ${e.fila}: ${e.mensaje}`} />)}
       <div className="mt-4 flex justify-end"><Button type="primary" disabled={!revision.listo} loading={loading} onClick={() => ejecutar(true)}>Confirmar importación</Button></div>
     </>}
