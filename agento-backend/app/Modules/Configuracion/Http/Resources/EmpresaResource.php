@@ -26,6 +26,7 @@ class EmpresaResource extends JsonResource
             'direccion' => $this->direccion,
             'color' => $this->color,
             'logo_url' => $this->logo_path ? Storage::disk('public')->url($this->logo_path) : null,
+            'plantilla_carnet' => $this->plantilla_carnet,
             'regimen_laboral' => $this->regimen_laboral,
             'inscrita_remype' => $this->inscrita_remype,
             'fecha_inscripcion_remype' => $this->fecha_inscripcion_remype?->toDateString(),

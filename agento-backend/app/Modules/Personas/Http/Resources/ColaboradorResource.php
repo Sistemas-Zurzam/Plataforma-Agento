@@ -46,6 +46,7 @@ class ColaboradorResource extends JsonResource
                 'nombre_comercial' => $this->empresa->nombre_comercial,
                 'color' => $this->empresa->color,
                 'logo_url' => $this->empresa->logo_path ? Storage::disk('public')->url($this->empresa->logo_path) : null,
+                'plantilla_carnet' => $this->empresa->plantilla_carnet,
             ]),
             'sede' => $this->whenLoaded('sede', fn () => ['id' => $this->sede->id, 'nombre' => $this->sede->nombre]),
             'area' => $this->whenLoaded('area', fn () => ['id' => $this->area->id, 'nombre' => $this->area->nombre]),

@@ -1,0 +1,12 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="899" height="1028" viewBox="0 0 899 1028" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Decorative Shapes">
+<circle id="Blob Top Left" cx="182" cy="117" r="110" fill="#99BFAD" fill-opacity="0.35"/>
+<circle id="Blob Top Left Small" cx="55" cy="273" r="55" fill="#6F9A82" fill-opacity="0.3"/>
+<circle id="Blob Right Mid" cx="779" cy="305" r="120" fill="#E4EFE6"/>
+<path id="Top Left Arc 1" d="M191 0.599609C256.381 0.599609 309.4 54.4954 309.4 121C309.4 187.505 256.381 241.4 191 241.4C125.619 241.4 72.5996 187.505 72.5996 121C72.5996 54.4954 125.619 0.599609 191 0.599609Z" stroke="#A1C2B5" stroke-width="1.2"/>
+<circle id="Bottom Left Arc 2" cx="152.5" cy="925.5" r="102" stroke="#A1C2B5" stroke-opacity="0.5"/>
+<ellipse id="Blob Bottom Right" cx="738.5" cy="845" rx="79.5" ry="81" fill="#CBE0D3"/>
+<circle id="Right Arc 2" cx="779" cy="340" r="112.4" stroke="#A1C2B5" stroke-opacity="0.5" stroke-width="1.2"/>
+<circle id="Right Arc 1" cx="779" cy="810" r="112.4" stroke="#A1C2B5" stroke-opacity="0.5" stroke-width="1.2"/>
+</g>
+</svg>

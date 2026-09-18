@@ -21,6 +21,7 @@ class RoleSeeder extends Seeder
             ['clave' => 'gerencia', 'nombre' => 'Gerencia'],
             ['clave' => 'jefe_area', 'nombre' => 'Jefe de Área'],
             ['clave' => 'solicitante', 'nombre' => 'Solicitante'],
+            ['clave' => 'vigilancia', 'nombre' => 'Vigilancia'],
         ];
 
         foreach ($roles as $role) {

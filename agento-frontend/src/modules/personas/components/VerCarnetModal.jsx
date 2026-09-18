@@ -1,9 +1,16 @@
 import { PrinterOutlined } from '@ant-design/icons';
 import { App, Button, Modal, Segmented } from 'antd';
 import { useEffect, useState } from 'react';
+import api from '../../../services/api';
 import { useColaboradores } from '../hooks/useColaboradores';
-import CarnetColaborador from './CarnetColaborador';
 import CarnetColaboradorReverso from './CarnetColaboradorReverso';
+import {
+  ALTO_NATIVO_PLANTILLA_ANCHA,
+  ANCHO_VISTA_PREVIA_PLANTILLA_ANCHA,
+  ESCALA_VISTA_PREVIA,
+  PLANTILLAS_ANCHAS,
+  resolverPlantillaCarnet,
+} from './plantillasCarnet';
 
 /**
  * Compartido entre la ficha del colaborador y la fila "Acciones" del
@@ -18,13 +25,21 @@ export default function VerCarnetModal({ colaborador, onClose }) {
   const { message } = App.useApp();
   const [fotoUrl, setFotoUrl] = useState(null);
   const [cara, setCara] = useState('frente');
+  const [credencialActiva, setCredencialActiva] = useState(false);
+  const [colaboradorPrevio, setColaboradorPrevio] = useState(colaborador);
 
-  useEffect(() => {
-    setCara('frente');
-  }, [colaborador]);
-
-  useEffect(() => {
+  // Reinicia la foto y el estado de la credencial cuando cambia
+  // `colaborador` (se abre para otro, o se cierra) ajustándolo durante el
+  // render en vez de en un efecto — el patrón que React recomienda para
+  // esto.
+  if (colaborador !== colaboradorPrevio) {
+    setColaboradorPrevio(colaborador);
     setFotoUrl(null);
+    setCredencialActiva(false);
+    setCara('frente');
+  }
+
+  useEffect(() => {
     if (!colaborador) return undefined;
 
     let cancelado = false;
@@ -38,6 +53,18 @@ export default function VerCarnetModal({ colaborador, onClose }) {
 
   useEffect(() => () => { if (fotoUrl) URL.revokeObjectURL(fotoUrl); }, [fotoUrl]);
 
+  // Este modal NUNCA tiene el token plano (solo existe una vez, al
+  // generar/regenerar — ver GenerarCredencialCarnetModal), pero sí necesita
+  // saber si HAY una credencial activa para no decir "sin habilitar"
+  // cuando en realidad el carnet funciona y solo no se puede mostrar el
+  // código acá.
+  useEffect(() => {
+    if (!colaborador) return;
+
+    api.get(`/colaboradores/${colaborador.id}/credencial-carnet`)
+      .then(({ data }) => setCredencialActiva(Boolean(data.data?.tiene_credencial_activa)));
+  }, [colaborador]);
+
   /**
    * Clona TODOS los <style>/<link rel="stylesheet"> del documento actual
    * hacia una ventana nueva — así el carnet impreso mantiene exactamente
@@ -49,13 +76,15 @@ export default function VerCarnetModal({ colaborador, onClose }) {
    * que dejaba a los hijos con sus tamaños en px fijos sin escalar,
    * recortando contenido si la proporción no calzaba exacto), se escala
    * el diseño completo con `transform: scale()` — el mismo diseño que se
-   * ve en pantalla (260×414px, ya en proporción 54:86) se reduce
-   * uniformemente al tamaño físico exacto, así ningún elemento interno se
-   * desalinea ni se corta.
+   * ve en pantalla (proporción 54:86, sin importar si son los 260px de
+   * CarnetColaborador o los 540px de CarnetColaboradorZazu) se reduce
+   * uniformemente al tamaño físico exacto usando el ancho ya renderizado
+   * (`offsetWidth`), así ningún elemento interno se desalinea ni se corta.
    */
   const imprimirCarnet = () => {
     const contenedor = document.getElementById('carnet-colaborador-imprimible');
     if (!contenedor) return;
+    const anchoRenderizado = contenedor.offsetWidth;
 
     const ventana = window.open('', '_blank', 'width=380,height=640');
     if (!ventana) {
@@ -74,9 +103,19 @@ export default function VerCarnetModal({ colaborador, onClose }) {
           <style>
             @page { size: 54mm 86mm; margin: 0; }
             html, body { margin: 0; padding: 0; }
+            /* El código de barras y varias líneas/formas decorativas de las
+              plantillas (Zazu, Box Prime, Texajo...) se dibujan con
+              background-color puro, sin imagen ni borde — los navegadores no
+              imprimen background-color por defecto salvo que el usuario
+              marque "Gráficos de fondo" en el diálogo de impresión. Esto lo
+              fuerza sin depender de esa casilla. */
+            * {
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
             #carnet-imprimible-pagina { width: 54mm; height: 86mm; overflow: hidden; }
             #carnet-colaborador-imprimible {
-              transform: scale(calc(54mm / 260px));
+              transform: scale(calc(54mm / ${anchoRenderizado}px));
               transform-origin: top left;
               box-shadow: none !important;
               border-radius: 0 !important;
@@ -98,6 +137,13 @@ export default function VerCarnetModal({ colaborador, onClose }) {
     };
   };
 
+  // resolverPlantillaCarnet() solo elige entre componentes ya definidos a
+  // nivel de módulo (PLANTILLAS_POR_EMPRESA/PLANTILLA_GENERICA) — la
+  // referencia es estable entre renders aunque el lint no pueda verlo a
+  // través de la llamada a función.
+  const CarnetTemplate = resolverPlantillaCarnet(colaborador?.empresa?.plantilla_carnet);
+  const esPlantillaAncha = PLANTILLAS_ANCHAS.has(CarnetTemplate);
+
   return (
     <Modal
       title="Carnet de colaborador"
@@ -107,6 +153,7 @@ export default function VerCarnetModal({ colaborador, onClose }) {
         <Button key="cerrar" onClick={onClose}>Cerrar</Button>,
         <Button key="imprimir" type="primary" icon={<PrinterOutlined />} onClick={imprimirCarnet}>Imprimir</Button>,
       ]}
+      width={420}
       centered
     >
       {colaborador && (
@@ -117,7 +164,17 @@ export default function VerCarnetModal({ colaborador, onClose }) {
             onChange={setCara}
           />
           {cara === 'frente' ? (
-            <CarnetColaborador colaborador={colaborador} fotoUrl={fotoUrl} />
+            esPlantillaAncha ? (
+              <div style={{ width: ANCHO_VISTA_PREVIA_PLANTILLA_ANCHA, height: ALTO_NATIVO_PLANTILLA_ANCHA * ESCALA_VISTA_PREVIA }}>
+                <div style={{ transform: `scale(${ESCALA_VISTA_PREVIA})`, transformOrigin: 'top left' }}>
+                  {/* eslint-disable-next-line react-hooks/static-components -- ver comentario junto a resolverPlantillaCarnet() */}
+                  <CarnetTemplate colaborador={colaborador} fotoUrl={fotoUrl} credencialActiva={credencialActiva} />
+                </div>
+              </div>
+            ) : (
+              // eslint-disable-next-line react-hooks/static-components -- ver comentario junto a resolverPlantillaCarnet()
+              <CarnetTemplate colaborador={colaborador} fotoUrl={fotoUrl} credencialActiva={credencialActiva} />
+            )
           ) : (
             <CarnetColaboradorReverso colaborador={colaborador} />
           )}

@@ -18,6 +18,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 ])]
 class AsistenciaMarcacion extends Model
 {
+    /** Único origen con constante propia — los demás ('transaction',
+     * 'manual_rrhh', etc.) son literales sueltos ya establecidos; esta se
+     * agrega porque el nuevo origen se referencia desde varios archivos
+     * (servicio, tests, mapper de presentación) y evitar un typo ahí sí
+     * importa. */
+    public const ORIGEN_CARNET_CODIGO_BARRAS = 'carnet_codigo_barras';
+
+    /** Registro manual desde el kiosco cuando el colaborador olvidó el
+     * carnet — el vigilante lo busca por nombre y confirma su identidad
+     * viendo la foto antes de registrar (nunca es autoservicio: siempre
+     * hay una persona verificando). Distinto de 'manual_rrhh' (que es una
+     * corrección hecha por RRHH desde Gestión de Asistencias, no desde el
+     * kiosco). */
+    public const ORIGEN_MANUAL_VIGILANCIA = 'manual_vigilancia';
+
     protected $table = 'asistencia_marcaciones';
 
     protected function casts(): array
