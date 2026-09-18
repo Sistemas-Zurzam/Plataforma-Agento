@@ -60,7 +60,7 @@ class PlameValidator
      *   complementarias_incluidas: array<int, array>,
      * }
      */
-    public function validar(CicloRemunerativo $ciclo): array
+    public function validar(CicloRemunerativo $ciclo, array $boletaIds = []): array
     {
         $empresa = $ciclo->empresa;
         $hallazgos = [];
@@ -68,8 +68,8 @@ class PlameValidator
         $hallazgos = [...$hallazgos, ...$this->validarEmpresaYCiclo($empresa, $ciclo)];
         $hallazgos = [...$hallazgos, ...$this->validarComplementariasPendientes($ciclo)];
 
-        $boletasPlanilla = PlameCicloDatosLoader::boletasPlanilla($ciclo);
-        $boletasRh = PlameCicloDatosLoader::boletasRh($ciclo);
+        $boletasPlanilla = PlameCicloDatosLoader::boletasPlanilla($ciclo, $boletaIds);
+        $boletasRh = PlameCicloDatosLoader::boletasRh($ciclo, $boletaIds);
 
         // Mapeos genéricos cargados de una sola vez (Sección 50: nunca N
         // queries por colaborador) — indexados por tipo → clave_interna.
@@ -435,6 +435,7 @@ class PlameValidator
                 'numero' => $comprobante->numero,
                 'fecha_emision' => $comprobante->fecha_emision,
                 'fecha_pago' => $comprobante->fecha_pago,
+                'monto_total_servicio' => $comprobante->monto_total_servicio,
             ])->filter(fn ($v) => blank($v))->keys();
 
             if ($camposFaltantes->isNotEmpty()) {
@@ -500,7 +501,7 @@ class PlameValidator
             ],
             'archivos' => $archivos,
             'hallazgos' => $hallazgos,
-            'complementarias_incluidas' => $this->complementariasIncluidas($ciclo),
+            'complementarias_incluidas' => $this->complementariasIncluidas($ciclo, $boletasPlanilla->pluck('colaborador_id')),
         ];
     }
 
@@ -513,12 +514,17 @@ class PlameValidator
      *
      * @return array<int, array>
      */
-    private function complementariasIncluidas(CicloRemunerativo $ciclo): array
+    private function complementariasIncluidas(CicloRemunerativo $ciclo, Collection $colaboradorIds): array
     {
+        if ($colaboradorIds->isEmpty()) {
+            return [];
+        }
+
         return PlanillaComplementariaDetalle::whereHas(
             'complementaria',
             fn ($q) => $q->where('ciclo_id', $ciclo->id)->whereIn('estado', ['aprobada', 'pagada']),
         )
+            ->whereIn('colaborador_id', $colaboradorIds)
             ->with('colaborador', 'complementaria')
             ->get()
             ->map(fn (PlanillaComplementariaDetalle $d) => [

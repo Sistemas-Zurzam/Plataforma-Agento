@@ -43,27 +43,27 @@ class PlameExportService
         private readonly CuartaGenerator $cuartaGenerator,
     ) {}
 
-    public function exportarPlanilla(CicloRemunerativo $ciclo): PlameExportResultado
+    public function exportarPlanilla(CicloRemunerativo $ciclo, array $boletaIds = []): PlameExportResultado
     {
-        return $this->exportar($ciclo, self::ARCHIVOS_PLANILLA, 'Planilla (.jor/.snl/.rem)');
+        return $this->exportar($ciclo, self::ARCHIVOS_PLANILLA, 'Planilla (.jor/.snl/.rem)', $boletaIds);
     }
 
-    public function exportarRh(CicloRemunerativo $ciclo): PlameExportResultado
+    public function exportarRh(CicloRemunerativo $ciclo, array $boletaIds = []): PlameExportResultado
     {
-        return $this->exportar($ciclo, self::ARCHIVOS_RH, 'RH (.ps4/.4ta)');
+        return $this->exportar($ciclo, self::ARCHIVOS_RH, 'RH (.ps4/.4ta)', $boletaIds);
     }
 
-    public function exportarCompleto(CicloRemunerativo $ciclo): PlameExportResultado
+    public function exportarCompleto(CicloRemunerativo $ciclo, array $boletaIds = []): PlameExportResultado
     {
-        return $this->exportar($ciclo, [...self::ARCHIVOS_PLANILLA, ...self::ARCHIVOS_RH], 'completa (Planilla + RH)');
+        return $this->exportar($ciclo, [...self::ARCHIVOS_PLANILLA, ...self::ARCHIVOS_RH], 'completa (Planilla + RH)', $boletaIds);
     }
 
     /**
      * @param  array<int, string>  $archivosSolicitados
      */
-    private function exportar(CicloRemunerativo $ciclo, array $archivosSolicitados, string $etiqueta): PlameExportResultado
+    private function exportar(CicloRemunerativo $ciclo, array $archivosSolicitados, string $etiqueta, array $boletaIds): PlameExportResultado
     {
-        $validacion = $this->validator->validar($ciclo);
+        $validacion = $this->validator->validar($ciclo, $boletaIds);
 
         // Regla del ciclo definitivo (Sección 5/6/63) — la validación
         // preliminar puede correr sobre cualquier estado, pero la descarga
@@ -108,7 +108,7 @@ class PlameExportService
             );
         }
 
-        $contexto = $this->construirContexto($ciclo);
+        $contexto = $this->construirContexto($ciclo, $boletaIds);
 
         try {
             $archivos = $archivosAplicables
@@ -143,13 +143,13 @@ class PlameExportService
         ];
     }
 
-    private function construirContexto(CicloRemunerativo $ciclo): PlameExportContext
+    private function construirContexto(CicloRemunerativo $ciclo, array $boletaIds): PlameExportContext
     {
         return new PlameExportContext(
             $ciclo->empresa,
             $ciclo,
-            PlameCicloDatosLoader::boletasPlanilla($ciclo),
-            PlameCicloDatosLoader::boletasRh($ciclo),
+            PlameCicloDatosLoader::boletasPlanilla($ciclo, $boletaIds),
+            PlameCicloDatosLoader::boletasRh($ciclo, $boletaIds),
             SunatMapeoLookup::cargar(),
         );
     }

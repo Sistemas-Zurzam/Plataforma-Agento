@@ -100,9 +100,19 @@ class AsistenciaOperacionService
             ')
             ->first();
 
-        $minutosExtra25 = (int) ($totales->minutos_extra_25 ?? 0);
-        $minutosExtra35 = (int) ($totales->minutos_extra_35 ?? 0);
-        $minutosExtra100 = (int) ($totales->minutos_extra_100 ?? 0);
+        // Para PLAME se declaran las horas extra aprobadas, no la detección
+        // automática del resultado diario. Es la misma fuente de verdad que
+        // usa Nómina para pagar las horas extra.
+        $extrasAprobadas = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
+            ->whereBetween('fecha', [$fechaInicio, $fechaFin])
+            ->where('estado', 'aprobado')
+            ->selectRaw('tasa, COALESCE(SUM(minutos_aprobados), 0) as minutos')
+            ->groupBy('tasa')
+            ->pluck('minutos', 'tasa');
+
+        $minutosExtra25 = (int) ($extrasAprobadas['25'] ?? 0);
+        $minutosExtra35 = (int) ($extrasAprobadas['35'] ?? 0);
+        $minutosExtra100 = (int) ($extrasAprobadas['100'] ?? 0);
 
         return [
             'minutos_ordinarios' => (int) ($totales->minutos_ordinarios ?? 0),

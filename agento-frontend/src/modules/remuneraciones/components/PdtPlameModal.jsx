@@ -1,5 +1,5 @@
 import { CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, MinusCircleOutlined } from '@ant-design/icons';
-import { App, Alert, Button, Descriptions, Empty, Modal, Spin, Tag } from 'antd';
+import { App, Alert, Button, Descriptions, Empty, Modal, Segmented, Spin, Tag } from 'antd';
 import { useEffect, useState } from 'react';
 
 const ESTADO_ARCHIVO = {
@@ -55,26 +55,28 @@ function Hallazgo({ h }) {
  * este modal nunca intenta forzar una descarga que el backend igual
  * rechazaría; los botones ya llegan deshabilitados a ese estado.
  */
-export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, exportarPlame }) {
+export default function PdtPlameModal({ open, onCancel, ciclo, boletaIds = [], fetchValidacion, exportarPlame }) {
   const { message, modal } = App.useApp();
   const [validacion, setValidacion] = useState(null);
   const [cargando, setCargando] = useState(true);
   const [exportando, setExportando] = useState(null);
+  const [tipoExportacion, setTipoExportacion] = useState('planilla');
 
   useEffect(() => {
     if (!open || !ciclo) return;
     let activo = true;
+    setTipoExportacion('planilla');
     setCargando(true);
-    fetchValidacion(ciclo.id).then((data) => {
+    fetchValidacion(ciclo.id, boletaIds).then((data) => {
       if (activo) setValidacion(data);
     }).finally(() => activo && setCargando(false));
     return () => { activo = false; };
-  }, [open, ciclo, fetchValidacion]);
+  }, [open, ciclo, boletaIds, fetchValidacion]);
 
   const ejecutarExportar = async (tipo) => {
     setExportando(tipo);
     try {
-      const resultado = await exportarPlame(ciclo.id, tipo);
+      const resultado = await exportarPlame(ciclo.id, tipo, boletaIds);
       if (resultado.descargado) {
         message.success('Archivo(s) PLAME descargado(s) correctamente.');
       } else {
@@ -91,7 +93,7 @@ export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, 
   const complementarias = validacion?.complementarias_incluidas ?? [];
 
   const handleExportar = (tipo) => {
-    if (complementarias.length === 0) return ejecutarExportar(tipo);
+    if (tipo === 'rh' || complementarias.length === 0) return ejecutarExportar(tipo);
 
     modal.confirm({
       title: 'Este PLAME incluye planillas complementarias',
@@ -133,6 +135,25 @@ export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, 
   const rhSinRegistros = grupoSinRegistros(['ps4', 'cuarta']);
 
   const hallazgos = validacion?.hallazgos ?? [];
+  const archivosPorTipo = {
+    planilla: ['jor', 'snl', 'rem'],
+    rh: ['ps4', 'cuarta'],
+    completo: ['jor', 'snl', 'rem', 'ps4', 'cuarta'],
+  };
+  const hallazgosFiltrados = hallazgos.filter((hallazgo) => (
+    !hallazgo.files?.length
+    || hallazgo.files.some((archivo) => archivosPorTipo[tipoExportacion].includes(archivo))
+  ));
+  const exportacionBloqueada = {
+    planilla: planillaBloqueada || planillaSinRegistros,
+    rh: rhBloqueado || rhSinRegistros,
+    completo: planillaBloqueada || rhBloqueado || (planillaSinRegistros && rhSinRegistros),
+  }[tipoExportacion];
+  const etiquetaExportacion = {
+    planilla: 'Generar PDT Planilla',
+    rh: 'Generar PDT Recibos por honorarios',
+    completo: 'Generar PDT completo',
+  }[tipoExportacion];
 
   return (
     <Modal
@@ -158,6 +179,15 @@ export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, 
             <Descriptions.Item label="RH">{validacion.resumen?.rh}</Descriptions.Item>
           </Descriptions>
 
+          {boletaIds.length > 0 && (
+            <Alert
+              type="info"
+              showIcon
+              message={`Exportación limitada a ${boletaIds.length} colaborador(es) seleccionado(s)`}
+              description="La validación y los archivos PDT PLAME incluirán únicamente las boletas seleccionadas en la tabla."
+            />
+          )}
+
           {!cicloPagado && (
             <Alert
               type="warning"
@@ -167,7 +197,7 @@ export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, 
             />
           )}
 
-          {complementarias.length > 0 && (
+          {complementarias.length > 0 && tipoExportacion !== 'rh' && (
             <Alert
               type="info"
               showIcon
@@ -176,61 +206,63 @@ export default function PdtPlameModal({ open, onCancel, ciclo, fetchValidacion, 
             />
           )}
 
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Planilla</p>
-            <div className="space-y-1.5">
-              <FilaArchivo clave="jor" info={archivos.jor} />
-              <FilaArchivo clave="snl" info={archivos.snl} />
-              <FilaArchivo clave="rem" info={archivos.rem} />
-            </div>
+          <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Tipo de exportación</p>
+            <Segmented
+              block
+              value={tipoExportacion}
+              onChange={setTipoExportacion}
+              options={[
+                { label: 'Planilla', value: 'planilla', disabled: planillaSinRegistros },
+                { label: 'Recibos por honorarios', value: 'rh', disabled: rhSinRegistros },
+                { label: 'Todo', value: 'completo' },
+              ]}
+            />
           </div>
 
-          <div>
-            <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Recibos por honorarios</p>
-            {rhSinRegistros ? (
-              <p className="text-xs text-gray-400">No existen prestadores RH para este período.</p>
-            ) : (
-              <div className="space-y-1.5">
-                <FilaArchivo clave="ps4" info={archivos.ps4} />
-                <FilaArchivo clave="cuarta" info={archivos.cuarta} />
-              </div>
-            )}
-          </div>
-
-          {hallazgos.length > 0 && (
+          {(tipoExportacion === 'planilla' || tipoExportacion === 'completo') && (
             <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Hallazgos</p>
-              <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
-                {hallazgos.map((h, i) => <Hallazgo key={i} h={h} />)}
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Planilla</p>
+              <div className="space-y-1.5">
+                <FilaArchivo clave="jor" info={archivos.jor} />
+                <FilaArchivo clave="snl" info={archivos.snl} />
+                <FilaArchivo clave="rem" info={archivos.rem} />
               </div>
             </div>
           )}
 
-          <div className="flex flex-wrap justify-end gap-2 border-t border-gray-100 pt-3">
-            <Button
-              icon={<DownloadOutlined />}
-              loading={exportando === 'planilla'}
-              disabled={!cicloPagado || planillaBloqueada || planillaSinRegistros || exportando}
-              onClick={() => handleExportar('planilla')}
-            >
-              Exportar Planilla
-            </Button>
-            <Button
-              icon={<DownloadOutlined />}
-              loading={exportando === 'rh'}
-              disabled={!cicloPagado || rhBloqueado || rhSinRegistros || exportando}
-              onClick={() => handleExportar('rh')}
-            >
-              Exportar RH
-            </Button>
+          {(tipoExportacion === 'rh' || tipoExportacion === 'completo') && (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Recibos por honorarios</p>
+              {rhSinRegistros ? (
+                <p className="text-xs text-gray-400">No existen prestadores RH para este período.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  <FilaArchivo clave="ps4" info={archivos.ps4} />
+                  <FilaArchivo clave="cuarta" info={archivos.cuarta} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {hallazgosFiltrados.length > 0 && (
+            <div>
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">Hallazgos</p>
+              <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1">
+                {hallazgosFiltrados.map((h, i) => <Hallazgo key={i} h={h} />)}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end border-t border-gray-100 pt-3">
             <Button
               type="primary"
               icon={<DownloadOutlined />}
-              loading={exportando === 'completo'}
-              disabled={!cicloPagado || (planillaBloqueada && rhBloqueado) || (planillaSinRegistros && rhSinRegistros) || exportando}
-              onClick={() => handleExportar('completo')}
+              loading={exportando === tipoExportacion}
+              disabled={!cicloPagado || exportacionBloqueada || exportando}
+              onClick={() => handleExportar(tipoExportacion)}
             >
-              Exportar Todo
+              {etiquetaExportacion}
             </Button>
           </div>
         </div>

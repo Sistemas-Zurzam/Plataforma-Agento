@@ -69,8 +69,18 @@ final class JorGenerator
 
         $horas = $this->asistencia->horasConsolidadasPorColaborador($colaborador, $fechaInicio, $fechaFin);
 
-        [$horasOrdinarias, $minutosOrdinarios] = $this->normalizar((int) $horas['minutos_ordinarios'], 'ordinarias', $colaborador->id);
-        [$horasSobretiempo, $minutosSobretiempo] = $this->normalizar((int) $horas['minutos_extra_total'], 'sobretiempo', $colaborador->id);
+        $minutosOrdinarios = (int) $horas['minutos_ordinarios'];
+        if ($minutosOrdinarios === 0 && (float) $boleta->dias_pagados > 0) {
+            // Cuando la planilla fue pagada sin marcaciones procesadas, la
+            // boleta conserva los días remunerados. Se usa la jornada legal
+            // ordinaria de 8 horas para no exportar una jornada íntegra en 0.
+            $minutosOrdinarios = (int) round((float) $boleta->dias_pagados * 8 * 60);
+        }
+        $minutosExtra = (int) $horas['minutos_extra_total']
+            + (int) $boleta->getAttribute('minutos_extra_complementaria');
+
+        [$horasOrdinarias, $minutosOrdinarios] = $this->normalizar($minutosOrdinarios, 'ordinarias', $colaborador->id);
+        [$horasSobretiempo, $minutosSobretiempo] = $this->normalizar($minutosExtra, 'sobretiempo', $colaborador->id);
 
         return [
             $tipoDocumento,

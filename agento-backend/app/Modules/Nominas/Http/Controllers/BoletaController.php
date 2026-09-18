@@ -276,6 +276,7 @@ class BoletaController extends Controller
             ['boleta_id' => $boleta->id],
             [
                 ...$datos,
+                'monto_total_servicio' => app(BoletaService::class)->montoTotalServicioRh($boleta),
                 'indicador_retencion_4ta' => $indicadorRetencion4ta,
                 'registrado_por' => $request->user('api')->id,
             ],

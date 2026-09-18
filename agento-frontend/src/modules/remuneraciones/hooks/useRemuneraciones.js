@@ -221,6 +221,13 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const importarComprobantesRh = useCallback(async (cicloId, archivo, fechaPago, confirmar = false) => {
+    const form = new FormData();
+    form.append('archivo', archivo); form.append('fecha_pago', fechaPago); form.append('confirmar', confirmar ? '1' : '0');
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/comprobantes-rh/importar`, form);
+    return data.data;
+  }, []);
+
   const agregarConceptoComplementaria = useCallback(async (detalleId, conceptoId, conceptoDefinicionId, monto, motivo) => {
     const { data } = await api.post(`/planillas-complementarias-detalles/${detalleId}/conceptos`, {
       concepto_id: conceptoId, concepto_definicion_id: conceptoDefinicionId, monto, motivo,
@@ -391,8 +398,9 @@ export function useRemuneraciones() {
     await api.delete(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/conceptos/${conceptoPeriodoId}`);
   }, []);
 
-  const fetchPlameValidacion = useCallback(async (cicloId) => {
-    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/plame-validacion`);
+  const fetchPlameValidacion = useCallback(async (cicloId, boletaIds = []) => {
+    const params = boletaIds.length > 0 ? { boleta_ids: boletaIds } : {};
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/plame-validacion`, { params });
     return data;
   }, []);
 
@@ -405,10 +413,14 @@ export function useRemuneraciones() {
    * caso JSON llega igual como Blob y hay que decodificarlo a mano
    * mirando el Content-Type real de la respuesta.
    */
-  const exportarPlame = useCallback(async (cicloId, tipo) => {
+  const exportarPlame = useCallback(async (cicloId, tipo, boletaIds = []) => {
     let response;
     try {
-      response = await api.post(`/ciclos-remunerativos/${cicloId}/plame/exportar/${tipo}`, {}, { responseType: 'blob' });
+      response = await api.post(
+        `/ciclos-remunerativos/${cicloId}/plame/exportar/${tipo}`,
+        boletaIds.length > 0 ? { boleta_ids: boletaIds } : {},
+        { responseType: 'blob' },
+      );
     } catch (err) {
       if (err.response) {
         response = err.response;
@@ -687,7 +699,7 @@ export function useRemuneraciones() {
     agregarHorasExtraComplementaria,
     fetchColaboradoresPorAsistencia,
     exportarExcelBono,
-    importarExcelBono,
+    importarExcelBono, importarComprobantesRh,
     aplicarBonoPorAsistencia,
     crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,

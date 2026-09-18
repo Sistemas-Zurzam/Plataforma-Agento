@@ -36,6 +36,7 @@ use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Services\BoletaService;
 use App\Modules\Nominas\Services\CicloRemunerativoService;
+use App\Modules\Nominas\Services\ImportarComprobantesRhService;
 use App\Modules\Nominas\Services\ResumenContableService;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
@@ -468,22 +469,61 @@ class CicloRemunerativoController extends Controller
     {
         $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
-        return response()->json($this->plameValidator->validar($ciclo));
+        return response()->json($this->plameValidator->validar($ciclo, $this->boletaIdsPlame($request, $ciclo)));
     }
 
     public function exportarPlamePlanilla(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
     {
-        return $this->responderExportacion($request, $ciclo, 'planilla', fn () => $this->plameExportService->exportarPlanilla($ciclo));
+        $boletaIds = $this->boletaIdsPlame($request, $ciclo);
+
+        return $this->responderExportacion($request, $ciclo, 'planilla', fn () => $this->plameExportService->exportarPlanilla($ciclo, $boletaIds));
     }
 
     public function exportarPlameRh(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
     {
-        return $this->responderExportacion($request, $ciclo, 'rh', fn () => $this->plameExportService->exportarRh($ciclo));
+        $boletaIds = $this->boletaIdsPlame($request, $ciclo);
+
+        return $this->responderExportacion($request, $ciclo, 'rh', fn () => $this->plameExportService->exportarRh($ciclo, $boletaIds));
     }
 
     public function exportarPlameCompleto(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
     {
-        return $this->responderExportacion($request, $ciclo, 'completo', fn () => $this->plameExportService->exportarCompleto($ciclo));
+        $boletaIds = $this->boletaIdsPlame($request, $ciclo);
+
+        return $this->responderExportacion($request, $ciclo, 'completo', fn () => $this->plameExportService->exportarCompleto($ciclo, $boletaIds));
+    }
+
+    public function importarComprobantesRh(Request $request, CicloRemunerativo $ciclo, ImportarComprobantesRhService $service): JsonResponse
+    {
+        $datos = $request->validate([
+            'archivo' => ['required', 'file', 'mimes:xlsx,xls', 'max:10240'],
+            'fecha_pago' => ['required', 'date', 'after_or_equal:'.$ciclo->fecha_inicio->toDateString()],
+            'confirmar' => ['sometimes', 'boolean'],
+        ]);
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $ruta = $request->file('archivo')->getRealPath();
+        $resultado = $request->boolean('confirmar')
+            ? $service->importar($empresa, $ciclo, $ruta, $datos['fecha_pago'], $request->user('api')->id)
+            : $service->revisar($empresa, $ciclo, $ruta, $datos['fecha_pago']);
+
+        return response()->json(['data' => $resultado]);
+    }
+
+    /** @return array<int, int> */
+    private function boletaIdsPlame(Request $request, CicloRemunerativo $ciclo): array
+    {
+        $datos = $request->validate([
+            'boleta_ids' => ['sometimes', 'array', 'min:1'],
+            'boleta_ids.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('boletas', 'id')->where(fn ($query) => $query
+                    ->where('ciclo_id', $ciclo->id)
+                    ->where('es_version_vigente', true)),
+            ],
+        ]);
+
+        return array_map('intval', $datos['boleta_ids'] ?? []);
     }
 
     /**

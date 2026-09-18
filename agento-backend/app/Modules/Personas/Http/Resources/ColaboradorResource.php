@@ -67,6 +67,10 @@ class ColaboradorResource extends JsonResource
             'regimen_laboral' => $this->regimen_laboral,
             'tipo_trabajador' => $this->tipo_trabajador,
             'categoria_trabajador' => $this->categoria_trabajador,
+            'condicion_laboral' => $this->whenLoaded('condicionLaboralVigente', fn () => $this->condicionLaboralVigente ? [
+                'id' => $this->condicionLaboralVigente->id,
+                'vigencia_desde' => $this->condicionLaboralVigente->vigencia_desde?->toDateString(),
+            ] : null),
             'es_trabajador_confianza' => $this->es_trabajador_confianza,
             'contabilizar_tardanzas' => $this->contabilizar_tardanzas,
             'contabilizar_faltas' => $this->contabilizar_faltas,
