@@ -31,6 +31,11 @@ class UserResource extends JsonResource
                 'id' => $this->area->id,
                 'nombre' => $this->area->nombre,
             ] : null,
+            // Fuente de verdad del feature flag del Portal Cliente: el
+            // frontend nunca debe decidir esto por su cuenta (una variable
+            // local o solo user.role) porque la habilitación real vive en
+            // config('portal_cliente.enabled') del backend.
+            'portal_cliente_habilitado' => (bool) config('portal_cliente.enabled'),
         ];
     }
 

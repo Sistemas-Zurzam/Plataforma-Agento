@@ -12,6 +12,8 @@ class Role extends Model
 {
     public const ADMINISTRADOR = 'administrador';
 
+    public const CLIENTE_EMPRESA = 'cliente_empresa';
+
     public static function administrador(): self
     {
         return static::where('clave', self::ADMINISTRADOR)->firstOrFail();

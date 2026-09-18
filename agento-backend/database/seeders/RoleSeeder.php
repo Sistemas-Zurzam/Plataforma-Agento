@@ -21,6 +21,9 @@ class RoleSeeder extends Seeder
             ['clave' => 'gerencia', 'nombre' => 'Gerencia'],
             ['clave' => 'jefe_area', 'nombre' => 'Jefe de Área'],
             ['clave' => 'solicitante', 'nombre' => 'Solicitante'],
+            // Encargado de una empresa cliente en el Portal Cliente — no
+            // hereda permisos administrativos (ver PermissionSeeder).
+            ['clave' => 'cliente_empresa', 'nombre' => 'Cliente de Empresa'],
         ];
 
         foreach ($roles as $role) {

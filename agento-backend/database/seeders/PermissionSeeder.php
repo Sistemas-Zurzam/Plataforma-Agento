@@ -59,6 +59,20 @@ class PermissionSeeder extends Seeder
             // TXT puede terminar en movimiento real de dinero una vez
             // cargado al banco (ver migración agregar_permiso_telecredito_exportar).
             ['clave' => 'nominas.telecredito_exportar', 'nombre' => 'Exportar archivo Telecrédito BCP', 'grupo' => 'Remuneraciones'],
+
+            // Portal Cliente — permisos propios del encargado de una empresa
+            // cliente. Deliberadamente separados de asistencia.*/nominas.*
+            // (que son administrativos): un rol cliente_empresa nunca debe
+            // ganar acceso a rutas admin por compartir un permiso existente.
+            ['clave' => 'portal.acceder', 'nombre' => 'Acceder al Portal Cliente', 'grupo' => 'Portal Cliente'],
+            ['clave' => 'portal.asistencia.ver', 'nombre' => 'Ver asistencia en el Portal Cliente', 'grupo' => 'Portal Cliente'],
+            ['clave' => 'portal.asistencia.editar', 'nombre' => 'Editar asistencia en el Portal Cliente', 'grupo' => 'Portal Cliente'],
+            ['clave' => 'portal.incidencias.resolver', 'nombre' => 'Resolver incidencias en el Portal Cliente', 'grupo' => 'Portal Cliente'],
+            ['clave' => 'portal.horas_extra.ver', 'nombre' => 'Ver horas extra en el Portal Cliente', 'grupo' => 'Portal Cliente'],
+            ['clave' => 'portal.horas_extra.resolver', 'nombre' => 'Aprobar o rechazar horas extra en el Portal Cliente', 'grupo' => 'Portal Cliente'],
+            ['clave' => 'portal.permisos.ver', 'nombre' => 'Ver permisos laborales en el Portal Cliente', 'grupo' => 'Portal Cliente'],
+            ['clave' => 'portal.remuneraciones.ver', 'nombre' => 'Ver remuneraciones en el Portal Cliente', 'grupo' => 'Portal Cliente'],
+            ['clave' => 'portal.bonificaciones.gestionar', 'nombre' => 'Gestionar bonificaciones en el Portal Cliente', 'grupo' => 'Portal Cliente'],
         ];
 
         foreach ($permisos as $permiso) {
@@ -70,5 +84,16 @@ class PermissionSeeder extends Seeder
         // para que la UI de Permisos lo muestre consistentemente tildado.
         $administrador = Role::administrador();
         $administrador->permissions()->sync(Permission::pluck('id'));
+
+        // cliente_empresa recibe únicamente sus permisos portal.* — nunca
+        // nominas.*/asistencia.* ni ningún permiso administrativo. Si el rol
+        // aún no existe (ej. PermissionSeeder ejecutado solo, sin
+        // RoleSeeder antes), se omite sin romper el seeding.
+        $clienteEmpresa = Role::where('clave', Role::CLIENTE_EMPRESA)->first();
+        if ($clienteEmpresa) {
+            $clienteEmpresa->permissions()->sync(
+                Permission::where('clave', 'like', 'portal.%')->pluck('id'),
+            );
+        }
     }
 }

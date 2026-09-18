@@ -23,12 +23,14 @@ use App\Modules\Nominas\Http\Controllers\CicloRemunerativoController;
 use App\Modules\Nominas\Http\Controllers\ConceptoDefinicionPlameController;
 use App\Modules\Nominas\Http\Controllers\ConceptoRemuneracionController;
 use App\Modules\Nominas\Http\Controllers\LiquidacionCeseController;
-use App\Modules\Nominas\Http\Controllers\NominaImportacionHistoricaController;
 use App\Modules\Nominas\Http\Controllers\PlanillaComplementariaController;
 use App\Modules\Nominas\Http\Controllers\SunatCatalogoController;
 use App\Modules\Nominas\Http\Controllers\TramoRentaController;
 use App\Modules\Nominas\Http\Controllers\VacacionMovimientoController;
 use App\Modules\Personas\Http\Controllers\ColaboradorController;
+use App\Modules\PortalCliente\Http\Controllers\PortalAsistenciaController;
+use App\Modules\PortalCliente\Http\Controllers\PortalAsistenciaListadosController;
+use App\Modules\PortalCliente\Http\Controllers\PortalContextoController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
@@ -38,6 +40,33 @@ Route::middleware('jwt')->group(function () {
     Route::put('/me', [ProfileController::class, 'update']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/refresh', [AuthController::class, 'refresh']);
+
+    // Portal Cliente — toda ruta bajo /portal resuelve la empresa
+    // exclusivamente desde el usuario autenticado (nunca desde empresa_id
+    // de query/body/ruta), y exige que esa empresa siga vigente
+    // (portal.empresa: existe, está activa, y el usuario sigue teniendo la
+    // relación en empresa_user) antes de evaluar cualquier permiso:portal.*.
+    // Sin acciones de escritura: resolución de incidencias, aprobación de
+    // horas extra, permisos, recálculos, planilla y bonificaciones quedan
+    // para incrementos posteriores.
+    Route::prefix('portal')->middleware(['portal.habilitado', 'portal.empresa'])->group(function () {
+        Route::get('/contexto', [PortalContextoController::class, 'contexto'])->middleware('permiso:portal.acceder');
+
+        Route::prefix('asistencia')->group(function () {
+            Route::get('/resumen', [PortalAsistenciaController::class, 'resumen'])->middleware('permiso:portal.asistencia.ver');
+            Route::get('/colaboradores', [PortalAsistenciaController::class, 'colaboradores'])->middleware('permiso:portal.asistencia.ver');
+            Route::get('/colaboradores/{colaborador}', [PortalAsistenciaController::class, 'colaborador'])->middleware('permiso:portal.asistencia.ver');
+            Route::get('/colaboradores/{colaborador}/calendario', [PortalAsistenciaController::class, 'calendario'])->middleware('permiso:portal.asistencia.ver');
+            Route::get('/colaboradores/{colaborador}/marcaciones', [PortalAsistenciaController::class, 'marcaciones'])->middleware('permiso:portal.asistencia.ver');
+            Route::get('/colaboradores/{colaborador}/incidencias', [PortalAsistenciaController::class, 'incidencias'])->middleware('permiso:portal.asistencia.ver');
+            Route::get('/colaboradores/{colaborador}/horas-extra', [PortalAsistenciaController::class, 'horasExtra'])->middleware('permiso:portal.horas_extra.ver');
+            Route::get('/colaboradores/{colaborador}/permisos', [PortalAsistenciaController::class, 'permisos'])->middleware('permiso:portal.permisos.ver');
+            Route::get('/colaboradores/{colaborador}/historial', [PortalAsistenciaController::class, 'historial'])->middleware('permiso:portal.asistencia.ver');
+            Route::get('/incidencias', [PortalAsistenciaListadosController::class, 'incidencias'])->middleware('permiso:portal.asistencia.ver');
+            Route::get('/horas-extra', [PortalAsistenciaListadosController::class, 'horasExtra'])->middleware('permiso:portal.horas_extra.ver');
+            Route::get('/permisos', [PortalAsistenciaListadosController::class, 'permisos'])->middleware('permiso:portal.permisos.ver');
+        });
+    });
 
     Route::get('/empresas', [EmpresaController::class, 'index']);
     Route::post('/empresas', [EmpresaController::class, 'store'])->middleware('permiso:empresas.crear');
@@ -211,14 +240,6 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/liquidaciones-cese/{liquidacion}/aprobar', [LiquidacionCeseController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/liquidaciones-cese/{liquidacion}/pagar', [LiquidacionCeseController::class, 'pagar'])->middleware('permiso:nominas.pagar');
     Route::patch('/liquidaciones-cese/{liquidacion}/anular-revertir', [LiquidacionCeseController::class, 'anularYRevertir'])->middleware('permiso:nominas.aprobar');
-    Route::post('/nominas/importaciones-historicas', [NominaImportacionHistoricaController::class, 'importar'])->middleware('permiso:nominas.gestionar_ciclos');
-    Route::get('/nominas/importaciones-historicas/{importacion}', [NominaImportacionHistoricaController::class, 'show'])->middleware('permiso:nominas.ver');
-    Route::patch('/nominas/importaciones-historicas/{importacion}/detalles/{detalle}', [NominaImportacionHistoricaController::class, 'corregirDetalle'])->middleware('permiso:nominas.gestionar_ciclos');
-    Route::patch('/nominas/importaciones-historicas/{importacion}/detalles/{detalle}/confirmar-cts', [NominaImportacionHistoricaController::class, 'confirmarCtsDepositada'])->middleware('permiso:nominas.aprobar');
-    Route::patch('/nominas/importaciones-historicas/{importacion}/detalles/{detalle}/confirmar-gratificacion', [NominaImportacionHistoricaController::class, 'confirmarGratificacionPagada'])->middleware('permiso:nominas.aprobar');
-    Route::patch('/nominas/importaciones-historicas/{importacion}/detalles/{detalle}/marcar-ignorado', [NominaImportacionHistoricaController::class, 'marcarIgnorado'])->middleware('permiso:nominas.gestionar_ciclos');
-    Route::patch('/nominas/importaciones-historicas/{importacion}/aprobar', [NominaImportacionHistoricaController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
-    Route::post('/nominas/importaciones-historicas/{importacion}/aplicar', [NominaImportacionHistoricaController::class, 'aplicar'])->middleware('permiso:nominas.aprobar');
     Route::get('/boletas/{boleta}/incidencias-pendientes-aprobar', [BoletaController::class, 'incidenciasPendientesAprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/aprobar', [BoletaController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
     Route::post('/ciclos-remunerativos/{ciclo}/boletas/incidencias-pendientes-aprobar-masivo', [BoletaController::class, 'incidenciasPendientesAprobarMasivo'])->middleware('permiso:nominas.aprobar');
