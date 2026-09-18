@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'direccion',
     'color',
     'logo_path',
+    'plantilla_carnet',
     'regimen_laboral',
     'inscrita_remype',
     'fecha_inscripcion_remype',

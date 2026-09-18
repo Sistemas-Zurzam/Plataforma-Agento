@@ -19,6 +19,7 @@ import {
   EyeOutlined,
   IdcardOutlined,
   PlusOutlined,
+  SafetyCertificateOutlined,
 } from '@ant-design/icons';
 import { App, Avatar, Button, Card, DatePicker, Empty, Form, Input, InputNumber, Modal, Progress, Select, Spin, Table, Tabs, Tag, Upload } from 'antd';
 import dayjs from 'dayjs';
@@ -31,6 +32,7 @@ import EditarHorarioColaboradorModal from './EditarHorarioColaboradorModal';
 import EditarColaboradorModal from './EditarColaboradorModal';
 import CesarColaboradorModal from './CesarColaboradorModal';
 import VerCarnetModal from './VerCarnetModal';
+import GenerarCredencialCarnetModal from './GenerarCredencialCarnetModal';
 
 export const DOCUMENTOS_REQUERIDOS = [
   { tipo: 'documento_identidad', nombre: 'Copia de documento de identidad' },
@@ -312,6 +314,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
   const [viendoDocumento, setViendoDocumento] = useState(null);
   const [documentoVista, setDocumentoVista] = useState(null);
   const [carnetOpen, setCarnetOpen] = useState(false);
+  const [credencialCarnetOpen, setCredencialCarnetOpen] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -615,6 +618,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
             <Button type="text" size="small" icon={<CalendarOutlined />} onClick={() => setCalendarioOpen(true)}>Calendario</Button>
             <Button type="text" size="small" icon={<EditOutlined />} onClick={() => setEditarOpen(true)}>Editar datos</Button>
             <Button type="text" size="small" icon={<IdcardOutlined />} onClick={() => setCarnetOpen(true)}>Carnet</Button>
+            <Button type="text" size="small" icon={<SafetyCertificateOutlined />} onClick={() => setCredencialCarnetOpen(true)}>Código de acceso</Button>
             <span className="mx-1 hidden w-px bg-gray-200 sm:block" />
             <Button type="text" size="small" danger icon={<UserDeleteOutlined />} disabled={!colaborador.activo} onClick={() => setCeseOpen(true)}>Cesar</Button>
             <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={confirmarEliminacion}>Eliminar</Button>
@@ -634,6 +638,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
     <EditarColaboradorModal open={editarOpen} colaborador={colaborador} user={user} submitting={guardandoEdicion} onGuardar={guardarEdicion} onCancel={() => setEditarOpen(false)} />
     <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onPrevisualizar={(values) => previsualizarLiquidacionCese(colaborador.id, values)} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
     <VerCarnetModal colaborador={carnetOpen ? colaborador : null} onClose={() => setCarnetOpen(false)} />
+    <GenerarCredencialCarnetModal colaborador={credencialCarnetOpen ? colaborador : null} onClose={() => setCredencialCarnetOpen(false)} />
     <Modal title={documentoVista?.nombre ?? 'Ver documento'} open={Boolean(documentoVista)} onCancel={cerrarDocumento} footer={null} width={{ xs: '95%', sm: '90%', lg: 900 }} centered destroyOnHidden>
       {documentoVista?.mimeType?.startsWith('image/') ? (
         <div className="flex max-h-[72vh] justify-center overflow-auto rounded-lg bg-gray-50 p-3">

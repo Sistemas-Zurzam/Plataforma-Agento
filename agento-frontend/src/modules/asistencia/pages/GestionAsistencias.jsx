@@ -5,6 +5,7 @@ import 'dayjs/locale/es';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../configuracion/components/EmpresaActivaFiltro';
 import PlanificacionRotativos from '../components/PlanificacionRotativos';
+import { etiquetaOrigenMarcacion } from '../constants/origenesMarcacion';
 import api from '../../../services/api';
 
 const { RangePicker } = DatePicker;
@@ -283,7 +284,7 @@ function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reproc
   const marcaciones = <Table size="small" rowKey="id" dataSource={colaborador.marcaciones ?? []} columns={[
     { title: 'Fecha', dataIndex: 'marcado_at', render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Hora', dataIndex: 'marcado_at', render: (value) => dayjs(value).format('HH:mm:ss') },
-    { title: 'Origen', dataIndex: 'origen' },
+    { title: 'Origen', dataIndex: 'origen', render: etiquetaOrigenMarcacion },
     { title: 'Dispositivo', dataIndex: 'dispositivo', render: (value) => value ?? '—' },
     { title: 'Estado', dataIndex: 'estado_procesamiento', render: (value) => <Tag color={value === 'asociada' ? 'green' : value === 'anulada' ? 'red' : 'gold'}>{value}</Tag> },
   ]} locale={{ emptyText: <Empty description="No hay marcaciones en este período" /> }} />;

@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProfileController;
 use App\Modules\Asistencia\Http\Controllers\AsistenciaController;
+use App\Modules\Asistencia\Http\Controllers\ControlAccesoController;
 use App\Modules\Asistencia\Http\Controllers\HorarioController;
 use App\Modules\Asistencia\Http\Controllers\TipoAusenciaController;
 use App\Modules\Configuracion\Http\Controllers\AfpController;
@@ -143,6 +144,18 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/asistencia/periodos/{periodo}', [AsistenciaController::class, 'transicionarPeriodo'])->middleware('permiso:asistencia.periodos');
     Route::get('/asistencia/periodos/{periodo}/estado-cobertura', [AsistenciaController::class, 'estadoCoberturaPeriodo'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/auditoria', [AsistenciaController::class, 'auditoria'])->middleware('permiso:asistencia.ver');
+
+    // Control de Acceso — kiosco de marcación por carnet/código de barras.
+    Route::post('/control-acceso/escanear', [ControlAccesoController::class, 'escanear'])->middleware('permiso:control_acceso.marcar');
+    // "Olvidó su carnet": el vigilante busca, ve la foto y confirma
+    // manualmente — mismo permiso que escanear, ninguno de colaboradores.*.
+    Route::get('/control-acceso/colaboradores', [ControlAccesoController::class, 'buscarColaboradores'])->middleware('permiso:control_acceso.marcar');
+    Route::get('/control-acceso/colaboradores/{colaborador}/foto', [ControlAccesoController::class, 'fotoColaborador'])->middleware('permiso:control_acceso.marcar');
+    Route::post('/control-acceso/colaboradores/{colaborador}/marcar-manual', [ControlAccesoController::class, 'marcarManual'])->middleware('permiso:control_acceso.marcar');
+    Route::get('/colaboradores/{colaborador}/credencial-carnet', [ControlAccesoController::class, 'estadoCredencial'])->middleware('permiso:colaboradores.ver');
+    Route::post('/colaboradores/{colaborador}/credencial-carnet', [ControlAccesoController::class, 'generarCredencial'])->middleware('permiso:colaboradores.editar');
+    Route::post('/colaboradores/{colaborador}/credencial-carnet/regenerar', [ControlAccesoController::class, 'regenerarCredencial'])->middleware('permiso:colaboradores.editar');
+    Route::delete('/colaboradores/{colaborador}/credencial-carnet', [ControlAccesoController::class, 'revocarCredencial'])->middleware('permiso:colaboradores.editar');
 
     Route::get('/colaboradores', [ColaboradorController::class, 'index'])->middleware('permiso:colaboradores.ver');
     Route::post('/colaboradores', [ColaboradorController::class, 'store'])->middleware('permiso:colaboradores.crear');

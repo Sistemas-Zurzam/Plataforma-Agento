@@ -5,6 +5,7 @@ import {
   FileTextOutlined,
   LockOutlined,
   SafetyOutlined,
+  ScanOutlined,
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons';
@@ -30,7 +31,7 @@ function TabItem({ tab, active, onSelect }) {
     <button
       type="button"
       disabled={tab.disabled}
-      onClick={() => onSelect(tab.key)}
+      onClick={() => (tab.redirectTo ? window.location.assign(tab.redirectTo) : onSelect(tab.key))}
       className={`flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors ${
         active
           ? 'bg-agento-blue-light font-medium text-agento-blue-dark'
@@ -53,6 +54,7 @@ export default function GestionEmpresas({
 }) {
   const isAdmin = user?.role === 'administrador';
   const puedeVerUsuarios = user?.permisos?.includes('usuarios.ver');
+  const puedeControlAcceso = user?.permisos?.includes('control_acceso.marcar');
   const puedeVerParametrosRemunerativos =
     user?.permisos?.includes('parametros_laborales.ver') ||
     user?.permisos?.includes('comisiones_afp.ver') ||
@@ -100,13 +102,27 @@ export default function GestionEmpresas({
   }, [isAdmin, puedeVerUsuarios]);
 
   const sistemaTabs = useMemo(() => {
-    if (!isAdmin) return [];
+    const tabs = [];
 
-    return [
-      { key: 'notificaciones', label: 'Notificaciones', icon: <BellOutlined />, disabled: true },
-      { key: 'seguridad', label: 'Seguridad', icon: <LockOutlined />, disabled: true },
-    ];
-  }, [isAdmin]);
+    // Atajo hacia el kiosco (`/control-acceso`, una pantalla aparte sin
+    // sidebar — ver App.jsx): no es una pestaña interna de esta página,
+    // `redirectTo` hace que TabItem navegue la página completa en vez de
+    // llamar a onSelect. Gateado por el mismo permiso que ya usa el
+    // Sidebar, no por isAdmin, para que también le sirva a un usuario
+    // Vigilancia que llegue a Configuraciones.
+    if (puedeControlAcceso) {
+      tabs.push({ key: 'control-acceso', label: 'Control de Acceso', icon: <ScanOutlined />, redirectTo: '/control-acceso' });
+    }
+
+    if (isAdmin) {
+      tabs.push(
+        { key: 'notificaciones', label: 'Notificaciones', icon: <BellOutlined />, disabled: true },
+        { key: 'seguridad', label: 'Seguridad', icon: <LockOutlined />, disabled: true },
+      );
+    }
+
+    return tabs;
+  }, [isAdmin, puedeControlAcceso]);
 
   const availableTabs = useMemo(
     () => [...cuentaTabs, ...organizacionTabs, ...sistemaTabs, ...nominaTabs]

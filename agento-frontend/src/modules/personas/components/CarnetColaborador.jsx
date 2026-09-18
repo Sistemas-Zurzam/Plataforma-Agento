@@ -1,5 +1,6 @@
 import { TeamOutlined } from '@ant-design/icons';
 import { colorForName, initialsForName } from '../../../utils/avatarColor';
+import CarnetBarcode from './CarnetBarcode';
 
 /** Alto de la parte "plana" del encabezado (logo+nombre) y punto más bajo
  * de la curva — el `-mt-14` (56px, mitad de la foto de 112px) de la foto
@@ -47,7 +48,7 @@ const degradado = (color, angulo = '135deg') =>
  * blanco o recorta contenido); no cambiar el ancho/alto sin ajustar el
  * otro para conservar esa proporción.
  */
-export default function CarnetColaborador({ colaborador, fotoUrl }) {
+export default function CarnetColaborador({ colaborador, fotoUrl, credencialToken, credencialActiva }) {
   const color = colaborador.empresa?.color || '#014693';
   const logo = colaborador.empresa?.logo_url;
   const fotoOFallback = fotoUrl || logo;
@@ -146,7 +147,7 @@ export default function CarnetColaborador({ colaborador, fotoUrl }) {
 
       <div className="flex-1" />
 
-      <div className="mb-6 flex justify-center px-4">
+      <div className="mb-3 flex justify-center px-4">
         <div
           className="flex w-full items-center gap-2 rounded-full py-1.5 pr-3 pl-1"
           style={{ backgroundImage: degradado(color, '90deg') }}
@@ -161,6 +162,28 @@ export default function CarnetColaborador({ colaborador, fotoUrl }) {
             {colaborador.cargo ?? 'Colaborador'}
           </span>
         </div>
+      </div>
+
+      {/* Único espacio libre real del diseño para el código de barras, sin
+        tocar foto/nombre/cargo/identidad visual (ver la propuesta y el
+        render de prueba de la ronda de endurecimiento). anchoBarra/alto
+        escalados a la proporción física de ESTA plantilla (260px ≈ 54mm,
+        4.815px/mm) — no los valores por defecto de CarnetBarcode, pensados
+        para las plantillas de empresa a 540px. */}
+      <div className="mb-4 flex flex-col items-center gap-1 px-4">
+        {credencialToken ? (
+          <CarnetBarcode valor={credencialToken} anchoBarra={1.35} alto={53} color="#111827" />
+        ) : (
+          <div
+            className={`flex h-13.25 w-full items-center justify-center rounded-md border ${
+              credencialActiva ? 'border-gray-200' : 'border-dashed border-gray-300'
+            }`}
+          >
+            <span className={`text-[9px] font-semibold tracking-wide uppercase ${credencialActiva ? 'text-gray-500' : 'text-gray-400'}`}>
+              {credencialActiva ? 'Carnet habilitado' : 'Carnet sin habilitar'}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
