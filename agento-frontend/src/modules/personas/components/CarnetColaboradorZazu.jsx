@@ -144,7 +144,7 @@ export default function CarnetColaboradorZazu({ colaborador, fotoUrl, credencial
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="-mt-4 flex items-center gap-3">
           <span
             className="h-[2px] w-[60px]"
             style={{ backgroundColor: MORADO }}

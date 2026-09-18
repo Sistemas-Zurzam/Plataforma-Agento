@@ -1,5 +1,6 @@
-import { PrinterOutlined } from '@ant-design/icons';
+import { DownloadOutlined, PrinterOutlined } from '@ant-design/icons';
 import { App, Button, Modal, Segmented } from 'antd';
+import { toPng } from 'html-to-image';
 import { useEffect, useState } from 'react';
 import api from '../../../services/api';
 import { useColaboradores } from '../hooks/useColaboradores';
@@ -137,6 +138,65 @@ export default function VerCarnetModal({ colaborador, onClose }) {
     };
   };
 
+  // La impresora física (Epson L8050, tarjetas PVC) se imprime desde el
+  // software Epson Photo+, no desde el diálogo de impresión del navegador
+  // — por eso hace falta poder descargar el carnet como imagen en vez de
+  // depender únicamente de `imprimirCarnet()`. pixelRatio:3 da ~1620px de
+  // ancho (más que suficiente para el tamaño físico de 54mm), sin generar
+  // un archivo desproporcionadamente pesado.
+  const descargarPng = async () => {
+    const contenedor = document.getElementById('carnet-colaborador-imprimible');
+    if (!contenedor) return;
+
+    // La foto de perfil se pasa como URL `blob:` (ver el efecto de arriba)
+    // — html-to-image, al clonar el árbol, vuelve a pedir por red cada
+    // <img> para incrustarlo como data-URI, y si el blob ya no está
+    // disponible en ese momento falla (`net::ERR_FILE_NOT_FOUND`), aunque
+    // en pantalla el <img> siga mostrándola con normalidad porque el
+    // navegador ya la tiene decodificada en memoria. El arreglo: dibujar
+    // ESE <img> ya cargado directo a un canvas (sin volver a pedirlo) y
+    // usar esa imagen como fuente temporal durante la captura.
+    const imgFoto = contenedor.querySelector('img[src^="blob:"]');
+    const fotoSrcPrevio = imgFoto?.src;
+    if (imgFoto?.complete && imgFoto.naturalWidth > 0) {
+      const lienzo = document.createElement('canvas');
+      lienzo.width = imgFoto.naturalWidth;
+      lienzo.height = imgFoto.naturalHeight;
+      lienzo.getContext('2d').drawImage(imgFoto, 0, 0);
+      imgFoto.src = lienzo.toDataURL('image/png');
+    }
+
+    // La tarjeta raíz recorta con `overflow-hidden` + esquinas redondeadas
+    // los elementos decorativos que sobresalen a propósito (footer, ondas,
+    // blobs...). html-to-image, al reconstruir el árbol dentro de un
+    // <foreignObject>, no recorta bien ese contenido cuando el propio nodo
+    // capturado es el que tiene `overflow:hidden` — el resultado es que
+    // todo lo posicionado fuera de los 540x860 "a propósito pero recortado"
+    // (el footer de Zazu, las ondas/blobs de Zurzam/Livex) sale en blanco.
+    // Se quita el recorte solo durante la captura: como de todos modos se
+    // pide un canvas de 540x860, cualquier cosa fuera de ese rectángulo
+    // queda fuera del PNG igual, así que el resultado visual no cambia.
+    const overflowPrevio = contenedor.style.overflow;
+    contenedor.style.overflow = 'visible';
+
+    try {
+      const dataUrl = await toPng(contenedor, {
+        pixelRatio: 3,
+        width: contenedor.offsetWidth,
+        height: contenedor.offsetHeight,
+      });
+      const enlace = document.createElement('a');
+      enlace.href = dataUrl;
+      enlace.download = `carnet-${colaborador.nombre_completo}${cara === 'reverso' ? '-reverso' : ''}.png`;
+      enlace.click();
+    } catch {
+      message.error('No se pudo generar la imagen del carnet.');
+    } finally {
+      contenedor.style.overflow = overflowPrevio;
+      if (imgFoto && fotoSrcPrevio) imgFoto.src = fotoSrcPrevio;
+    }
+  };
+
   // resolverPlantillaCarnet() solo elige entre componentes ya definidos a
   // nivel de módulo (PLANTILLAS_POR_EMPRESA/PLANTILLA_GENERICA) — la
   // referencia es estable entre renders aunque el lint no pueda verlo a
@@ -151,6 +211,7 @@ export default function VerCarnetModal({ colaborador, onClose }) {
       onCancel={onClose}
       footer={[
         <Button key="cerrar" onClick={onClose}>Cerrar</Button>,
+        <Button key="descargar" icon={<DownloadOutlined />} onClick={descargarPng}>Descargar PNG</Button>,
         <Button key="imprimir" type="primary" icon={<PrinterOutlined />} onClick={imprimirCarnet}>Imprimir</Button>,
       ]}
       width={420}

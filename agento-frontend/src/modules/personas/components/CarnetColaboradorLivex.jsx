@@ -26,10 +26,28 @@ export default function CarnetColaboradorLivex({ colaborador, fotoUrl, credencia
       style={{ width: 540, height: 860 }}
     >
       <div className="absolute top-[2px] left-0 rounded-[40px] bg-[#fefefd]" style={{ width: 540, height: 858 }} />
-      <img src={formasDecorativas} alt="" className="absolute" style={{ inset: '-8.95% -34.63% -10.58% -31.85%' }} />
+      {/* left/top/width/height en px (no `inset` en %) MÁS maxWidth:'none':
+        el ancho real (899px) es mayor que el contenedor (540px), así que el
+        reset de Tailwind `img{max-width:100%}` seguía aplicando encima del
+        `width` inline (son propiedades distintas, `width` no pisa `max-width`)
+        y achataba/desplazaba la imagen. Verificado contra el export real de
+        Figma (nodo 43:123) el 2026-09-18: estos valores son la caja exacta
+        de la unión de las 7 figuras. */}
+      <img
+        src={formasDecorativas}
+        alt=""
+        className="absolute"
+        style={{ left: -172, top: -77, width: 899, height: 1028, maxWidth: 'none' }}
+      />
       <img src={blobInferiorIzquierdo} alt="" className="absolute" style={{ left: -130, top: 756, width: 200, height: 200 }} />
 
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-[60px]">
+      {/* pt-[33px] fijo en vez de justify-center: en Figma el bloque (nodo
+        "Frame 24") va anclado a un y=33 absoluto, no centrado — depender de
+        justify-center hacía que el resultado final dependiera de que la
+        altura real del texto renderizado en el navegador coincidiera con la
+        altura que asume Figma, y no coincidía (el logo terminaba pegado al
+        borde superior). Verificado contra get_metadata el 2026-09-18. */}
+      <div className="absolute inset-0 flex flex-col items-center gap-[60px] pt-[33px]">
         <div className="flex w-full flex-col items-center gap-10">
           <div className="flex flex-col items-center gap-8">
             <div className="flex w-[285px] flex-col items-center gap-8">
