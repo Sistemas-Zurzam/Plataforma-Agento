@@ -33,6 +33,7 @@ class RegistrarMarcacionCarnetService
         private readonly AsistenciaPeriodoService $periodos,
         private readonly AsistenciaAuditoriaService $auditoria,
         private readonly FechaOperativa $fechaOperativa,
+        private readonly NotificarEstadoMotorizadoZazuService $notificadorZazu,
     ) {}
 
     /**
@@ -187,7 +188,38 @@ class RegistrarMarcacionCarnetService
             return $this->respuesta('marcacion_registrada', $colaborador, $ahora, $origen);
         }
 
+        $this->notificarEstadoMotorizado($colaborador, $tipoResultado);
+
         return $this->respuesta($tipoResultado, $colaborador, $ahora, $origen);
+    }
+
+    /**
+     * Efecto colateral hacia un sistema externo (plataforma_zazu) — nunca
+     * debe poder romper ni retrasar la respuesta al vigilante, por eso va
+     * después de que el resultado ya está determinado y con su propio
+     * try/catch, igual que el reproceso de arriba.
+     */
+    private function notificarEstadoMotorizado(Colaborador $colaborador, string $tipoResultado): void
+    {
+        $estado = match ($tipoResultado) {
+            'entrada_registrada' => NotificarEstadoMotorizadoZazuService::ESTADO_DISPONIBLE,
+            'salida_registrada' => NotificarEstadoMotorizadoZazuService::ESTADO_DESCANSO,
+            default => null,
+        };
+
+        if ($estado === null) {
+            return;
+        }
+
+        try {
+            $this->notificadorZazu->notificar($colaborador, $estado);
+        } catch (Throwable $e) {
+            Log::error('Fallo al notificar estado de motorizado a Zazu.', [
+                'colaborador_id' => $colaborador->id,
+                'estado' => $estado,
+                'excepcion' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
