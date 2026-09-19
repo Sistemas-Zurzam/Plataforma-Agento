@@ -16,6 +16,7 @@ import GestionHorarios from '../../modules/asistencia/pages/GestionHorarios';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import { TIPO_CONTRATO_OPTIONS } from '../../modules/personas/constants/opciones';
 import ImportarColaboradoresModal from '../../modules/personas/components/ImportarColaboradoresModal';
+import ImportarFotosPerfilModal from '../../modules/personas/components/ImportarFotosPerfilModal';
 import NuevoColaboradorModal from '../../modules/personas/components/NuevoColaboradorModal';
 import VerColaboradorModal from '../../modules/personas/components/VerColaboradorModal';
 import VerCarnetModal from '../../modules/personas/components/VerCarnetModal';
@@ -40,11 +41,13 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
   const [verColaboradorId, setVerColaboradorId] = useState(null);
   const [carnetColaborador, setCarnetColaborador] = useState(null);
   const [importarModalOpen, setImportarModalOpen] = useState(false);
+  const [fotosModalOpen, setFotosModalOpen] = useState(false);
   const [rotativosSinRol, setRotativosSinRol] = useState([]);
   const [faltantesColaborador, setFaltantesColaborador] = useState(null);
 
   const puedeVer = user?.permisos?.includes('colaboradores.ver');
   const puedeCrear = user?.permisos?.includes('colaboradores.crear');
+  const puedeEditar = user?.permisos?.includes('colaboradores.editar');
   const puedeVerHorarios = user?.permisos?.includes('horarios.ver');
   const isAdmin = user?.role === 'administrador';
   const [restaurandoId, setRestaurandoId] = useState(null);
@@ -409,6 +412,11 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
             Importar
           </Button>
         )}
+        {puedeEditar && (
+          <Button icon={<UserOutlined />} onClick={() => setFotosModalOpen(true)}>
+            Cargar fotos
+          </Button>
+        )}
         {puedeCrear && (
           <Button
             type="primary"
@@ -460,6 +468,13 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           setImportarModalOpen(false);
           fetchColaboradores(pagination.current, pagination.pageSize, busqueda, todasEmpresas);
         }}
+      />
+
+      <ImportarFotosPerfilModal
+        open={fotosModalOpen}
+        todasEmpresas={todasEmpresas}
+        onCancel={() => setFotosModalOpen(false)}
+        onImportado={() => fetchColaboradores(pagination.current, pagination.pageSize, busqueda, todasEmpresas)}
       />
 
       <VerColaboradorModal

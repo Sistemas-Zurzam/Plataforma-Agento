@@ -5,8 +5,8 @@ import CarnetColaboradorBoxPrime from './CarnetColaboradorBoxPrime';
 import CarnetColaboradorTexajo from './CarnetColaboradorTexajo';
 import CarnetColaboradorZurzam from './CarnetColaboradorZurzam';
 
-/** Compartido entre VerCarnetModal y GenerarCredencialCarnetModal — ambos
- * necesitan saber qué componente renderizar según `empresa.plantilla_carnet`. */
+/** Usado por VerCarnetModal para saber qué componente renderizar según
+ * `empresa.plantilla_carnet`. */
 export const PLANTILLA_GENERICA = CarnetColaborador;
 
 export const PLANTILLAS_POR_EMPRESA = {

@@ -51,6 +51,7 @@ export default function ControlAcceso({ onLogout }) {
   const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
   const [seleccionado, setSeleccionado] = useState(null);
   const [fotoSeleccionado, setFotoSeleccionado] = useState(null);
+  const [fotoResultado, setFotoResultado] = useState(null);
   const inputRef = useRef(null);
   const bloqueoRef = useRef(false);
 
@@ -73,6 +74,8 @@ export default function ControlAcceso({ onLogout }) {
     }, DURACION_RESULTADO_MS);
     return () => clearTimeout(temporizador);
   }, [resultado, enfocar]);
+
+  useEffect(() => () => { if (fotoResultado) URL.revokeObjectURL(fotoResultado); }, [fotoResultado]);
 
   // Búsqueda con debounce — dispara a los RETRASO_BUSQUEDA_MS del último
   // tecleo, no en cada tecla, para no saturar el backend en cada letra. Con
@@ -124,16 +127,33 @@ export default function ControlAcceso({ onLogout }) {
     setFotoSeleccionado(null);
   };
 
+  /**
+   * Igual que seleccionarParaConfirmar() del flujo manual: mismo endpoint
+   * de foto, con vigilancia (permiso control_acceso.marcar, sin
+   * colaboradores.ver). Confirmación visual real DESPUÉS de un escaneo
+   * exitoso, no solo el nombre — la razón de seguridad es la misma que ya
+   * se discutió para el código de barras: nadie debería poder marcar por
+   * otra persona sin que quien vigila lo note.
+   */
+  const cargarFotoResultado = (colaboradorId) => {
+    if (!colaboradorId) return;
+    api.get(`/control-acceso/colaboradores/${colaboradorId}/foto`, { responseType: 'blob' })
+      .then((respuesta) => setFotoResultado(URL.createObjectURL(respuesta.data)))
+      .catch(() => {});
+  };
+
   const escanear = async (codigoLeido) => {
     if (bloqueoRef.current) return;
     bloqueoRef.current = true;
     setProcesando(true);
     setResultado(null);
+    setFotoResultado(null);
 
     try {
       const { data } = await api.post('/control-acceso/escanear', { codigo: codigoLeido });
       const info = data.data;
       setResultado(info);
+      cargarFotoResultado(info.colaborador?.id);
       if (info.resultado !== 'marcacion_duplicada') {
         setUltimas((anteriores) => [{ ...info, id: `${Date.now()}` }, ...anteriores].slice(0, 5));
       }
@@ -167,6 +187,7 @@ export default function ControlAcceso({ onLogout }) {
       setTerminoBusqueda('');
       setResultadosBusqueda([]);
       setResultado(info);
+      cargarFotoResultado(info.colaborador?.id);
       if (info.resultado !== 'marcacion_duplicada') {
         setUltimas((anteriores) => [{ ...info, id: `${Date.now()}` }, ...anteriores].slice(0, 5));
       }
@@ -307,7 +328,24 @@ export default function ControlAcceso({ onLogout }) {
 
         {resultado && (
           <div className="flex flex-col items-center gap-4 text-center">
-            <span className="text-8xl" style={{ color: estilo.color }}>{estilo.icono}</span>
+            {resultado.colaborador?.id && (
+              fotoResultado ? (
+                <img
+                  src={fotoResultado}
+                  alt={resultado.colaborador.nombre_mostrable}
+                  className="h-40 w-40 rounded-lg border-4 object-cover"
+                  style={{ borderColor: estilo.color }}
+                />
+              ) : (
+                <span
+                  className="flex h-40 w-40 items-center justify-center rounded-lg border-4 text-3xl font-bold text-white"
+                  style={{ borderColor: estilo.color, backgroundColor: colorForName(resultado.colaborador.nombre_mostrable) }}
+                >
+                  {initialsForName(resultado.colaborador.nombre_mostrable)}
+                </span>
+              )
+            )}
+            <span className="text-6xl" style={{ color: estilo.color }}>{estilo.icono}</span>
             <p className="text-3xl font-extrabold" style={{ color: estilo.color }}>{estilo.titulo}</p>
             {resultado.colaborador?.nombre_mostrable && (
               <p className="text-4xl font-bold">{resultado.colaborador.nombre_mostrable}</p>

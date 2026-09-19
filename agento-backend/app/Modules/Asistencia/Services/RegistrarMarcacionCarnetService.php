@@ -16,8 +16,15 @@ use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 use Throwable;
 
 /**
- * Orquesta el escaneo: resuelve credencial → colaborador → guarda la
- * marcación cruda → dispara ProcesarAsistenciaDiaria (el motor real).
+ * Orquesta el escaneo: resuelve colaborador por DNI → guarda la marcación
+ * cruda → dispara ProcesarAsistenciaDiaria (el motor real).
+ *
+ * El código de barras del carnet ES el DNI del colaborador (numero_documento)
+ * — decisión explícita del negocio, sin credencial generada ni revocable por
+ * separado (ver commit que retiró CarnetCredentialService/CredencialAcceso).
+ * `Colaborador` no tiene EmpresaScope (ver ControlAccesoController::
+ * buscarColaboradores()), así que el filtro por `empresa_id` de abajo es
+ * obligatorio para no cruzar datos entre empresas.
  *
  * REGLA ARQUITECTÓNICA: este servicio NO decide entrada/salida, tardanza,
  * jornada nocturna ni nada de eso — eso sigue siendo responsabilidad
@@ -28,7 +35,6 @@ use Throwable;
 class RegistrarMarcacionCarnetService
 {
     public function __construct(
-        private readonly CarnetCredentialService $credenciales,
         private readonly ProcesarAsistenciaDiaria $procesador,
         private readonly AsistenciaPeriodoService $periodos,
         private readonly AsistenciaAuditoriaService $auditoria,
@@ -39,30 +45,32 @@ class RegistrarMarcacionCarnetService
     /**
      * @return array{resultado: string, colaborador: array, hora: string, mensaje: string, origen: string}
      *
-     * @throws ValidationException carnet no reconocido/revocado, colaborador
+     * @throws ValidationException carnet no reconocido, colaborador
      *                             inactivo, o período no editable — el frontend distingue el caso por
      *                             la clave del mensaje (`credencial`, `colaborador`, `fecha_desde`).
      */
     public function registrar(Empresa $empresa, User $usuarioVigilancia, string $codigo): array
     {
-        $credencial = $this->credenciales->resolver($codigo);
+        $colaborador = Colaborador::query()
+            ->where('empresa_id', $empresa->id)
+            ->where('numero_documento', $codigo)
+            ->first();
 
-        // Un carnet de OTRA empresa nunca llega hasta acá: resolver() ya
-        // filtra por el EmpresaScope del modelo, así que "no existe" y
-        // "existe pero es de otra empresa" son indistinguibles desde este
-        // punto — exactamente lo que pide no revelar información entre
-        // empresas.
-        if (! $credencial) {
+        // Un DNI de OTRA empresa nunca llega hasta acá: se filtra por
+        // empresa_id explícito, así que "no existe" y "existe pero es de
+        // otra empresa" son indistinguibles desde este punto — exactamente
+        // lo que pide no revelar información entre empresas.
+        if (! $colaborador) {
             throw ValidationException::withMessages(['credencial' => ['Carnet no reconocido.']]);
         }
 
         return $this->registrarParaColaborador(
             $empresa,
             $usuarioVigilancia,
-            $credencial->colaborador,
+            $colaborador,
             AsistenciaMarcacion::ORIGEN_CARNET_CODIGO_BARRAS,
             'Kiosco de Control de Acceso',
-            ['credencial_id' => $credencial->id, 'usuario_vigilancia_id' => $usuarioVigilancia->id],
+            ['usuario_vigilancia_id' => $usuarioVigilancia->id],
             'marcacion_carnet_registrada',
         );
     }
@@ -73,9 +81,8 @@ class RegistrarMarcacionCarnetService
      * identidad (foto en pantalla) ANTES de llegar acá — ver
      * ControlAccesoController::buscarColaboradores()/marcarManual() y el
      * flujo de confirmación en el frontend. Nunca es autoservicio (no hay
-     * ningún código que el propio colaborador ingrese), por eso no pasa
-     * por CarnetCredentialService — es un canal de registro distinto, no
-     * un "carnet sin código".
+     * ningún código que el propio colaborador ingrese), por eso es un canal
+     * de registro distinto, no un "carnet sin código".
      *
      * @return array{resultado: string, colaborador: array, hora: string, mensaje: string, origen: string}
      *
@@ -264,6 +271,11 @@ class RegistrarMarcacionCarnetService
         return [
             'resultado' => $resultado,
             'colaborador' => [
+                // Solo el id (para pedir la foto vía el endpoint ya
+                // existente /control-acceso/colaboradores/{id}/foto, mismo
+                // que usa el flujo manual) — nunca DNI ni otros datos, ver
+                // el resto de esta respuesta.
+                'id' => $colaborador->id,
                 'nombre_mostrable' => trim("{$colaborador->nombres} {$colaborador->apellidos}"),
             ],
             'hora' => $hora->format('H:i'),

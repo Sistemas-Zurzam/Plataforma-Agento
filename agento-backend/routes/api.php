@@ -152,10 +152,6 @@ Route::middleware('jwt')->group(function () {
     Route::get('/control-acceso/colaboradores', [ControlAccesoController::class, 'buscarColaboradores'])->middleware('permiso:control_acceso.marcar');
     Route::get('/control-acceso/colaboradores/{colaborador}/foto', [ControlAccesoController::class, 'fotoColaborador'])->middleware('permiso:control_acceso.marcar');
     Route::post('/control-acceso/colaboradores/{colaborador}/marcar-manual', [ControlAccesoController::class, 'marcarManual'])->middleware('permiso:control_acceso.marcar');
-    Route::get('/colaboradores/{colaborador}/credencial-carnet', [ControlAccesoController::class, 'estadoCredencial'])->middleware('permiso:colaboradores.ver');
-    Route::post('/colaboradores/{colaborador}/credencial-carnet', [ControlAccesoController::class, 'generarCredencial'])->middleware('permiso:colaboradores.editar');
-    Route::post('/colaboradores/{colaborador}/credencial-carnet/regenerar', [ControlAccesoController::class, 'regenerarCredencial'])->middleware('permiso:colaboradores.editar');
-    Route::delete('/colaboradores/{colaborador}/credencial-carnet', [ControlAccesoController::class, 'revocarCredencial'])->middleware('permiso:colaboradores.editar');
 
     Route::get('/colaboradores', [ColaboradorController::class, 'index'])->middleware('permiso:colaboradores.ver');
     Route::post('/colaboradores', [ColaboradorController::class, 'store'])->middleware('permiso:colaboradores.crear');
@@ -182,6 +178,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('/colaboradores/{colaborador}/documentos/{documento}', [ColaboradorController::class, 'verDocumento'])->middleware('permiso:colaboradores.ver');
     Route::post('/colaboradores/{colaborador}/foto-perfil', [ColaboradorController::class, 'guardarFotoPerfil'])->middleware('permiso:colaboradores.editar');
     Route::get('/colaboradores/{colaborador}/foto-perfil', [ColaboradorController::class, 'verFotoPerfil'])->middleware('permiso:colaboradores.ver');
+    Route::post('/colaboradores/fotos-perfil/importar-masivo', [ColaboradorController::class, 'importarFotosPerfilMasivo'])->middleware('permiso:colaboradores.editar');
 
     Route::get('/ciclos-remunerativos', [CicloRemunerativoController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos-resumen-contable', [CicloRemunerativoController::class, 'resumenContable'])->middleware('permiso:nominas.ver');

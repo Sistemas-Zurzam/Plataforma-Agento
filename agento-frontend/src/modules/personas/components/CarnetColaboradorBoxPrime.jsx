@@ -24,7 +24,7 @@ function Rombo({ left, top, contenedor, tamano, rotacion, className, style }) {
  * comentario en CarnetColaboradorZazu sobre por qué no hace falta que
  * coincida con el ancho de CarnetColaborador (260px).
  */
-export default function CarnetColaboradorBoxPrime({ colaborador, fotoUrl, credencialToken, credencialActiva }) {
+export default function CarnetColaboradorBoxPrime({ colaborador, fotoUrl }) {
   const primerNombre = colaborador.nombres?.trim().split(/\s+/)[0] ?? '';
   const primerApellido = colaborador.apellidos?.trim().split(/\s+/)[0] ?? '';
   const nombreCarnet = `${primerNombre} ${primerApellido}`.trim() || colaborador.nombre_completo;
@@ -78,19 +78,7 @@ export default function CarnetColaboradorBoxPrime({ colaborador, fotoUrl, creden
             </div>
 
             <div className="flex items-center justify-center">
-              {credencialToken ? (
-                <CarnetBarcode valor={credencialToken} color="#1a1f1c" />
-              ) : (
-                <div
-                  className={`flex h-27.5 w-98 items-center justify-center rounded-md border ${
-                    credencialActiva ? 'border-gray-200' : 'border-dashed border-gray-300'
-                  }`}
-                >
-                  <span className={`text-[13px] font-semibold tracking-wide uppercase ${credencialActiva ? 'text-gray-500' : 'text-gray-400'}`}>
-                    {credencialActiva ? 'Carnet habilitado' : 'Carnet sin habilitar'}
-                  </span>
-                </div>
-              )}
+              <CarnetBarcode valor={colaborador.numero_documento} color="#1a1f1c" />
             </div>
           </div>
 

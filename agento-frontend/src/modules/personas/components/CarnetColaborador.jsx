@@ -48,7 +48,7 @@ const degradado = (color, angulo = '135deg') =>
  * blanco o recorta contenido); no cambiar el ancho/alto sin ajustar el
  * otro para conservar esa proporción.
  */
-export default function CarnetColaborador({ colaborador, fotoUrl, credencialToken, credencialActiva }) {
+export default function CarnetColaborador({ colaborador, fotoUrl }) {
   const color = colaborador.empresa?.color || '#014693';
   const logo = colaborador.empresa?.logo_url;
   const fotoOFallback = fotoUrl || logo;
@@ -171,19 +171,7 @@ export default function CarnetColaborador({ colaborador, fotoUrl, credencialToke
         4.815px/mm) — no los valores por defecto de CarnetBarcode, pensados
         para las plantillas de empresa a 540px. */}
       <div className="mb-4 flex flex-col items-center gap-1 px-4">
-        {credencialToken ? (
-          <CarnetBarcode valor={credencialToken} anchoBarra={1.35} alto={53} color="#111827" />
-        ) : (
-          <div
-            className={`flex h-13.25 w-full items-center justify-center rounded-md border ${
-              credencialActiva ? 'border-gray-200' : 'border-dashed border-gray-300'
-            }`}
-          >
-            <span className={`text-[9px] font-semibold tracking-wide uppercase ${credencialActiva ? 'text-gray-500' : 'text-gray-400'}`}>
-              {credencialActiva ? 'Carnet habilitado' : 'Carnet sin habilitar'}
-            </span>
-          </div>
-        )}
+        <CarnetBarcode valor={colaborador.numero_documento} anchoBarra={1.35} alto={53} color="#111827" />
       </div>
     </div>
   );

@@ -4,8 +4,6 @@ namespace App\Modules\Asistencia\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Asistencia\Http\Requests\EscanearCarnetRequest;
-use App\Modules\Asistencia\Http\Requests\RevocarCredencialCarnetRequest;
-use App\Modules\Asistencia\Services\CarnetCredentialService;
 use App\Modules\Asistencia\Services\RegistrarMarcacionCarnetService;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Services\ColaboradorService;
@@ -17,7 +15,6 @@ class ControlAccesoController extends Controller
 {
     public function __construct(
         private readonly RegistrarMarcacionCarnetService $marcaciones,
-        private readonly CarnetCredentialService $credenciales,
         private readonly ColaboradorService $colaboradores,
     ) {}
 
@@ -29,62 +26,6 @@ class ControlAccesoController extends Controller
             $request->user('api'),
             $request->validated('codigo'),
         )]);
-    }
-
-    /** Estado de la credencial del colaborador — nunca expone el token ni su hash. */
-    public function estadoCredencial(Request $request, Colaborador $colaborador): JsonResponse
-    {
-        abort_unless($colaborador->empresa_id === $request->user('api')->empresa->id, 404);
-
-        $credencial = $this->credenciales->activaPara($colaborador);
-
-        return response()->json(['data' => [
-            'tiene_credencial_activa' => (bool) $credencial,
-            'generado_at' => $credencial?->generado_at?->toDateTimeString(),
-        ]]);
-    }
-
-    /** El `token` devuelto es la ÚNICA vez que se entrega en texto plano — el frontend lo usa de inmediato para generar el código de barras y no lo persiste. */
-    public function generarCredencial(Request $request, Colaborador $colaborador): JsonResponse
-    {
-        abort_unless($colaborador->empresa_id === $request->user('api')->empresa->id, 404);
-
-        ['credencial' => $credencial, 'token' => $token] = $this->credenciales->generar(
-            $request->user('api')->empresa, $colaborador, $request->user('api'),
-        );
-
-        return response()->json(['data' => [
-            'token' => $token,
-            'generado_at' => $credencial->generado_at->toDateTimeString(),
-        ]], 201);
-    }
-
-    public function regenerarCredencial(Request $request, Colaborador $colaborador): JsonResponse
-    {
-        abort_unless($colaborador->empresa_id === $request->user('api')->empresa->id, 404);
-
-        ['credencial' => $credencial, 'token' => $token] = $this->credenciales->regenerar(
-            $request->user('api')->empresa, $colaborador, $request->user('api'),
-        );
-
-        return response()->json(['data' => [
-            'token' => $token,
-            'generado_at' => $credencial->generado_at->toDateTimeString(),
-        ]]);
-    }
-
-    public function revocarCredencial(RevocarCredencialCarnetRequest $request, Colaborador $colaborador): JsonResponse
-    {
-        abort_unless($colaborador->empresa_id === $request->user('api')->empresa->id, 404);
-
-        $credencial = $this->credenciales->activaPara($colaborador);
-        abort_if(! $credencial, 404, 'El colaborador no tiene una credencial de carnet activa.');
-
-        $this->credenciales->revocar(
-            $request->user('api')->empresa, $credencial, $request->user('api'), $request->validated('motivo'),
-        );
-
-        return response()->json(['message' => 'Credencial revocada.']);
     }
 
     /**

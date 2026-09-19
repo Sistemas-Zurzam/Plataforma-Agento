@@ -22,7 +22,7 @@ const MORADO = "#560591";
  * tamaño físico exacto al imprimir a partir del ancho real renderizado, así
  * que no hace falta que coincida con el ancho de CarnetColaborador (260px).
  */
-export default function CarnetColaboradorZazu({ colaborador, fotoUrl, credencialToken, credencialActiva }) {
+export default function CarnetColaboradorZazu({ colaborador, fotoUrl }) {
   const primerNombre = colaborador.nombres?.trim().split(/\s+/)[0] ?? "";
   const primerApellido = colaborador.apellidos?.trim().split(/\s+/)[0] ?? "";
   const nombreCarnet =
@@ -92,23 +92,7 @@ export default function CarnetColaboradorZazu({ colaborador, fotoUrl, credencial
               </div>
 
               <div className="flex items-center justify-center">
-                {credencialToken ? (
-                  <CarnetBarcode valor={credencialToken} />
-                ) : (
-                  <div
-                    className={`flex h-27.5 w-98 items-center justify-center rounded-md border ${
-                      credencialActiva ? "border-gray-200" : "border-dashed border-gray-300"
-                    }`}
-                  >
-                    <span
-                      className={`text-[13px] font-semibold tracking-wide uppercase ${
-                        credencialActiva ? "text-gray-500" : "text-gray-400"
-                      }`}
-                    >
-                      {credencialActiva ? "Carnet habilitado" : "Carnet sin habilitar"}
-                    </span>
-                  </div>
-                )}
+                <CarnetBarcode valor={colaborador.numero_documento} />
               </div>
             </div>
 

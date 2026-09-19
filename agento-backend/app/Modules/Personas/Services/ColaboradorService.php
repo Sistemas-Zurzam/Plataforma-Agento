@@ -682,6 +682,77 @@ class ColaboradorService
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
         }
 
+        $this->procesarFotoPerfil($colaborador, $archivo, $usuario);
+
+        return $this->obtenerDetalle($empresa, $colaborador);
+    }
+
+    /**
+     * Empareja cada archivo con un colaborador por su número de documento
+     * (DNI), tomado del nombre del archivo sin extensión — acepta tanto
+     * "70826733.jpg" (solo el DNI) como "70826733-Nombre Apellido.jpg" (el
+     * formato real con el que suelen venir estos lotes: se usa solo lo que
+     * está antes del primer guión). Solo empareja contra colaboradores de
+     * $empresaIds (ya resueltos/autorizados por el controller, mismo
+     * criterio que listar()) — nunca decide autorización acá. Un archivo sin
+     * colaborador correspondiente, o un DNI repetido dentro del mismo lote,
+     * queda reportado en el resultado en vez de interrumpir el resto.
+     *
+     * @param  array<int, int>  $empresaIds
+     * @param  array<int, UploadedFile>  $archivos
+     * @return array{actualizados: int, sin_coincidencia: array<int, string>, duplicados: array<int, string>}
+     */
+    public function importarFotosPerfilMasivo(array $empresaIds, array $archivos, User $usuario): array
+    {
+        $actualizados = 0;
+        $sinCoincidencia = [];
+        $duplicados = [];
+        $dnisVistos = [];
+
+        foreach ($archivos as $archivo) {
+            $nombreSinExtension = pathinfo($archivo->getClientOriginalName(), PATHINFO_FILENAME);
+            $dni = trim(explode('-', $nombreSinExtension, 2)[0]);
+
+            if (in_array($dni, $dnisVistos, true)) {
+                $duplicados[] = $dni;
+
+                continue;
+            }
+            $dnisVistos[] = $dni;
+
+            $colaborador = Colaborador::query()
+                ->whereIn('empresa_id', $empresaIds)
+                ->where('numero_documento', $dni)
+                ->first();
+
+            if (! $colaborador) {
+                $sinCoincidencia[] = $dni;
+
+                continue;
+            }
+
+            $this->procesarFotoPerfil($colaborador, $archivo, $usuario);
+            $actualizados++;
+        }
+
+        return [
+            'actualizados' => $actualizados,
+            'sin_coincidencia' => $sinCoincidencia,
+            'duplicados' => $duplicados,
+        ];
+    }
+
+    /**
+     * A diferencia de los documentos del legajo (que deben conservarse
+     * fieles al original, ej. una copia de DNI escaneada), la foto de
+     * perfil SÍ se redimensiona y recomprime a WebP antes de guardarse —
+     * mismo criterio que Empresa::guardarLogo(), pero acá el archivo queda
+     * en el disco privado "local" (dato personal, servido por descarga
+     * autenticada), nunca en el disco público. Compartido entre el guardado
+     * individual y la importación masiva.
+     */
+    private function procesarFotoPerfil(Colaborador $colaborador, UploadedFile $archivo, User $usuario): void
+    {
         $anterior = $colaborador->documentos()->where('tipo', 'foto_perfil')->first();
         $carpeta = "colaboradores/{$colaborador->id}/foto_perfil";
         $ruta = "{$carpeta}/".Str::random(20).'.webp';
@@ -709,8 +780,6 @@ class ColaboradorService
         if ($anterior && $anterior->ruta !== $ruta) {
             Storage::disk('local')->delete($anterior->ruta);
         }
-
-        return $this->obtenerDetalle($empresa, $colaborador);
     }
 
     public function obtenerFotoPerfil(Empresa $empresa, Colaborador $colaborador): ?ColaboradorDocumento

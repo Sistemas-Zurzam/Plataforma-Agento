@@ -4,11 +4,9 @@ namespace Tests\Feature\Modules\Asistencia;
 
 use App\Models\User;
 use App\Modules\Asistencia\Application\ProcesarAsistenciaDiaria;
-use App\Modules\Asistencia\Models\AsistenciaAuditoria;
 use App\Modules\Asistencia\Models\AsistenciaMarcacion;
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\Horario;
-use App\Modules\Asistencia\Services\CarnetCredentialService;
 use App\Modules\Asistencia\Services\RegistrarMarcacionCarnetService;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Permission;
@@ -30,6 +28,12 @@ use Tymon\JWTAuth\Facades\JWTAuth;
  * helper de setup (crearColaboradorConHorario) se arma desde cero siguiendo
  * el patrón real de HorarioSeeder/ColaboradorHorarioAsignacion, no copiado
  * de un test existente.
+ *
+ * El código de barras del carnet ES `colaborador.numero_documento` — sin
+ * credencial generada/revocable por separado (ver el commit que retiró
+ * CarnetCredentialService/CredencialAcceso). Por eso ya no hace falta
+ * "generar" nada antes de escanear: cualquier test que necesite un código
+ * válido usa directamente `$colaborador->numero_documento`.
  */
 class ControlAccesoCarnetTest extends TestCase
 {
@@ -135,163 +139,14 @@ class ControlAccesoCarnetTest extends TestCase
         return User::factory()->create(['empresa_id' => $empresa->id])->refresh();
     }
 
-    // --- Credencial ------------------------------------------------------
-
-    public function test_generar_credencial_devuelve_token_una_sola_vez_y_persiste_solo_el_hash(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-
-        ['credencial' => $credencial, 'token' => $token] = app(CarnetCredentialService::class)
-            ->generar($empresa, $colaborador, $usuario);
-
-        $this->assertNotEmpty($token);
-        $this->assertSame(hash('sha256', $token), $credencial->token_hash);
-        $this->assertDatabaseMissing('colaborador_credenciales_acceso', ['token_hash' => $token]);
-    }
-
-    public function test_resolver_credencial_invalida_devuelve_null(): void
-    {
-        [$empresa] = $this->escenario();
-
-        $this->assertNull(app(CarnetCredentialService::class)->resolver('token-que-no-existe'));
-    }
-
-    public function test_regenerar_invalida_la_credencial_anterior(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-        $servicio = app(CarnetCredentialService::class);
-
-        ['token' => $tokenViejo] = $servicio->generar($empresa, $colaborador, $usuario);
-        ['token' => $tokenNuevo] = $servicio->regenerar($empresa, $colaborador, $usuario);
-
-        $this->assertNull($servicio->resolver($tokenViejo));
-        $this->assertNotNull($servicio->resolver($tokenNuevo));
-    }
-
-    public function test_revocar_credencial_impide_que_siga_funcionando(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-        $servicio = app(CarnetCredentialService::class);
-        ['credencial' => $credencial, 'token' => $token] = $servicio->generar($empresa, $colaborador, $usuario);
-
-        $servicio->revocar($empresa, $credencial, $usuario, 'Carnet perdido');
-
-        $this->assertNull($servicio->resolver($token));
-    }
-
-    public function test_serializar_la_credencial_directamente_no_expone_el_hash(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['credencial' => $credencial] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
-
-        // Segunda barrera además de que ningún controlador serialice el
-        // modelo directamente hoy: un toArray()/toJson() futuro tampoco
-        // debe filtrar el hash.
-        $this->assertArrayNotHasKey('token_hash', $credencial->toArray());
-    }
-
-    // --- Formato del token (20 dígitos numéricos) --------------------------
-
-    public function test_el_token_generado_tiene_exactamente_20_digitos_numericos(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
-
-        $this->assertMatchesRegularExpression('/^[0-9]{20}$/', $token);
-    }
-
-    public function test_el_token_generado_conserva_ceros_iniciales(): void
-    {
-        $servicio = app(CarnetCredentialService::class);
-        $generarToken = (new \ReflectionClass($servicio))->getMethod('generarToken');
-        $generarToken->setAccessible(true);
-
-        // random_int() por dígito puede generar un '0' inicial; si en algún
-        // punto el token pasara por un entero (en vez de construirse como
-        // string desde el inicio), ese cero se perdería y strlen() bajaría
-        // de 20. Se invoca generarToken() directo por reflexión (sin tocar
-        // la BD) para poder muestrear muchas veces barato: con 300 muestras
-        // la probabilidad de no ver ningún cero inicial es 0.9^300 ≈ 10⁻¹⁴
-        // — a diferencia de la versión anterior (20 muestras vía generar(),
-        // ~12% de probabilidad de fallar por pura mala suerte, y de hecho
-        // falló así en una corrida real).
-        $vioTokenConCeroInicial = false;
-        for ($i = 0; $i < 300; $i++) {
-            $token = $generarToken->invoke($servicio);
-            $this->assertSame(20, strlen($token), 'El token debe conservar sus 20 dígitos incluso con ceros a la izquierda.');
-            if (str_starts_with($token, '0')) {
-                $vioTokenConCeroInicial = true;
-            }
-        }
-        $this->assertTrue($vioTokenConCeroInicial, 'No se generó ningún token con cero inicial en 300 intentos — revisar generarToken().');
-    }
-
-    public function test_el_token_generado_no_contiene_letras(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
-
-        $this->assertFalse(ctype_alpha(str_replace(range('0', '9'), '', $token) ?: '0'));
-        $this->assertTrue(ctype_digit($token));
-    }
-
-    public function test_el_token_no_se_deriva_del_numero_documento_del_colaborador(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaborador($empresa, ['numero_documento' => '87654321']);
-
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
-
-        $this->assertNotSame($colaborador->numero_documento, $token);
-        $this->assertStringNotContainsString($colaborador->numero_documento, $token);
-    }
-
-    public function test_dos_generaciones_producen_tokens_distintos(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaboradorA = $this->crearColaboradorConHorario($empresa);
-        $colaboradorB = $this->crearColaboradorConHorario($empresa);
-        $servicio = app(CarnetCredentialService::class);
-
-        ['token' => $tokenA] = $servicio->generar($empresa, $colaboradorA, $usuario);
-        ['token' => $tokenB] = $servicio->generar($empresa, $colaboradorB, $usuario);
-
-        $this->assertNotSame($tokenA, $tokenB);
-    }
-
-    public function test_hash_de_la_credencial_sigue_siendo_sha256(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-
-        ['credencial' => $credencial, 'token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
-
-        $this->assertSame(64, strlen($credencial->token_hash));
-        $this->assertSame(hash('sha256', $token), $credencial->token_hash);
-    }
-
     // --- Validación del formato de `codigo` en el endpoint de escaneo -----
 
     /** @return array<string, array{0: string}> */
     public static function codigosConFormatoInvalidoProvider(): array
     {
         return [
-            'DNI de 8 dígitos' => ['87654321'],
-            'token hexadecimal del formato anterior (32 caracteres)' => ['a3ee28e5e69e1eaebc60660473e7fa86'],
-            '19 dígitos (uno menos)' => ['1234567890123456789'],
-            '21 dígitos (uno más)' => ['123456789012345678901'],
-            'espacio interno' => ['1234 6789012345678901'],
-            'guion interno' => ['1234-6789012345678901'],
-            'letras' => ['abcdefghij0123456789'],
             'vacío' => [''],
+            'más de 20 caracteres' => [str_repeat('1', 21)],
         ];
     }
 
@@ -309,28 +164,15 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         $this->viajarA('2026-10-05 08:00:00');
 
         // Algunas pistolas keyboard-wedge pueden arrastrar un salto de línea
         // — prepareForValidation() lo recorta, no debe rechazarse ni
         // alterar el código en sí.
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => "{$token}\n"], $this->cabecera($usuario))
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => "{$colaborador->numero_documento}\n"], $this->cabecera($usuario))
             ->assertOk()
             ->assertJsonPath('data.resultado', 'entrada_registrada');
-    }
-
-    public function test_auditoria_de_credencial_no_guarda_el_token(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
-
-        $registro = AsistenciaAuditoria::where('accion', 'credencial_generada')->firstOrFail();
-        $volcado = json_encode([$registro->antes, $registro->despues]);
-        $this->assertStringNotContainsString($token, $volcado);
     }
 
     // --- Escaneo: casos de error ------------------------------------------
@@ -339,25 +181,11 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
 
-        // Formato válido (20 dígitos) pero que no corresponde a ninguna
-        // credencial generada — caso distinto de "formato inválido" (ver
-        // la batería test_formato_de_codigo_* más abajo).
+        // Formato válido pero que no corresponde a ningún colaborador —
+        // caso distinto de "formato inválido" (ver la batería
+        // test_formato_de_codigo_* más arriba).
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => '99999999999999999999'])
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('credencial');
-    }
-
-    public function test_http_escanear_credencial_revocada_se_trata_como_no_reconocida(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-        $servicio = app(CarnetCredentialService::class);
-        ['credencial' => $credencial, 'token' => $token] = $servicio->generar($empresa, $colaborador, $usuario);
-        $servicio->revocar($empresa, $credencial, $usuario, 'Prueba');
-
-        $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => '99999999'])
             ->assertStatus(422)
             ->assertJsonValidationErrors('credencial');
     }
@@ -366,25 +194,23 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
         $colaborador->update(['activo' => false]);
 
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])
             ->assertStatus(422)
             ->assertJsonValidationErrors('colaborador');
     }
 
-    public function test_http_escanear_credencial_de_otra_empresa_no_revela_informacion(): void
+    public function test_http_escanear_dni_de_otra_empresa_no_revela_informacion(): void
     {
         [$empresaA, $usuarioA] = $this->escenario();
         $empresaB = Empresa::where('id', '!=', $empresaA->id)->firstOrFail();
         $colaboradorB = $this->crearColaboradorConHorario($empresaB);
-        ['token' => $tokenB] = app(CarnetCredentialService::class)->generar($empresaB, $colaboradorB, $usuarioA);
 
-        // $usuarioA tiene su empresa activa = $empresaA — el token es de B.
+        // $usuarioA tiene su empresa activa = $empresaA — el DNI es de B.
         $respuesta = $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuarioA)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $tokenB])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaboradorB->numero_documento])
             ->assertStatus(422);
 
         // Mismo mensaje/clave que "no reconocido" — no distingue "es de otra empresa".
@@ -410,11 +236,10 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuarioAdmin] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuarioAdmin);
         $usuarioVigilancia = $this->conPermisoControlAcceso($empresa);
 
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuarioVigilancia)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])
             ->assertOk();
     }
 
@@ -424,20 +249,17 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         $instante = $this->viajarA('2026-10-05 08:00:00'); // lunes
 
         $respuesta = $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])
             ->assertOk()
             ->assertJsonPath('data.resultado', 'entrada_registrada')
             ->assertJsonPath('data.origen', AsistenciaMarcacion::ORIGEN_CARNET_CODIGO_BARRAS);
 
-        // El nombre/hora sí se muestran; nada de datos sensibles ni el token.
+        // El nombre/hora sí se muestran; nada de datos sensibles.
         $respuesta->assertJsonMissingPath('data.token')
-            ->assertJsonMissingPath('data.token_hash')
-            ->assertJsonMissingPath('data.credencial_id')
             ->assertJsonMissingPath('data.colaborador.numero_documento');
 
         $marcacion = AsistenciaMarcacion::where('colaborador_id', $colaborador->id)->sole();
@@ -451,19 +273,41 @@ class ControlAccesoCarnetTest extends TestCase
         $this->assertSame($instante->format('Y-m-d H:i:s'), $marcacion->marcado_at->format('Y-m-d H:i:s'));
     }
 
+    /**
+     * `numero_documento` es texto (VARCHAR, sin cast numérico en el
+     * modelo), el input del kiosco es texto plano (sin type="number"), y
+     * CODE128C codifica el valor dígito a dígito, no como número — un DNI
+     * que empieza en '0' no debe perderlo en ningún punto de la cadena.
+     */
+    public function test_http_dni_con_cero_inicial_se_reconoce_correctamente(): void
+    {
+        [$empresa, $usuario] = $this->escenario();
+        $colaborador = $this->crearColaboradorConHorario($empresa);
+        $colaborador->update(['numero_documento' => '01234567']);
+
+        $this->viajarA('2026-10-05 08:00:00');
+
+        $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => '01234567'])
+            ->assertOk()
+            ->assertJsonPath('data.resultado', 'entrada_registrada');
+
+        $marcacion = AsistenciaMarcacion::where('colaborador_id', $colaborador->id)->sole();
+        $this->assertSame('01234567', $marcacion->person_id);
+    }
+
     public function test_http_segundo_escaneo_del_dia_fuera_de_la_ventana_registra_salida(): void
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         $this->viajarA('2026-10-05 08:00:00');
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])->assertOk();
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])->assertOk();
 
         $this->viajarA('2026-10-05 17:05:00');
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])
             ->assertOk()
             ->assertJsonPath('data.resultado', 'salida_registrada');
 
@@ -477,17 +321,16 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         $this->viajarA('2026-10-05 08:00:00');
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])
             ->assertJsonPath('data.resultado', 'entrada_registrada');
 
         // 3 segundos después — dentro de la ventana de antirrebote (10s default).
         $this->viajarA('2026-10-05 08:00:03');
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])
             ->assertOk()
             ->assertJsonPath('data.resultado', 'marcacion_duplicada');
 
@@ -506,12 +349,11 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
         $servicio = app(RegistrarMarcacionCarnetService::class);
 
         $this->viajarA('2026-10-05 08:00:00');
-        $servicio->registrar($empresa, $usuario, $token);
-        $servicio->registrar($empresa, $usuario, $token);
+        $servicio->registrar($empresa, $usuario, $colaborador->numero_documento);
+        $servicio->registrar($empresa, $usuario, $colaborador->numero_documento);
 
         $this->assertSame(1, AsistenciaMarcacion::where('colaborador_id', $colaborador->id)->count());
     }
@@ -522,18 +364,17 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa, nocturno: true);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         // Entrada lunes 22:00.
         $this->viajarA('2026-10-05 22:00:00');
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])
             ->assertJsonPath('data.resultado', 'entrada_registrada');
 
         // Salida martes 06:10 — más allá de la ventana de antirrebote y de medianoche.
         $this->viajarA('2026-10-06 06:10:00');
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])
             ->assertOk()
             ->assertJsonPath('data.resultado', 'salida_registrada');
 
@@ -550,7 +391,6 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         $this->viajarA('2026-10-05 08:00:00');
         AsistenciaPeriodo::create([
@@ -561,7 +401,7 @@ class ControlAccesoCarnetTest extends TestCase
         ]);
 
         $this->withHeaders(['Authorization' => 'Bearer '.$this->token($usuario)])
-            ->postJson('/api/control-acceso/escanear', ['codigo' => $token])
+            ->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento])
             ->assertStatus(422)
             ->assertJsonValidationErrors('fecha_desde');
 
@@ -582,16 +422,15 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         $this->viajarA('2026-10-05 08:00:00');
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($usuario))->assertJsonPath('data.resultado', 'entrada_registrada');
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($usuario))->assertJsonPath('data.resultado', 'entrada_registrada');
         $this->viajarA('2026-10-05 17:00:00');
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($usuario))->assertJsonPath('data.resultado', 'salida_registrada');
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($usuario))->assertJsonPath('data.resultado', 'salida_registrada');
 
         // 3er escaneo, fuera de la ventana de antirrebote.
         $this->viajarA('2026-10-05 19:00:00');
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($usuario))
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($usuario))
             ->assertOk()
             ->assertJsonPath('data.resultado', 'salida_registrada');
 
@@ -606,11 +445,10 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         foreach (['08:00:00', '13:00:00', '13:45:00', '17:30:00'] as $hora) {
             $this->viajarA("2026-10-05 {$hora}");
-            $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($usuario))->assertOk();
+            $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($usuario))->assertOk();
         }
 
         $this->assertSame(4, AsistenciaMarcacion::where('colaborador_id', $colaborador->id)->count());
@@ -623,7 +461,6 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         // Entrada "por huellero" — se crea directo, sin pasar por el carnet.
         AsistenciaMarcacion::create([
@@ -633,7 +470,7 @@ class ControlAccesoCarnetTest extends TestCase
         ]);
 
         $this->viajarA('2026-10-05 17:00:00');
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($usuario))
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($usuario))
             ->assertOk()
             ->assertJsonPath('data.resultado', 'salida_registrada');
 
@@ -646,10 +483,9 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         $this->viajarA('2026-10-05 08:00:00');
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($usuario))
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($usuario))
             ->assertJsonPath('data.resultado', 'entrada_registrada');
 
         // Salida "por huellero" — el kiosco no se entera de este escaneo,
@@ -669,16 +505,15 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         // Entrada lunes, SIN salida — queda como sesión abierta/incompleta.
         $this->viajarA('2026-10-05 08:00:00');
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($usuario))
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($usuario))
             ->assertJsonPath('data.resultado', 'entrada_registrada');
 
         // Escaneo NUEVO el miércoles — 2 días después, sin relación.
         $this->viajarA('2026-10-07 08:00:00');
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($usuario))
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($usuario))
             ->assertOk()
             ->assertJsonPath('data.resultado', 'entrada_registrada'); // NO "salida" del lunes.
 
@@ -694,14 +529,13 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
 
         $this->partialMock(ProcesarAsistenciaDiaria::class, function ($mock) {
             $mock->shouldReceive('procesar')->andThrow(new \RuntimeException('fallo simulado de reproceso'));
         });
 
         $this->viajarA('2026-10-05 08:00:00');
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($usuario))
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($usuario))
             ->assertOk()
             ->assertJsonPath('data.resultado', 'marcacion_registrada');
 
@@ -711,28 +545,7 @@ class ControlAccesoCarnetTest extends TestCase
         $this->assertSame(1, AsistenciaMarcacion::where('colaborador_id', $colaborador->id)->count());
     }
 
-    // --- Seguridad de endpoints (Vigilancia vs. gestión de credenciales) --
-
-    public function test_vigilancia_no_puede_generar_credenciales(): void
-    {
-        [$empresa] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-        $vigilancia = $this->conPermisoControlAcceso($empresa);
-
-        $this->postJson("/api/colaboradores/{$colaborador->id}/credencial-carnet", [], $this->cabecera($vigilancia))
-            ->assertStatus(403);
-    }
-
-    public function test_vigilancia_no_puede_revocar_credenciales(): void
-    {
-        [$empresa, $usuario] = $this->escenario();
-        $colaborador = $this->crearColaboradorConHorario($empresa);
-        app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
-        $vigilancia = $this->conPermisoControlAcceso($empresa);
-
-        $this->deleteJson("/api/colaboradores/{$colaborador->id}/credencial-carnet", ['motivo' => 'x'], $this->cabecera($vigilancia))
-            ->assertStatus(403);
-    }
+    // --- Seguridad de endpoints ---------------------------------------------
 
     public function test_vigilancia_no_puede_ver_colaboradores(): void
     {
@@ -740,18 +553,6 @@ class ControlAccesoCarnetTest extends TestCase
         $vigilancia = $this->conPermisoControlAcceso($empresa);
 
         $this->getJson('/api/asistencia/colaboradores', $this->cabecera($vigilancia))->assertStatus(403);
-    }
-
-    public function test_gestion_de_credenciales_exige_permiso_administrativo_y_empresa_activa(): void
-    {
-        [$empresaA, $usuarioA] = $this->escenario();
-        $empresaB = Empresa::where('id', '!=', $empresaA->id)->firstOrFail();
-        $colaboradorB = $this->crearColaboradorConHorario($empresaB);
-
-        // $usuarioA tiene permiso "colaboradores.editar" (admin), pero su
-        // empresa ACTIVA es A — no puede generar para un colaborador de B.
-        $this->postJson("/api/colaboradores/{$colaboradorB->id}/credencial-carnet", [], $this->cabecera($usuarioA))
-            ->assertStatus(404);
     }
 
     // --- No se rompe lo existente -----------------------------------------
@@ -884,11 +685,10 @@ class ControlAccesoCarnetTest extends TestCase
     {
         [$empresa, $usuario] = $this->escenario();
         $colaborador = $this->crearColaboradorConHorario($empresa);
-        ['token' => $token] = app(CarnetCredentialService::class)->generar($empresa, $colaborador, $usuario);
         $vigilancia = $this->conPermisoControlAcceso($empresa);
 
         $this->viajarA('2026-10-05 08:00:00');
-        $this->postJson('/api/control-acceso/escanear', ['codigo' => $token], $this->cabecera($vigilancia))
+        $this->postJson('/api/control-acceso/escanear', ['codigo' => $colaborador->numero_documento], $this->cabecera($vigilancia))
             ->assertJsonPath('data.resultado', 'entrada_registrada');
 
         // 3 segundos después, alguien intenta registrar manualmente a la

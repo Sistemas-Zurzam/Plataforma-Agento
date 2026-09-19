@@ -5,20 +5,20 @@ import JsBarcode from 'jsbarcode';
  * Código de barras REAL (Code 128, subset C) para marcación de asistencia
  * por carnet — a diferencia del patrón de barras decorativo que traían las
  * plantillas (copiado tal cual del mockup de Figma, "Placeholder — NOT
- * PRODUCTION"), `valor` acá es la credencial segura (el token de 20 dígitos
- * que imprime el carnet, nunca el DNI ni el ID del colaborador — ver
- * CarnetCredentialService en el backend).
+ * PRODUCTION"), `valor` acá ES `colaborador.numero_documento` (decisión
+ * explícita del negocio: sin credencial generada/revocable por separado —
+ * ver RegistrarMarcacionCarnetService::registrar() en el backend).
  *
- * `format: 'CODE128C'` explícito (no `'CODE128'`, que autodetecta el subset
- * según el contenido): CODE128C empaca 2 dígitos por símbolo (~11 módulos
- * cada 2), la única razón por la que un token de 20 dígitos entra en el
- * bloque inferior de una tarjeta CR80 (54mm) — con autodetección, un cambio
- * futuro del formato del token podría silenciosamente caer a un subset menos
- * denso y desbordar la tarjeta sin ningún error visible. CODE128C exige
- * además que `valor` tenga una cantidad PAR de dígitos y NADA más que
- * dígitos — jsbarcode lanza si no, por eso el try/catch de abajo: si algún
- * día llega un valor que no cumpla el formato vigente, se prefiere no
- * dibujar nada a que la excepción rompa el modal completo.
+ * `CODE128C` (subset numérico, empaqueta 2 dígitos por símbolo) se usa
+ * cuando `valor` es solo dígitos en cantidad PAR — el caso más compacto,
+ * ideal para el bloque inferior de una tarjeta CR80 (54mm). Cuando no
+ * cumple eso (un DNI de 9 dígitos como "006884947", cantidad impar; o un
+ * carné de extranjería con letras) se cae a `CODE128` general, que
+ * codifica el valor exacto igual, solo que un poco menos compacto — nunca
+ * se deja de dibujar el código por esto. El try/catch de abajo sigue ahí
+ * como última red: si aun así jsbarcode lanza (ej. un carácter no
+ * imprimible), se prefiere no dibujar nada a que la excepción rompa el
+ * modal completo.
  *
  * anchoBarra/alto (px) son unidades SVG del ORIGEN de cada plantilla, que
  * luego se imprime a tamaño físico real (ver el comentario de
@@ -30,8 +30,8 @@ import JsBarcode from 'jsbarcode';
  * escalados (ver CarnetColaborador.jsx) para mantener la misma proporción
  * física, no estos por defecto.
  *
- * displayValue siempre en false: el texto legible debajo del código NUNCA
- * debe mostrar la credencial completa.
+ * displayValue siempre en false: el texto legible debajo del código no
+ * duplica el número de documento (ya se muestra aparte en el carnet).
  */
 export default function CarnetBarcode({ valor, anchoBarra = 2.7, alto = 110, color = '#000000' }) {
   const svgRef = useRef(null);
@@ -39,9 +39,11 @@ export default function CarnetBarcode({ valor, anchoBarra = 2.7, alto = 110, col
   useEffect(() => {
     if (!svgRef.current || !valor) return;
 
+    const esNumericoPar = /^\d+$/.test(valor) && valor.length % 2 === 0;
+
     try {
       JsBarcode(svgRef.current, valor, {
-        format: 'CODE128C',
+        format: esNumericoPar ? 'CODE128C' : 'CODE128',
         width: anchoBarra,
         height: alto,
         displayValue: false,
@@ -50,7 +52,7 @@ export default function CarnetBarcode({ valor, anchoBarra = 2.7, alto = 110, col
         lineColor: color,
       });
     } catch (error) {
-      console.error('No se pudo generar el código de barras: el valor no tiene el formato esperado (20 dígitos).', error);
+      console.error('No se pudo generar el código de barras: el número de documento no tiene el formato esperado (solo dígitos, cantidad par).', error);
     }
   }, [valor, anchoBarra, alto, color]);
 

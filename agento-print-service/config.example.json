@@ -1,0 +1,15 @@
+{
+  "Puerto": 5588,
+  "Token": "CAMBIA-ESTO-por-un-valor-unico-y-secreto",
+  "OrigenesPermitidos": [
+    "https://dev.agento.com.pe",
+    "http://localhost:5173"
+  ],
+  "NombreImpresora": "",
+  "AnchoMm": 54,
+  "AltoMm": 86,
+  "Ranura": 2,
+  "MargenSeguridadMm": 0,
+  "DesplazamientoXmm": 0,
+  "DesplazamientoYmm": 0
+}
