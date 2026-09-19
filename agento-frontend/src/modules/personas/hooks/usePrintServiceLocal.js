@@ -3,6 +3,15 @@ import { useCallback, useEffect, useState } from 'react';
 const CLAVE_TOKEN = 'agento_print_service_token';
 const URL_BASE = 'http://127.0.0.1:5588';
 
+// Chromium/Brave 141+ exige declarar de forma explícita que estas peticiones
+// HTTPS -> HTTP apuntan al propio equipo. Así puede aplicar el permiso
+// "Red local" / "loopback" concedido por el usuario y relajar el bloqueo de
+// contenido mixto únicamente para este destino local.
+const OPCIONES_LOOPBACK = {
+  mode: 'cors',
+  targetAddressSpace: 'loopback',
+};
+
 /**
  * Puente hacia Agento Print Service (servicio PowerShell local, ver
  * agento-print-service/ en la raíz del repo) — permite imprimir el carnet
@@ -22,7 +31,7 @@ export function usePrintServiceLocal() {
 
   useEffect(() => {
     let cancelado = false;
-    fetch(`${URL_BASE}/health`)
+    fetch(`${URL_BASE}/health`, OPCIONES_LOOPBACK)
       .then((respuesta) => { if (!cancelado && respuesta.ok) setDisponible(true); })
       .catch(() => {});
     return () => { cancelado = true; };
@@ -39,6 +48,7 @@ export function usePrintServiceLocal() {
     }
 
     const respuesta = await fetch(`${URL_BASE}/print/carnet`, {
+      ...OPCIONES_LOOPBACK,
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Agento-Token': token },
       body: JSON.stringify(cuerpo),
