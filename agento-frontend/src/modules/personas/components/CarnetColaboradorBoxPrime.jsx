@@ -65,7 +65,16 @@ export default function CarnetColaboradorBoxPrime({ colaborador, fotoUrl }) {
           )}
         </div>
 
-        <div className="flex w-full flex-col items-center gap-[60px]">
+        {/* gap-[15px] (no los 60px que mide Figma entre el código de barras y
+          el pie): el placeholder de Figma para el código de barras mide 80px
+          de alto, pero CarnetBarcode usa 110px reales (10-12mm, necesarios
+          para que el lector físico lo escanee bien) — esos 30px de más ya se
+          "gastan" en el alto real del propio código. Se resta un poco más
+          del gap original (30px) para que el pie quede con más aire respecto
+          al borde inferior en vez de pegado a él (ajuste visual pedido tras
+          ver el resultado ya sin recorte; mismo criterio en
+          CarnetColaboradorLivex). */}
+        <div className="flex w-full flex-col items-center gap-[15px]">
           <div className="flex w-full flex-col items-center gap-10">
             <div className="flex flex-col items-center gap-3 text-center text-[#171719]">
               <p className="text-[40px] leading-none font-bold">{nombreCarnet}</p>

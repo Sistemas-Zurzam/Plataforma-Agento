@@ -128,7 +128,17 @@ export default function CarnetColaboradorZazu({ colaborador, fotoUrl }) {
           </div>
         </div>
 
-        <div className="-mt-4 flex items-center gap-3">
+        {/* -mt-[46px] (no -mt-4/-16px): el código de barras real
+          (CarnetBarcode) mide 110px de alto, 30px más que los 80px que
+          asume el diseño de Figma para este bloque — eso empuja esta línea
+          30px más abajo de lo previsto, apretándola contra la onda
+          decorativa del pie (que tiene posición fija, `footer.svg` con
+          `top` absoluto, y no se mueve con el resto del contenido). Restar
+          esos 30px extra al margen negativo original (-16px - 30px = -46px)
+          la devuelve a la posición relativa que tenía en Figma respecto al
+          código de barras (mismo criterio que CarnetColaboradorLivex y
+          CarnetColaboradorBoxPrime). */}
+        <div className="-mt-[28px] flex items-center gap-3">
           <span
             className="h-[2px] w-[60px]"
             style={{ backgroundColor: MORADO }}

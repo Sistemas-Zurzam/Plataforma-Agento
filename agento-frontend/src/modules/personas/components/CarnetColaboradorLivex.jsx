@@ -47,16 +47,15 @@ export default function CarnetColaboradorLivex({ colaborador, fotoUrl }) {
         altura real del texto renderizado en el navegador coincidiera con la
         altura que asume Figma, y no coincidía (el logo terminaba pegado al
         borde superior). Verificado contra get_metadata el 2026-09-18. */}
-      {/* gap-[30px] (no los 60px que mide Figma entre el código de barras y
+      {/* gap-[15px] (no los 60px que mide Figma entre el código de barras y
         el pie): el placeholder de Figma para el código de barras mide 80px
         de alto, pero CarnetBarcode usa 110px reales (10-12mm, necesarios
         para que el lector físico lo escanee bien) — esos 30px de más ya se
-        "gastan" en el alto real del propio código, así que acá se restan
-        del gap siguiente para que el pie vuelva a caer donde Figma lo
-        ubicó relativo al borde inferior de la tarjeta (~33px de margen,
-        simétrico con el pt-[33px] de arriba), en vez de quedar pegado al
-        borde y recortado por el overflow-hidden del contenedor. */}
-      <div className="absolute inset-0 flex flex-col items-center gap-[30px] pt-[33px]">
+        "gastan" en el alto real del propio código. Se resta un poco más del
+        gap original (30px) para que el pie quede con más aire respecto al
+        borde inferior en vez de pegado a él (ajuste visual pedido tras ver
+        el resultado ya sin recorte). */}
+      <div className="absolute inset-0 flex flex-col items-center gap-[15px] pt-[33px]">
         <div className="flex w-full flex-col items-center gap-10">
           <div className="flex flex-col items-center gap-8">
             <div className="flex w-[285px] flex-col items-center gap-8">
