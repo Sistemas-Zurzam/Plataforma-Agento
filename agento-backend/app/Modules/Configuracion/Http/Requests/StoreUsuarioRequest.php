@@ -31,6 +31,7 @@ class StoreUsuarioRequest extends FormRequest
             'empresa_ids' => ['required', 'array', 'min:1'],
             'empresa_ids.*' => [
                 'integer',
+                'distinct',
                 'exists:empresas,id',
                 function ($attribute, $value, $fail) {
                     $usuario = $this->user('api');

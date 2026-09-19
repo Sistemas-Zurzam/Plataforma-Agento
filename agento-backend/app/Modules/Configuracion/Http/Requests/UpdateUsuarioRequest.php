@@ -48,6 +48,30 @@ class UpdateUsuarioRequest extends FormRequest
                 'email',
                 Rule::unique('users', 'email')->ignore($usuario),
             ],
+            'role_id' => ['nullable', 'integer', 'exists:roles,id'],
+            'empresa_ids' => [
+                'required',
+                'array',
+                'min:1',
+                function ($attribute, $value, $fail) {
+                    if (! in_array($this->user('api')->empresa_id, $value, true)) {
+                        $fail('El usuario debe permanecer en la empresa activa.');
+                    }
+                },
+            ],
+            'empresa_ids.*' => [
+                'integer',
+                'distinct',
+                'exists:empresas,id',
+                function ($attribute, $value, $fail) {
+                    $actor = $this->user('api');
+
+                    if (! $actor->esAdministradorGlobal()
+                        && ! $actor->empresas()->where('empresas.id', $value)->exists()) {
+                        $fail('No tienes acceso a una de las empresas seleccionadas.');
+                    }
+                },
+            ],
             'area_id' => [
                 'nullable',
                 'integer',
@@ -59,7 +83,7 @@ class UpdateUsuarioRequest extends FormRequest
 
                     $perteneceAEmpresa = Area::withoutGlobalScope(EmpresaScope::class)
                         ->where('id', $value)
-                        ->where('empresa_id', $this->user('api')->empresa_id)
+                        ->whereIn('empresa_id', $this->input('empresa_ids', []))
                         ->exists();
 
                     if (! $perteneceAEmpresa) {

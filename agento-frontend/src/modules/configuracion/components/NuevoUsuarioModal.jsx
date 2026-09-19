@@ -8,19 +8,31 @@ import AreaSelect from './AreaSelect';
  * inicial, ya que el rol le da acceso a todas automáticamente) y para el
  * resto de roles permite elegir varias.
  */
-function EmpresaSelector({ value, onChange, empresas, multiple }) {
+export function EmpresaSelector({ value, onChange, empresas, multiple }) {
   const options = empresas.map((empresa) => ({ value: empresa.id, label: empresa.nombre_comercial }));
 
   if (multiple) {
+    const todasSeleccionadas = empresas.length > 0 && value?.length === empresas.length;
     return (
       <Select
         mode="multiple"
         placeholder="Selecciona una o más empresas"
         value={value}
-        onChange={onChange}
+        onChange={(seleccion) => {
+          if (seleccion.includes('__todas__')) {
+            onChange(empresas.map((empresa) => empresa.id));
+            return;
+          }
+          onChange(seleccion);
+        }}
         showSearch
         optionFilterProp="label"
-        options={options}
+        maxTagCount={todasSeleccionadas ? 0 : 'responsive'}
+        maxTagPlaceholder={() => todasSeleccionadas ? 'Todas las empresas' : `+${value?.length ?? 0}`}
+        options={[
+          { value: '__todas__', label: 'Todas las empresas' },
+          ...options,
+        ]}
       />
     );
   }

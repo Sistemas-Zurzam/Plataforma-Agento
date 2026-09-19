@@ -1,11 +1,13 @@
 import { Form, Input, Modal, Select } from 'antd';
 import { useEffect } from 'react';
 import AreaSelect from './AreaSelect';
+import { EmpresaSelector } from './NuevoUsuarioModal';
 
 export default function EditarUsuarioModal({
   open,
   usuario,
   roles,
+  empresas,
   onSubmit,
   onCancel,
   submitting,
@@ -14,6 +16,7 @@ export default function EditarUsuarioModal({
   const [form] = Form.useForm();
   const puedeCrearArea = user?.permisos?.includes('areas.crear');
   const puedeCambiarRol = user?.permisos?.includes('usuarios.cambiar_rol');
+  const empresaIds = Form.useWatch('empresa_ids', form) ?? [];
 
   useEffect(() => {
     if (open && usuario) {
@@ -23,6 +26,7 @@ export default function EditarUsuarioModal({
         email: usuario.email,
         area_id: usuario.area?.id,
         role_id: usuario.role?.id,
+        empresa_ids: usuario.empresas?.map((empresa) => empresa.id) ?? [usuario.empresa?.id].filter(Boolean),
         password: '',
       });
     }
@@ -72,8 +76,21 @@ export default function EditarUsuarioModal({
           <Input placeholder="ana.torres@empresa.com" />
         </Form.Item>
 
+        <Form.Item
+          label="Empresas"
+          name="empresa_ids"
+          rules={[{ required: true, type: 'array', min: 1, message: 'Selecciona al menos una empresa' }]}
+        >
+          <EmpresaSelector empresas={empresas} multiple />
+        </Form.Item>
+
         <Form.Item label="Área" name="area_id">
-          <AreaSelect empresaId={usuario?.empresa?.id} puedeCrear={puedeCrearArea} />
+          <AreaSelect
+            key={empresaIds.join(',') || 'none'}
+            empresaId={empresaIds[0]}
+            disabled={!empresaIds[0]}
+            puedeCrear={puedeCrearArea}
+          />
         </Form.Item>
 
         {puedeCambiarRol && (
