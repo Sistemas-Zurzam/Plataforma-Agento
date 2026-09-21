@@ -2,6 +2,7 @@ import {
   BarChartOutlined,
   ClockCircleOutlined,
   CustomerServiceOutlined,
+  ScanOutlined,
   SettingOutlined,
   TeamOutlined,
   UserSwitchOutlined,
@@ -24,8 +25,23 @@ const { Sider } = Layout;
  * tiene motor de cálculo y UI real (ver GestionRemuneraciones.jsx) — se
  * habilita con el permiso nominas.ver.
  */
-function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas) {
+function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso) {
   const principal = [];
+
+  // El kiosco (`/control-acceso`) es una pantalla aparte, sin sidebar/header
+  // (ver App.jsx) — este ítem hace una navegación real de página (no el
+  // `navigate()` interno de AppLayout, que solo hace pushState y no
+  // desmonta AppLayout), ver el onClick del Menu más abajo. Es el único
+  // punto de entrada dentro de la app para un usuario con permiso
+  // `control_acceso.marcar` (rol Vigilancia u otro) — antes no existía
+  // ninguno, había que escribir la URL a mano.
+  if (puedeControlAcceso) {
+    principal.push({
+      key: 'control-acceso',
+      icon: <ScanOutlined />,
+      label: 'Control de Acceso',
+    });
+  }
 
   if (isAdmin || puedeVerHorarios || puedeVerNominas) {
     principal.push({
@@ -112,9 +128,10 @@ export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, 
   const puedeVerHorarios = user?.permisos?.includes('horarios.ver');
   const puedeVerAsistencia = user?.permisos?.includes('asistencia.ver');
   const puedeVerNominas = user?.permisos?.includes('nominas.ver');
+  const puedeControlAcceso = user?.permisos?.includes('control_acceso.marcar');
   const menuItems = useMemo(
-    () => buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas),
-    [isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas],
+    () => buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso),
+    [isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso],
   );
 
   return (
@@ -187,7 +204,15 @@ export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, 
           mode="inline"
           selectedKeys={[selectedKey]}
           items={menuItems}
-          onClick={({ key }) => onSelect(key)}
+          onClick={({ key }) => {
+            // Navegación real de página, no el `navigate()` SPA de
+            // AppLayout — ver el comentario en buildMenuItems().
+            if (key === 'control-acceso') {
+              window.location.assign('/control-acceso');
+              return;
+            }
+            onSelect(key);
+          }}
           style={{ borderInlineEnd: 'none', paddingTop: 8, background: 'transparent' }}
           className="agento-sidebar-menu px-2"
         />

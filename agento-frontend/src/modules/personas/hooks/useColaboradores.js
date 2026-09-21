@@ -204,6 +204,19 @@ export function useColaboradores() {
     return data.data;
   }, []);
 
+  // Cada archivo debe llamarse exactamente "<dni>.jpg" (o .jpeg/.png/.webp)
+  // — el backend empareja por ese nombre contra numero_documento, nunca por
+  // un id enviado desde acá. Mismo alcance de empresas que el listado.
+  const importarFotosMasivo = useCallback(async (archivos, todasEmpresas = false) => {
+    const formulario = new FormData();
+    archivos.forEach((archivo) => formulario.append('archivos[]', archivo));
+    if (todasEmpresas) formulario.append('todas_empresas', '1');
+    const { data } = await api.post('/colaboradores/fotos-perfil/importar-masivo', formulario, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data.data;
+  }, []);
+
   return {
     colaboradores,
     stats,
@@ -234,5 +247,6 @@ export function useColaboradores() {
     descargarPlantilla,
     previsualizarImportacion,
     confirmarImportacion,
+    importarFotosMasivo,
   };
 }

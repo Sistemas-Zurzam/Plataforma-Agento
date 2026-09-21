@@ -113,8 +113,8 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
     <p>Registra únicamente los colaboradores y montos aprobados por Gerencia. Para porcentajes distintos, registra cada grupo con su importe autorizado.</p>
     <div className="flex flex-wrap items-end gap-3">
       <div>
-        <div className="mb-1 text-xs font-medium text-gray-600">Días asistidos</div>
-        <InputNumber min={1} max={31} value={dias} onChange={setDias} />
+        <div className="mb-1 text-xs font-medium text-gray-600">Días pagados en la boleta</div>
+        <InputNumber min={1} max={30} value={dias} onChange={setDias} />
       </div>
       <div>
         <div className="mb-1 text-xs font-medium text-gray-600">Comparación</div>
@@ -163,7 +163,7 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
       columns={[
         { title: 'Colaborador', dataIndex: 'colaborador' },
         { title: 'Documento', dataIndex: 'documento', width: 120 },
-        { title: 'Días asistidos', dataIndex: 'dias_asistidos', width: 120, align: 'center' },
+        { title: 'Días pagados', dataIndex: 'dias_asistidos', width: 120, align: 'center' },
         { title: 'Estado', width: 240, render: (_, c) => c.disponible
           ? <Tag color="green" icon={<CheckCircleOutlined />}>Disponible</Tag>
           : <Tag>{c.motivo ?? 'No disponible'}</Tag> },
@@ -174,7 +174,7 @@ export default function BonoAsistenciaComplementariaPanel({ ciclo, api, onUpdate
     <Button type="primary" loading={aplicando} disabled={!seleccion.length || !aprobacionConfirmada} onClick={aplicar}>
       Aplicar bono a {seleccion.length} colaborador{seleccion.length === 1 ? '' : 'es'}
     </Button>
-    <p className="text-xs text-gray-500">Se crea una nueva planilla complementaria solo con los colaboradores seleccionados; la boleta original ya pagada no se modifica.</p>
+    <p className="text-xs text-gray-500">El filtro usa los días pagados consolidados en la boleta (máximo laboral de 30), por lo que no cuenta descansos como días adicionales. Se crea una nueva planilla complementaria solo con los colaboradores seleccionados; la boleta original ya pagada no se modifica.</p>
     </>}
   </div>;
 }

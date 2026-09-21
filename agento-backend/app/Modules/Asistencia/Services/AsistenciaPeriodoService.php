@@ -11,6 +11,7 @@ use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -34,6 +35,7 @@ class AsistenciaPeriodoService
         private readonly AsistenciaAuditoriaService $auditoria,
         private readonly AsegurarCoberturaAsistenciaPeriodo $cobertura,
         private readonly AsignarDescansoFlexibleSemanal $descansoFlexible,
+        private readonly NotificarCambioAsistenciaCiclo $notificarCambioAsistencia,
     ) {}
 
     /**
@@ -185,6 +187,27 @@ class AsistenciaPeriodoService
                     'version' => $periodo->version + 1, 'snapshot_nomina' => null,
                     'enviado_nomina_at' => null, 'enviado_nomina_por' => null,
                 ]);
+
+                // Incremento 3 del endurecimiento Asistencia -> Nómina:
+                // reabrir el período es en sí mismo la señal de "esto puede
+                // volver a cambiar" -- se notifica por cada colaborador que
+                // realmente tenía datos en el rango (no todo el plantel),
+                // vía afterCommit() para no marcar ningún ciclo si esta
+                // transacción termina en rollback.
+                $colaboradorIds = AsistenciaResultadoDiario::query()
+                    ->where('empresa_id', $empresa->id)
+                    ->where('fecha', '>=', $periodo->fecha_inicio->toDateString())
+                    ->where('fecha', '<', $periodo->fecha_fin->copy()->addDay()->toDateString())
+                    ->distinct()->pluck('colaborador_id');
+                DB::afterCommit(function () use ($empresa, $periodo, $colaboradorIds) {
+                    foreach ($colaboradorIds as $colaboradorId) {
+                        $this->notificarCambioAsistencia->notificar(
+                            $empresa->id, $colaboradorId,
+                            $periodo->fecha_inicio->toDateString(), $periodo->fecha_fin->toDateString(),
+                            "Se reabrió el período de asistencia {$periodo->fecha_inicio->toDateString()} – {$periodo->fecha_fin->toDateString()}.",
+                        );
+                    }
+                });
             } elseif ($accion === 'enviar_nomina' && $periodo->estado === 'cerrado') {
                 // Defensa en profundidad para períodos cerrados ANTES de la
                 // Fase 4A (nunca pasaron por prepararCierre()/cambiarEstado('cerrar')

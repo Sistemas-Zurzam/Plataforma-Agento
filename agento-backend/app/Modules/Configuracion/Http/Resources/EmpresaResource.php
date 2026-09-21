@@ -26,6 +26,7 @@ class EmpresaResource extends JsonResource
             'direccion' => $this->direccion,
             'color' => $this->color,
             'logo_url' => $this->logo_path ? Storage::disk('public')->url($this->logo_path) : null,
+            'plantilla_carnet' => $this->plantilla_carnet,
             'regimen_laboral' => $this->regimen_laboral,
             'inscrita_remype' => $this->inscrita_remype,
             'fecha_inscripcion_remype' => $this->fecha_inscripcion_remype?->toDateString(),
@@ -33,6 +34,7 @@ class EmpresaResource extends JsonResource
             'seguro_salud' => $this->seguro_salud,
             'activa' => $this->activa,
             'descanso_flexible_automatico' => $this->descanso_flexible_automatico,
+            'bono_asistencia_habilitado' => $this->bono_asistencia_habilitado,
             // Un administrador global opera como Administrador en TODAS las
             // empresas, incluidas las que no traen `pivot` cargado (porque
             // vinieron de Empresa::all(), no de $user->empresas()) — ver

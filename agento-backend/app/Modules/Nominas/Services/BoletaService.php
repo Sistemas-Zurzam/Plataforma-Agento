@@ -7,6 +7,7 @@ use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
+use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -28,6 +29,7 @@ class BoletaService
         private readonly CalcularBoletaColaborador $calculador,
         private readonly CalcularReciboHonorarios $calculadorHonorarios,
         private readonly IncidenciasPendientesNominaService $incidenciasPendientes,
+        private readonly VerificarConsistenciaAsistenciaCiclo $consistenciaAsistencia,
     ) {}
 
     /**
@@ -357,6 +359,7 @@ class BoletaService
     public function calcularPlanilla(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): array
     {
         $this->verificarPertenencia($empresa, $ciclo);
+        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
 
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([
@@ -398,6 +401,7 @@ class BoletaService
     public function iniciarCalculoAsync(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
+        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
 
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([

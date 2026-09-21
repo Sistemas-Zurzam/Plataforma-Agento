@@ -15,7 +15,14 @@ trait CreaColaboradorDePrueba
     {
         $empresa ??= Empresa::firstOrFail();
         $sufijo = uniqid();
-        $sede = Sede::create(['empresa_id' => $empresa->id, 'codigo' => "LIQ-{$sufijo}", 'nombre' => 'Sede Test', 'activa' => true]);
+        // sedes.codigo es VARCHAR(10) — "LIQ-{$sufijo}" (17 caracteres) lo
+        // excedía; SQLite no lo hacía cumplir y dejaba pasar el fixture
+        // silenciosamente, pero MySQL sí (Data too long, SQLSTATE 22001).
+        // sha1(uniqid(more_entropy: true)) da más entropía que uniqid() solo,
+        // así que 8 caracteres alcanzan para no colisionar entre llamadas
+        // sucesivas rápidas dentro del mismo test.
+        $codigoSede = 'S'.substr(sha1(uniqid('', true)), 0, 8);
+        $sede = Sede::create(['empresa_id' => $empresa->id, 'codigo' => $codigoSede, 'nombre' => 'Sede Test', 'activa' => true]);
         $area = Area::create(['empresa_id' => $empresa->id, 'nombre' => "Área Test {$sufijo}", 'activa' => true]);
         $horario = Horario::create(['empresa_id' => $empresa->id, 'nombre' => 'Horario Test', 'tipo_turno' => 'normal', 'vigencia_desde' => today(), 'activo' => true]);
         $colaborador = Colaborador::create([

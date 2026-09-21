@@ -45,6 +45,7 @@ class PermissionSeeder extends Seeder
             ['clave' => 'asistencia.horas_extra', 'nombre' => 'Aprobar horas extra', 'grupo' => 'Asistencia'],
             ['clave' => 'asistencia.periodos', 'nombre' => 'Gestionar períodos de asistencia', 'grupo' => 'Asistencia'],
             ['clave' => 'asistencia.aprobar_rrhh', 'nombre' => 'Aprobación final de RR.HH.', 'grupo' => 'Asistencia'],
+            ['clave' => 'control_acceso.marcar', 'nombre' => 'Marcar asistencia por carnet (Kiosco de Control de Acceso)', 'grupo' => 'Asistencia'],
             ['clave' => 'colaboradores.crear', 'nombre' => 'Crear colaboradores', 'grupo' => 'Colaboradores'],
             ['clave' => 'colaboradores.editar', 'nombre' => 'Editar colaboradores', 'grupo' => 'Colaboradores'],
             ['clave' => 'colaboradores.cesar', 'nombre' => 'Cesar colaboradores', 'grupo' => 'Colaboradores'],

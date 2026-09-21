@@ -7,6 +7,7 @@ use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Afp;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Personas\Http\Requests\ImportarColaboradoresRequest;
+use App\Modules\Personas\Http\Requests\ImportarFotosPerfilRequest;
 use App\Modules\Personas\Http\Requests\StoreColaboradorRequest;
 use App\Modules\Personas\Http\Resources\ColaboradorResource;
 use App\Modules\Personas\Infrastructure\ColaboradorPlantillaGenerator;
@@ -398,6 +399,26 @@ class ColaboradorController extends Controller
             $datos['archivo'],
             $request->user('api'),
         ));
+    }
+
+    /**
+     * Empareja cada foto con su colaborador por DNI (nombre del archivo sin
+     * extensión, ej. "70826733.jpg") — mismo alcance de empresas que la
+     * lista de colaboradores (resolverEmpresaIds), nunca confía en un
+     * empresa_id enviado por archivo.
+     */
+    public function importarFotosPerfilMasivo(ImportarFotosPerfilRequest $request): JsonResponse
+    {
+        $resultado = $this->colaboradores->importarFotosPerfilMasivo(
+            $this->resolverEmpresaIds($request),
+            $request->file('archivos'),
+            $request->user('api'),
+        );
+
+        return response()->json([
+            'message' => "{$resultado['actualizados']} fotos de perfil actualizadas.",
+            'data' => $resultado,
+        ]);
     }
 
     public function verFotoPerfil(Request $request, Colaborador $colaborador)

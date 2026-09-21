@@ -46,6 +46,7 @@ export default function EmpresaFormModal({
         numero_registro_remype: initialValues?.numero_registro_remype ?? '',
         seguro_salud: initialValues?.seguro_salud ?? 'essalud',
         descanso_flexible_automatico: initialValues?.descanso_flexible_automatico ?? false,
+        bono_asistencia_habilitado: initialValues?.bono_asistencia_habilitado ?? false,
       });
     }
   }, [open, initialValues, form]);
@@ -184,6 +185,15 @@ export default function EmpresaFormModal({
             name="descanso_flexible_automatico"
             valuePropName="checked"
             extra="Para colaboradores rotativos: el primer día elegible sin marcaciones de la semana se clasifica solo como descanso, los siguientes como falta -- respetando siempre permisos, feriados y trabajo real. Con esto apagado (por defecto), nada cambia."
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            label="Bono de asistencia habilitado"
+            name="bono_asistencia_habilitado"
+            valuePropName="checked"
+            extra="Política específica de esta empresa (actualmente Livex): habilita la pestaña 'Bonos' en Gestión de Remuneraciones para calcular y aplicar el bono de asistencia. Con esto apagado (por defecto), la pestaña queda deshabilitada."
           >
             <Switch />
           </Form.Item>

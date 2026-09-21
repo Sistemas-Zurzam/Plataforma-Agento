@@ -19,6 +19,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[Fillable([
     'empresa_id', 'nombre', 'periodicidad', 'fecha_inicio', 'fecha_fin', 'fecha_corte_asistencia', 'fecha_pago', 'estado', 'creado_por',
     'calculo_estado', 'calculo_iniciado_at', 'calculo_finalizado_at', 'calculo_resultado',
+    'requiere_recalculo', 'recalculo_motivo', 'recalculo_detectado_at',
 ])]
 class CicloRemunerativo extends Model
 {
@@ -34,6 +35,8 @@ class CicloRemunerativo extends Model
             'calculo_iniciado_at' => 'datetime',
             'calculo_finalizado_at' => 'datetime',
             'calculo_resultado' => 'array',
+            'requiere_recalculo' => 'boolean',
+            'recalculo_detectado_at' => 'datetime',
         ];
     }
 

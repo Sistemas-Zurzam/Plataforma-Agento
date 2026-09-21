@@ -21,4 +21,17 @@ return [
 
     'operational_timezone' => env('AGENTO_OPERATIONAL_TIMEZONE', 'America/Lima'),
 
+    /*
+    |--------------------------------------------------------------------------
+    | Antirrebote de marcación por carnet
+    |--------------------------------------------------------------------------
+    |
+    | Ventana en segundos dentro de la cual una segunda lectura del MISMO
+    | carnet se considera un rebote del lector/doble pase accidental, no una
+    | nueva marcación — ver RegistrarMarcacionCarnetService.
+    |
+    */
+
+    'carnet_antirebote_segundos' => env('AGENTO_CARNET_ANTIREBOTE_SEGUNDOS', 10),
+
 ];
