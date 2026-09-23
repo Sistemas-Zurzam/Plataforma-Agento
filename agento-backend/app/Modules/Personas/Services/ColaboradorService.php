@@ -560,7 +560,8 @@ class ColaboradorService
         if ($colaborador->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
         }
-        if (! collect($seleccion)->contains(true)) {
+        $esHonorarios = $colaborador->regimen_laboral === 'Locacion de Servicios';
+        if (! $esHonorarios && ! collect($seleccion)->contains(true)) {
             throw ValidationException::withMessages(['conceptos' => 'Selecciona al menos un concepto para generar la liquidación.']);
         }
 
@@ -571,7 +572,9 @@ class ColaboradorService
             }
             // El snapshot se calcula antes de inactivar/cerrar vigencias, pero
             // se confirma en la misma transacción que el cese.
-            $this->liquidaciones->guardar($empresa, $bloqueado, $fechaCese, $motivo, $seleccion, $usuarioId);
+            if ($bloqueado->regimen_laboral !== 'Locacion de Servicios') {
+                $this->liquidaciones->guardar($empresa, $bloqueado, $fechaCese, $motivo, $seleccion, $usuarioId);
+            }
             $bloqueado->update([
                 'activo' => false,
                 'fecha_cese' => $fechaCese,

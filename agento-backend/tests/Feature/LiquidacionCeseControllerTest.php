@@ -57,6 +57,27 @@ class LiquidacionCeseControllerTest extends TestCase
         return $colaborador->liquidacionesCese()->where('es_version_vigente', true)->firstOrFail()->id;
     }
 
+    public function test_locacion_de_servicios_puede_cesarse_sin_liquidacion(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $empresa = Empresa::firstOrFail();
+        [, $headers] = $this->autenticarEn($empresa);
+        $colaborador = $this->crearColaborador($empresa, [
+            'tipo_contrato' => 'locacion_servicios',
+            'regimen_laboral' => 'Locacion de Servicios',
+        ]);
+
+        $this->withHeaders($headers)->patchJson("/api/colaboradores/{$colaborador->id}/cesar", [
+            'fecha_cese' => now()->toDateString(),
+            'motivo_cese' => 'Fin del servicio',
+        ])->assertOk()->assertJsonPath('data.activo', false);
+
+        $colaborador->refresh();
+        $this->assertSame(now()->toDateString(), $colaborador->fecha_cese->toDateString());
+        $this->assertSame('Fin del servicio', $colaborador->motivo_cese);
+        $this->assertDatabaseMissing('liquidaciones_cese', ['colaborador_id' => $colaborador->id]);
+    }
+
     public function test_flujo_completo_calcular_aprobar_y_pagar(): void
     {
         $this->seed(DatabaseSeeder::class);

@@ -18,6 +18,7 @@ const valoresIniciales = {
 };
 
 export default function CesarColaboradorModal({ open, colaborador, submitting, onPrevisualizar, onGuardar, onCancel }) {
+  const esHonorarios = colaborador?.regimen_laboral === 'Locacion de Servicios';
   const [form] = Form.useForm();
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -25,7 +26,7 @@ export default function CesarColaboradorModal({ open, colaborador, submitting, o
 
   const cargarPreview = async () => {
     const values = form.getFieldsValue();
-    if (!values.fecha_cese) return;
+    if (!values.fecha_cese || esHonorarios) return;
     setLoading(true);
     setError(null);
     try {
@@ -46,24 +47,24 @@ export default function CesarColaboradorModal({ open, colaborador, submitting, o
     const timer = setTimeout(() => {
       setPreview(null);
       setError(null);
-      cargarPreview();
+      if (!esHonorarios) cargarPreview();
     }, 0);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, colaborador?.id]);
+  }, [open, colaborador?.id, esHonorarios]);
 
   const guardar = (values) => onGuardar({
     ...values,
     fecha_cese: values.fecha_cese.format('YYYY-MM-DD'),
-    incluir_remuneracion: Boolean(values.incluir_remuneracion),
-    incluir_cts: Boolean(values.incluir_cts),
-    incluir_gratificacion: Boolean(values.incluir_gratificacion),
-    incluir_vacaciones: Boolean(values.incluir_vacaciones),
+    incluir_remuneracion: !esHonorarios && Boolean(values.incluir_remuneracion),
+    incluir_cts: !esHonorarios && Boolean(values.incluir_cts),
+    incluir_gratificacion: !esHonorarios && Boolean(values.incluir_gratificacion),
+    incluir_vacaciones: !esHonorarios && Boolean(values.incluir_vacaciones),
   });
 
   return (
-    <Modal title="Cesar colaborador y generar liquidación" open={open} onCancel={onCancel} onOk={() => form.submit()} okText="Cesar y generar liquidación" okButtonProps={{ danger: true, disabled: loading || !preview }} confirmLoading={submitting} width={680} centered destroyOnHidden>
-      <Alert className="mb-4" type="warning" showIcon message="El cese y la liquidación se registrarán juntos al confirmar." />
+    <Modal title={esHonorarios ? 'Cesar colaborador de RH' : 'Cesar colaborador y generar liquidación'} open={open} onCancel={onCancel} onOk={() => form.submit()} okText={esHonorarios ? 'Registrar cese' : 'Cesar y generar liquidación'} okButtonProps={{ danger: true, disabled: !esHonorarios && (loading || !preview) }} confirmLoading={submitting} width={680} centered destroyOnHidden>
+      <Alert className="mb-4" type={esHonorarios ? 'info' : 'warning'} showIcon message={esHonorarios ? 'Se registrará el cese sin generar liquidación de beneficios sociales.' : 'El cese y la liquidación se registrarán juntos al confirmar.'} />
       <Form form={form} layout="vertical" initialValues={valoresIniciales} onFinish={guardar} onValuesChange={(changed) => {
         if (Object.keys(changed).some((key) => key === 'fecha_cese' || key.startsWith('incluir_'))) setTimeout(cargarPreview, 0);
       }}>
@@ -73,14 +74,16 @@ export default function CesarColaboradorModal({ open, colaborador, submitting, o
         <Form.Item label="Motivo del cese" name="motivo_cese" rules={[{ required: true, message: 'Indica el motivo del cese' }]}>
           <Input.TextArea rows={2} maxLength={255} showCount />
         </Form.Item>
-        <Divider orientation="left" plain>Conceptos a incluir</Divider>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {opciones.map(([key, label]) => <Form.Item key={key} name={key} valuePropName="checked" noStyle><Checkbox>{label}</Checkbox></Form.Item>)}
-        </div>
+        {!esHonorarios && <>
+          <Divider orientation="left" plain>Conceptos a incluir</Divider>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {opciones.map(([key, label]) => <Form.Item key={key} name={key} valuePropName="checked" noStyle><Checkbox>{label}</Checkbox></Form.Item>)}
+          </div>
+        </>}
       </Form>
 
-      <Divider orientation="left" plain>Vista previa</Divider>
-      {loading ? <div className="py-8 text-center"><Spin /></div> : error ? <Alert type="error" showIcon message={error} /> : preview ? (
+      {!esHonorarios && <Divider orientation="left" plain>Vista previa</Divider>}
+      {!esHonorarios && (loading ? <div className="py-8 text-center"><Spin /></div> : error ? <Alert type="error" showIcon message={error} /> : preview ? (
         <div className="space-y-2">
           {preview.alertas?.map((alerta) => <Alert key={alerta} type="warning" showIcon message={alerta} />)}
           <div className="overflow-hidden rounded-xl border border-gray-200">
@@ -96,7 +99,7 @@ export default function CesarColaboradorModal({ open, colaborador, submitting, o
           <div className="flex justify-between bg-blue-50 px-4 py-3 text-base text-blue-900"><strong>Neto estimado</strong><strong>{soles(preview.neto_pagar)}</strong></div>
           </div>
         </div>
-      ) : null}
+      ) : null)}
     </Modal>
   );
 }
