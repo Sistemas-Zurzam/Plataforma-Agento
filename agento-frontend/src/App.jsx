@@ -44,13 +44,20 @@ function App() {
     );
   }
 
+  // La cuenta de vigilancia solo utiliza esta pantalla, incluso si abre otra URL.
+  if (user.role === 'vigilancia') {
+    return <ControlAcceso onLogout={handleLogout} />;
+  }
+
   // Kiosco de Control de Acceso: pantalla completa, sin el sidebar/layout
   // administrativo — se intercepta acá, antes de AppLayout, en vez de
   // agregar un router nuevo (el resto de la app no usa react-router, es un
   // árbol de condicionales dentro de AppLayout; esta ruta es la única que
   // necesita saltarse ese layout por completo).
   if (window.location.pathname === '/control-acceso') {
-    return <ControlAcceso onLogout={handleLogout} />;
+    return user.permisos?.includes('control_acceso.marcar')
+      ? <ControlAcceso onLogout={handleLogout} />
+      : <AppLayout user={user} onLogout={handleLogout} onProfileUpdated={setUser} onUserRefresh={fetchCurrentUser} />;
   }
 
   return (
