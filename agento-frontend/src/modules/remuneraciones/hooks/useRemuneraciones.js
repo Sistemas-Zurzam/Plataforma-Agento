@@ -129,6 +129,11 @@ export function useRemuneraciones() {
     return data;
   }, []);
 
+  const fetchReporteEjecutivoDatos = useCallback(async (params) => {
+    const { data } = await api.get('/ciclos-remunerativos-reporte-ejecutivo/datos', { params });
+    return data;
+  }, []);
+
   const fetchComplementarias = useCallback(async (cicloId) => {
     const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias`);
     return data.data;
@@ -150,8 +155,8 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
-  const crearComisionesComplementaria = useCallback(async (cicloId, boletaIds, monto, motivo) => {
-    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/comisiones`, { boleta_ids: boletaIds, monto, motivo });
+  const crearComisionesComplementaria = useCallback(async (cicloId, comisiones, motivo) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/comisiones`, { comisiones, motivo });
     return data.data;
   }, []);
 
@@ -189,15 +194,37 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
-  const fetchColaboradoresPorAsistencia = useCallback(async (cicloId, dias, operador, conceptoId) => {
+  const fetchColaboradoresPorAsistencia = useCallback(async (cicloId, dias, operador, conceptoId, reporte = {}) => {
     const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/colaboradores-por-asistencia`, {
-      params: { dias, operador, concepto_id: conceptoId },
+      params: { dias, operador, concepto_id: conceptoId, ...reporte },
     });
     return data.data;
   }, []);
 
   const aplicarBonoPorAsistencia = useCallback(async (cicloId, payload) => {
     const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/bono-por-asistencia`, payload);
+    return data.data;
+  }, []);
+
+  const exportarExcelBono = useCallback(async (cicloId, mes, montoBase, areaId) => {
+    const response = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/bono-asistencia/excel`,
+      { params: { mes, monto_base: montoBase, area_id: areaId }, responseType: 'blob' });
+    const url = URL.createObjectURL(response.data);
+    const a = document.createElement('a'); a.href = url; a.download = `Bono_asistencia_${mes}.xlsx`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  }, []);
+
+  const importarExcelBono = useCallback(async (cicloId, archivo, opciones = {}) => {
+    const form = new FormData(); form.append('archivo', archivo);
+    Object.entries(opciones).forEach(([clave, valor]) => { if (valor !== null && valor !== undefined) form.append(clave, String(valor)); });
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/complementarias/bono-asistencia/excel`, form);
+    return data.data;
+  }, []);
+
+  const importarComprobantesRh = useCallback(async (cicloId, archivo, fechaPago, confirmar = false) => {
+    const form = new FormData();
+    form.append('archivo', archivo); form.append('fecha_pago', fechaPago); form.append('confirmar', confirmar ? '1' : '0');
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/comprobantes-rh/importar`, form);
     return data.data;
   }, []);
 
@@ -234,6 +261,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const reabrirComplementaria = useCallback(async (id, motivo) => {
+    const { data } = await api.patch(`/planillas-complementarias/${id}/reabrir`, { motivo });
+    return data.data;
+  }, []);
+
   const pagarComplementaria = useCallback(async (id, referenciaPago) => {
     const { data } = await api.patch(`/planillas-complementarias/${id}/pagar`, { referencia_pago: referenciaPago });
     return data.data;
@@ -264,6 +296,11 @@ export function useRemuneraciones() {
 
   const verBoleta = useCallback(async (boletaId) => {
     const { data } = await api.get(`/boletas/${boletaId}`);
+    return data.data;
+  }, []);
+
+  const imprimirBoletasMasivo = useCallback(async (cicloId, boletaIds) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/boletas/imprimir-masivo`, { boleta_ids: boletaIds });
     return data.data;
   }, []);
 
@@ -361,8 +398,9 @@ export function useRemuneraciones() {
     await api.delete(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/conceptos/${conceptoPeriodoId}`);
   }, []);
 
-  const fetchPlameValidacion = useCallback(async (cicloId) => {
-    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/plame-validacion`);
+  const fetchPlameValidacion = useCallback(async (cicloId, boletaIds = []) => {
+    const params = boletaIds.length > 0 ? { boleta_ids: boletaIds } : {};
+    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/plame-validacion`, { params });
     return data;
   }, []);
 
@@ -375,10 +413,14 @@ export function useRemuneraciones() {
    * caso JSON llega igual como Blob y hay que decodificarlo a mano
    * mirando el Content-Type real de la respuesta.
    */
-  const exportarPlame = useCallback(async (cicloId, tipo) => {
+  const exportarPlame = useCallback(async (cicloId, tipo, boletaIds = []) => {
     let response;
     try {
-      response = await api.post(`/ciclos-remunerativos/${cicloId}/plame/exportar/${tipo}`, {}, { responseType: 'blob' });
+      response = await api.post(
+        `/ciclos-remunerativos/${cicloId}/plame/exportar/${tipo}`,
+        boletaIds.length > 0 ? { boleta_ids: boletaIds } : {},
+        { responseType: 'blob' },
+      );
     } catch (err) {
       if (err.response) {
         response = err.response;
@@ -489,6 +531,37 @@ export function useRemuneraciones() {
     window.URL.revokeObjectURL(url);
   }, []);
 
+  const exportarReporteEjecutivoExcel = useCallback(async ({ periodo, estado, categoria }) => {
+    const response = await api.get('/ciclos-remunerativos-reporte-ejecutivo/excel', {
+      params: { periodo, estado: estado || undefined, categoria: categoria || undefined },
+      responseType: 'blob',
+    });
+    const disposicion = response.headers?.['content-disposition'] ?? '';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Reporte_ejecutivo_remuneraciones.xlsx';
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
+  const exportarComplementariasExcel = useCallback(async (cicloId) => {
+    const response = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/excel`, { responseType: 'blob' });
+    const disposicion = response.headers?.['content-disposition'] ?? '';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Planillas_complementarias.xlsx';
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
   /**
    * Completamente independiente de PLAME/AFPnet (Sección 3 del encargo
    * Telecrédito: ni un import ni una función compartida) — la validación
@@ -579,62 +652,6 @@ export function useRemuneraciones() {
   }, []);
 
   /**
-   * Bono de asistencia (política Livex) — se calcula y aplica DENTRO del
-   * ciclo normal de planilla, antes de pagarlo. Es un flujo independiente de
-   * Planillas Complementarias (esas son para ciclos YA PAGADOS): un
-   * BonoAsistenciaLote pasa por generar → exportar Excel para Livex →
-   * reimportar el Excel revisado → aplicar (escribe en
-   * colaborador_conceptos_periodo, que el "Calcular planilla" del ciclo ya
-   * lee automáticamente).
-   */
-  const crearBonoAsistenciaLote = useCallback(async (cicloId, values) => {
-    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/bono-asistencia`, values);
-    return data.data;
-  }, []);
-
-  const fetchBonoAsistenciaLotes = useCallback(async (cicloId) => {
-    const { data } = await api.get(`/ciclos-remunerativos/${cicloId}/bono-asistencia-lotes`);
-    return data.data;
-  }, []);
-
-  const fetchBonoAsistenciaLote = useCallback(async (loteId) => {
-    const { data } = await api.get(`/bono-asistencia-lotes/${loteId}`);
-    return data.data;
-  }, []);
-
-  const exportarBonoAsistenciaLote = useCallback(async (loteId) => {
-    const response = await api.get(`/bono-asistencia-lotes/${loteId}/exportar`, { responseType: 'blob' });
-    const disposicion = response.headers?.['content-disposition'] ?? '';
-    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? `Bono_asistencia_${loteId}.xlsx`;
-    const url = window.URL.createObjectURL(response.data);
-    const enlace = document.createElement('a');
-    enlace.href = url;
-    enlace.download = nombreArchivo;
-    document.body.appendChild(enlace);
-    enlace.click();
-    enlace.remove();
-    window.URL.revokeObjectURL(url);
-  }, []);
-
-  const importarBonoAsistenciaLote = useCallback(async (loteId, archivo) => {
-    const formulario = new FormData();
-    formulario.append('archivo', archivo);
-    const { data } = await api.post(`/bono-asistencia-lotes/${loteId}/importar`, formulario, {
-      headers: { 'Content-Type': 'multipart/form-data' },
-    });
-    return data.data;
-  }, []);
-
-  const aplicarBonoAsistenciaLote = useCallback(async (loteId) => {
-    const { data } = await api.post(`/bono-asistencia-lotes/${loteId}/aplicar`);
-    return data.data;
-  }, []);
-
-  const eliminarBonoAsistenciaLote = useCallback(async (loteId, motivo) => {
-    await api.delete(`/bono-asistencia-lotes/${loteId}`, { data: { motivo } });
-  }, []);
-
-  /**
    * Previsualización mensual continua — no requiere ciclo (Sección 5/32 de
    * la documentación funcional). Nunca persiste nada en el backend.
    */
@@ -672,6 +689,7 @@ export function useRemuneraciones() {
     resumenLoading,
     fetchResumen,
     fetchResumenContable,
+    fetchReporteEjecutivoDatos,
     fetchComplementarias,
     crearComplementaria,
     crearComisionesComplementaria,
@@ -680,14 +698,9 @@ export function useRemuneraciones() {
     crearComplementariaHorasExtra,
     agregarHorasExtraComplementaria,
     fetchColaboradoresPorAsistencia,
+    exportarExcelBono,
+    importarExcelBono, importarComprobantesRh,
     aplicarBonoPorAsistencia,
-    crearBonoAsistenciaLote,
-    fetchBonoAsistenciaLotes,
-    fetchBonoAsistenciaLote,
-    exportarBonoAsistenciaLote,
-    importarBonoAsistenciaLote,
-    aplicarBonoAsistenciaLote,
-    eliminarBonoAsistenciaLote,
     crearRegularizacionFeriadoHistorico,
     agregarConceptoComplementaria,
     eliminarConceptoComplementaria,
@@ -695,10 +708,12 @@ export function useRemuneraciones() {
     agregarColaboradoresComplementaria,
     eliminarComplementaria,
     aprobarComplementaria,
+    reabrirComplementaria,
     pagarComplementaria,
     exportarComplementaria,
     exportarComplementariasMasivo,
     verBoleta,
+    imprimirBoletasMasivo,
     aprobarBoleta,
     fetchIncidenciasPendientesAprobar,
     aprobarBoletasMasivo,
@@ -735,6 +750,8 @@ export function useRemuneraciones() {
     fetchAfpNetValidacion,
     exportarAfpNet,
     exportarPlanillaPagadaExcel,
+    exportarReporteEjecutivoExcel,
+    exportarComplementariasExcel,
     fetchTelecreditoBcpValidacion,
     exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion,

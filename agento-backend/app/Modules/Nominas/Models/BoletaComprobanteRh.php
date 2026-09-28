@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 #[Fillable([
     'boleta_id', 'tipo_comprobante', 'serie', 'numero', 'fecha_emision', 'fecha_pago',
+    'monto_total_servicio',
     'indicador_retencion_4ta', 'indicador_retencion_regimen_pensionario',
     'importe_aporte_regimen_pensionario', 'registrado_por',
 ])]
@@ -26,6 +27,7 @@ class BoletaComprobanteRh extends Model
         return [
             'fecha_emision' => 'date',
             'fecha_pago' => 'date',
+            'monto_total_servicio' => 'decimal:2',
             'indicador_retencion_4ta' => 'boolean',
             'importe_aporte_regimen_pensionario' => 'decimal:2',
         ];

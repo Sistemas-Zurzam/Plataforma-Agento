@@ -11,9 +11,12 @@ use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
 use App\Modules\Configuracion\Models\ParametroLaboralDefinicion;
 use App\Modules\Configuracion\Models\ParametroLaboralValor;
 use App\Modules\Configuracion\Services\ParametroLaboralService;
+use App\Modules\Nominas\Application\AfpNet\AfpNetCicloDatosLoader;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Models\PlanillaComplementaria;
+use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Services\PlanillaComplementariaService;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use Database\Seeders\DatabaseSeeder;
@@ -130,5 +133,257 @@ class ReintegroFaltasBasicoTest extends TestCase
         $this->assertNull(collect($service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]))->firstWhere('codigo', 'DESCUENTO_FALTA_BASICO'));
         $boleta->update(['regimen_laboral_snapshot' => 'Pequeña Empresa', 'dias_falta' => 0]);
         $this->assertNull(collect($service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]))->firstWhere('codigo', 'DESCUENTO_FALTA_BASICO'));
+    }
+
+    public function test_complementaria_recalcula_prima_y_comision_omitidas_junto_con_nuevos_ingresos(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+
+        // Simula una boleta histórica ya pagada con el defecto observado:
+        // solo se retuvo el aporte obligatorio; prima y comisión quedaron en
+        // cero aunque el colaborador sí pertenece a una AFP.
+        $boleta->conceptos()
+            ->whereHas('concepto', fn ($q) => $q->where('codigo', 'AFP_PRIMA_SEGURO'))
+            ->update(['monto' => 0, 'tasa_aplicada' => 0]);
+        $boleta->update(['total_egresos' => 441.32, 'neto_a_pagar' => 818.68]);
+
+        $comision = ComisionAfp::where('afp_id', $boleta->colaborador->afp_id)->firstOrFail();
+        $comision->update(['comision_flujo_porcentaje' => 1.50]);
+        $boleta->colaborador->update(['tipo_comision' => 'flujo']);
+        ParametrosVigentesResolver::limpiarCache();
+
+        $item = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id,
+            'empresa_id' => $empresa->id,
+            'nombre' => 'Regularización integral',
+            'motivo' => 'Regularización integral',
+            'estado' => 'calculada',
+            'creado_por' => $usuario->id,
+        ]);
+        $item = $service->agregarColaboradores($empresa, $item, [$boleta->id]);
+        $detalle = $item->detalles->first();
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+
+        $item = $service->agregarConcepto(
+            $empresa,
+            $detalle,
+            $bonificacion->id,
+            null,
+            100,
+            'Bono pendiente',
+            $usuario->id
+        );
+
+        $detalle = $item->detalles->first();
+        $egresos = collect($detalle->calculo_snapshot['egresos'])->keyBy('codigo');
+
+        $this->assertEquals(135.24, $egresos['AFP_APORTE_OBLIGATORIO']['monto']);
+        $this->assertEquals(18.53, $egresos['AFP_PRIMA_SEGURO']['monto']);
+        $this->assertEquals(20.29, $egresos['AFP_COMISION']['monto']);
+        $this->assertEquals(51.18, (float) $detalle->diferencia_neta);
+        // Al retirar el bono, AFP se vuelve a calcular sobre la base original:
+        // la prima omitida sigue regularizada, pero el incremento del bono no.
+        $lineaBono = collect($detalle->calculo_snapshot['ingresos'])->firstWhere('codigo', 'BONIFICACION');
+        $item = $service->eliminarConcepto($empresa, $detalle, $lineaBono['id']);
+        $detalle = $item->detalles->first();
+        $egresos = collect($detalle->calculo_snapshot['egresos'])->keyBy('codigo');
+
+        $this->assertEquals(17.16, $egresos['AFP_PRIMA_SEGURO']['monto']);
+        $this->assertEquals(18.79, $egresos['AFP_COMISION']['monto']);
+    }
+
+    public function test_agrega_y_elimina_bono_en_afiliacion_afp_heredada_incompleta(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $colaborador = $boleta->colaborador;
+        $claveAfp = Afp::findOrFail($colaborador->afp_id)->clave;
+
+        $colaborador->update([
+            'sistema_previsional' => $claveAfp,
+            'afp_id' => null,
+            'tipo_comision' => null,
+        ]);
+        $colaborador->condicionesLaborales()->update([
+            'sistema_previsional' => $claveAfp,
+            'afp_id' => null,
+            'tipo_comision' => null,
+        ]);
+
+        $item = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id,
+            'empresa_id' => $empresa->id,
+            'nombre' => 'Regularización heredada',
+            'motivo' => 'Regularización heredada',
+            'estado' => 'calculada',
+            'creado_por' => $usuario->id,
+        ]);
+        $item = $service->agregarColaboradores($empresa, $item, [$boleta->id]);
+        $detalle = $item->detalles->first();
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+
+        $item = $service->agregarConcepto(
+            $empresa, $detalle, $bonificacion->id, null, 150, 'Bono pendiente', $usuario->id
+        );
+        $detalle = $item->detalles->first();
+        $linea = collect($detalle->calculo_snapshot['ingresos'])->firstWhere('codigo', 'BONIFICACION');
+
+        $this->assertNotNull($linea);
+        $this->assertArrayHasKey('AFP_PRIMA_SEGURO', collect($detalle->calculo_snapshot['egresos'])->keyBy('codigo')->all());
+
+        $item = $service->eliminarConcepto($empresa, $detalle, $linea['id']);
+        $this->assertNull(collect($item->detalles->first()->calculo_snapshot['ingresos'])->firstWhere('id', $linea['id']));
+    }
+
+    public function test_tipo_de_reintegro_de_bonificacion_se_muestra_como_bonificacion(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $item = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Bono pendiente', 'motivo' => 'Bono pendiente',
+            'estado' => 'calculada', 'creado_por' => $usuario->id,
+        ]);
+        $item = $service->agregarColaboradores($empresa, $item, [$boleta->id]);
+        $detalle = $item->detalles->first();
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+
+        $item = $service->agregarConcepto($empresa, $detalle, $bonificacion->id, null, 75, 'Bono', $usuario->id);
+
+        $this->assertSame('Bonificación', $item->detalles->first()->tipoReintegro());
+    }
+
+    public function test_comision_agregada_tiene_prioridad_sobre_una_bonificacion_preexistente(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $item = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Comisiones pendientes', 'motivo' => 'Comisiones agosto',
+            'estado' => 'calculada', 'creado_por' => $usuario->id,
+        ]);
+        $item = $service->agregarColaboradores($empresa, $item, [$boleta->id]);
+        $detalle = $item->detalles->first();
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+        $comision = ConceptoRemuneracion::where('codigo', 'COMISION')->firstOrFail();
+
+        $item = $service->agregarConcepto($empresa, $detalle, $bonificacion->id, null, 75, 'Bono anterior', $usuario->id);
+        $item = $service->agregarConcepto($empresa, $item->detalles->first(), $comision->id, null, 1224, 'Comisiones agosto', $usuario->id);
+
+        $this->assertSame('Comisión por ventas', $item->detalles->first()->tipoReintegro());
+    }
+
+    public function test_motivo_de_bonificacion_en_boleta_no_hereda_motivo_general(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $item = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Reintegro de descuentos', 'motivo' => 'Reintegro de tardanza y falta',
+            'estado' => 'calculada', 'creado_por' => $usuario->id,
+        ]);
+        $item = $service->agregarColaboradores($empresa, $item, [$boleta->id]);
+        $detalle = $item->detalles->first();
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+        $service->agregarConcepto($empresa, $detalle, $bonificacion->id, null, 75, 'Bono de asistencia', $usuario->id);
+        $item->update(['estado' => 'pagada', 'pagado_at' => now()]);
+
+        $boleta = app(\App\Modules\Nominas\Services\BoletaService::class)->ver($empresa, $boleta);
+
+        $this->assertSame('Bonificación', $boleta->reintegros[0]['tipo']);
+        $this->assertSame('Bono de asistencia', $boleta->reintegros[0]['motivo']);
+    }
+
+    public function test_nuevo_borrador_no_hereda_bloqueo_de_feriado_pagado_anterior(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $base = $service->baseParaReintegro($boleta);
+        $base['feriado_regularizado'] = ['fecha' => '2026-08-06', 'importe_bruto' => 100];
+
+        $anterior = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Feriado anterior', 'motivo' => 'Pagado',
+            'estado' => 'pagada', 'creado_por' => $usuario->id,
+        ]);
+        PlanillaComplementariaDetalle::create([
+            'planilla_complementaria_id' => $anterior->id,
+            'boleta_original_id' => $boleta->id,
+            'colaborador_id' => $boleta->colaborador_id,
+            'neto_original' => $base['neto_a_pagar'],
+            'neto_recalculado' => $base['neto_a_pagar'],
+            'diferencia_ingresos' => 0, 'diferencia_egresos' => 0,
+            'diferencia_aportaciones' => 0, 'diferencia_neta' => 0,
+            'calculo_snapshot' => $base,
+        ]);
+
+        $nuevo = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Nuevo borrador', 'motivo' => 'Agregar bono',
+            'estado' => 'calculada', 'creado_por' => $usuario->id,
+        ]);
+        $nuevo = $service->agregarColaboradores($empresa, $nuevo, [$boleta->id]);
+        $detalle = $nuevo->detalles->first();
+
+        $this->assertArrayNotHasKey('feriado_regularizado', $detalle->calculo_snapshot);
+
+        $bonificacion = ConceptoRemuneracion::where('codigo', 'BONIFICACION')->firstOrFail();
+        $actualizado = $service->agregarConcepto(
+            $empresa, $detalle, $bonificacion->id, null, 50, 'Bono adicional', $usuario->id
+        );
+
+        $this->assertNotNull(collect($actualizado->detalles->first()->calculo_snapshot['ingresos'])
+            ->firstWhere('codigo', 'BONIFICACION'));
+    }
+
+    public function test_complementaria_aprobada_puede_reabrirse_pero_una_pagada_no(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $falta = collect($service->descuentosReintegrables($empresa, $ciclo, [$boleta->id]))
+            ->firstWhere('codigo', 'DESCUENTO_FALTA_BASICO');
+        $item = $service->reintegrarDescuentos($empresa, $ciclo, [$falta], 'Subsanación', $usuario->id);
+        $item = $service->aprobar($empresa, $item, $usuario->id);
+
+        $reabierta = $service->reabrir($empresa, $item, $usuario->id, 'Faltó agregar un bono');
+
+        $this->assertSame('calculada', $reabierta->estado);
+        $this->assertNull($reabierta->aprobado_por);
+        $this->assertNull($reabierta->aprobado_at);
+        $this->assertSame('Faltó agregar un bono', $reabierta->detalles->first()->calculo_snapshot['reaperturas'][0]['motivo']);
+
+        $reaprobada = $service->aprobar($empresa, $reabierta, $usuario->id);
+        $pagada = $service->marcarPagada($empresa, $reaprobada, $usuario->id, 'PAGO-TEST');
+
+        $this->expectException(ValidationException::class);
+        $service->reabrir($empresa, $pagada, $usuario->id, 'No debe permitirse');
+    }
+
+    public function test_afpnet_toma_la_base_actualizada_de_un_reintegro_pagado(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuario, $service] = $this->escenario();
+        $claveAfp = Afp::firstOrFail()->clave;
+        $boleta->colaborador->update(['sistema_previsional' => $claveAfp]);
+
+        $base = $service->baseParaReintegro($boleta);
+        $linea = collect($base['egresos'])->search(fn (array $item) => $item['codigo'] === 'AFP_APORTE_OBLIGATORIO');
+        $base['egresos'][$linea]['base_utilizada'] = 2667.42;
+
+        $complementaria = PlanillaComplementaria::create([
+            'ciclo_id' => $ciclo->id, 'empresa_id' => $empresa->id,
+            'nombre' => 'Reintegro AFPnet', 'motivo' => 'Prueba de consolidación',
+            'estado' => 'pagada', 'creado_por' => $usuario->id,
+        ]);
+        PlanillaComplementariaDetalle::create([
+            'planilla_complementaria_id' => $complementaria->id,
+            'boleta_original_id' => $boleta->id,
+            'colaborador_id' => $boleta->colaborador_id,
+            'neto_original' => $boleta->neto_a_pagar,
+            'neto_recalculado' => $boleta->neto_a_pagar,
+            'diferencia_ingresos' => 1415, 'diferencia_egresos' => 160.90,
+            'diferencia_aportaciones' => 0, 'diferencia_neta' => 1254.10,
+            // Los snapshots reales no incluyen regimen_laboral.
+            'calculo_snapshot' => $base,
+        ]);
+
+        $contexto = AfpNetCicloDatosLoader::cargar($ciclo->fresh());
+        $lineaAfp = $contexto->boletasAfp->first()->conceptos
+            ->first(fn ($concepto) => $concepto->concepto?->codigo === 'AFP_APORTE_OBLIGATORIO');
+
+        $this->assertSame('2667.42', $lineaAfp->base_utilizada);
     }
 }

@@ -1,7 +1,8 @@
 import { BarChartOutlined, FileExcelOutlined, FilePdfOutlined } from '@ant-design/icons';
-import { Button, DatePicker, Empty, Modal, Select, Table, Tag, Tooltip } from 'antd';
+import { Button, DatePicker, Empty, message, Modal, Select, Table, Tag, Tooltip } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
+import ReporteEjecutivoImprimibleModal from './ReporteEjecutivoImprimibleModal';
 
 const ESTADO_COLOR = {
   borrador: 'default',
@@ -18,12 +19,14 @@ function soles(valor) {
   return <span className="whitespace-nowrap">{texto}</span>;
 }
 
-export default function ResumenContableModal({ open, onCancel, ciclo, fetchResumenContable, onVerPlanilla }) {
+export default function ResumenContableModal({ open, onCancel, ciclo, fetchResumenContable, fetchReporteEjecutivoDatos, exportarReporteEjecutivoExcel, onVerPlanilla }) {
   const [periodo, setPeriodo] = useState(dayjs());
   const [estado, setEstado] = useState(null);
   const [categoria, setCategoria] = useState(null);
   const [resultado, setResultado] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const [pdfModalOpen, setPdfModalOpen] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -90,6 +93,24 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
 
   const totales = resultado?.totales;
 
+  const handleExportarExcel = async () => {
+    if (!periodo) return;
+
+    setExportando(true);
+    try {
+      await exportarReporteEjecutivoExcel({
+        periodo: periodo.format('YYYY-MM'),
+        estado: estado || undefined,
+        categoria: categoria || undefined,
+      });
+      message.success('Reporte ejecutivo de remuneraciones generado');
+    } catch {
+      message.error('No se pudo generar el reporte ejecutivo de remuneraciones');
+    } finally {
+      setExportando(false);
+    }
+  };
+
   return (
     <Modal
       title={<span className="flex items-center gap-2"><BarChartOutlined /> Resumen contable global</span>}
@@ -129,8 +150,12 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
             ]}
           />
           <div className="ml-auto flex gap-2">
-            <Tooltip title="Disponible próximamente"><Button disabled icon={<FileExcelOutlined />}>Excel</Button></Tooltip>
-            <Tooltip title="Disponible próximamente"><Button disabled icon={<FilePdfOutlined />}>PDF</Button></Tooltip>
+            <Tooltip title="Reporte ejecutivo de remuneraciones: desglose de AFP/ONP y ESSALUD por colaborador, agrupado por empresa">
+              <Button icon={<FileExcelOutlined />} loading={exportando} onClick={handleExportarExcel}>Excel</Button>
+            </Tooltip>
+            <Tooltip title="Reporte ejecutivo de remuneraciones, listo para guardar como PDF desde el navegador">
+              <Button icon={<FilePdfOutlined />} onClick={() => setPdfModalOpen(true)}>PDF</Button>
+            </Tooltip>
           </div>
         </div>
 
@@ -161,6 +186,15 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
           )}
         />
       </div>
+
+      <ReporteEjecutivoImprimibleModal
+        open={pdfModalOpen}
+        onCancel={() => setPdfModalOpen(false)}
+        periodo={periodo?.format('YYYY-MM')}
+        estado={estado || undefined}
+        categoria={categoria || undefined}
+        fetchReporteEjecutivoDatos={fetchReporteEjecutivoDatos}
+      />
     </Modal>
   );
 }

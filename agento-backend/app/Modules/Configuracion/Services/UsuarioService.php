@@ -21,7 +21,7 @@ class UsuarioService
      */
     public function listar(Empresa $empresaActiva, int $perPage = 10): LengthAwarePaginator
     {
-        return $empresaActiva->users()->with('area')->orderBy('name')->paginate($perPage);
+        return $empresaActiva->users()->with(['area', 'empresas'])->orderBy('name')->paginate($perPage);
     }
 
     /**
@@ -78,9 +78,35 @@ class UsuarioService
      *
      * @throws AuthorizationException
      */
-    public function actualizar(Empresa $empresaActiva, User $objetivo, array $datos): void
+    public function actualizar(
+        Empresa $empresaActiva,
+        User $objetivo,
+        array $datos,
+        Collection $empresasDestino,
+        Role $rol,
+        User $actor,
+    ): void
     {
         $this->verificarPertenencia($empresaActiva, $objetivo);
+
+        foreach ($empresasDestino as $empresa) {
+            $this->empresas->autorizarAccion($empresa, $actor, 'usuarios.editar');
+            $this->autorizarAsignacionRol($empresa, $rol, $actor);
+        }
+
+        $rolActual = (int) $empresaActiva->users()
+            ->where('users.id', $objetivo->id)
+            ->firstOrFail()->pivot->role_id;
+
+        if ($rolActual !== $rol->id) {
+            $this->empresas->autorizarAccion($empresaActiva, $actor, 'usuarios.cambiar_rol');
+
+            if ($this->esUltimoAdministrador($empresaActiva, $objetivo)) {
+                throw ValidationException::withMessages([
+                    'role_id' => 'No puedes quitar el rol de administrador al último administrador de la empresa.',
+                ]);
+            }
+        }
 
         if (! empty($datos['password'])) {
             $datos['password'] = Hash::make($datos['password']);
@@ -89,7 +115,19 @@ class UsuarioService
             unset($datos['password']);
         }
 
-        $objetivo->update($datos);
+        DB::transaction(function () use ($objetivo, $datos, $empresasDestino, $rol) {
+            $vinculos = $empresasDestino->pluck('id')->mapWithKeys(
+                fn ($id) => [(int) $id => ['role_id' => $rol->id]],
+            )->all();
+
+            $objetivo->update([
+                ...$datos,
+                'empresa_id' => $empresasDestino->contains('id', $objetivo->empresa_id)
+                    ? $objetivo->empresa_id
+                    : $empresasDestino->first()->id,
+            ]);
+            $objetivo->empresas()->sync($vinculos);
+        });
     }
 
     /**

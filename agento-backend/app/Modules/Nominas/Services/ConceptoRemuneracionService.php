@@ -36,6 +36,8 @@ class ConceptoRemuneracionService
         // Nada realmente cambió (mismo código y descripción) — no ensuciar
         // el historial con una fila idéntica a la anterior.
         if ($ultimaVigencia && $ultimaVigencia->codigo_plame === $codigoPlame && $ultimaVigencia->descripcion_sunat === $descripcionSunat) {
+            $this->completarSnapshotsPlameVacios($concepto, $codigoPlame);
+
             return $concepto;
         }
 
@@ -48,9 +50,29 @@ class ConceptoRemuneracionService
                 'vigencia_desde' => $vigenciaDesde,
                 'actualizado_por_id' => $usuario?->id,
             ]);
+
+            $this->completarSnapshotsPlameVacios($concepto, $codigoPlame);
         });
 
         return $concepto->fresh();
+    }
+
+    /**
+     * Completa solo la ausencia de clasificacion historica. Un snapshot con
+     * valor nunca se reemplaza y las lineas con una definicion PLAME concreta
+     * tampoco usan el codigo generico del concepto.
+     */
+    private function completarSnapshotsPlameVacios(ConceptoRemuneracion $concepto, ?string $codigoPlame): void
+    {
+        if ($codigoPlame === null) {
+            return;
+        }
+
+        DB::table('boleta_conceptos')
+            ->where('concepto_id', $concepto->id)
+            ->whereNull('concepto_definicion_id')
+            ->whereNull('codigo_plame_snapshot')
+            ->update(['codigo_plame_snapshot' => $codigoPlame]);
     }
 
     public function historialCodigoPlame(ConceptoRemuneracion $concepto): Collection

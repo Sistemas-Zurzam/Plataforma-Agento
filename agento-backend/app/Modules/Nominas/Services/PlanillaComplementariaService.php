@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Services;
 
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
+use App\Modules\Configuracion\Models\Afp;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
@@ -46,13 +47,18 @@ class PlanillaComplementariaService
             ->latest()->get();
     }
 
-    public function crearComisiones(Empresa $empresa, CicloRemunerativo $ciclo, array $boletaIds, float $monto, string $motivo, int $usuarioId): PlanillaComplementaria
+    public function crearComisiones(Empresa $empresa, CicloRemunerativo $ciclo, array $comisiones, string $motivo, int $usuarioId): PlanillaComplementaria
     {
-        if ($monto <= 0) throw ValidationException::withMessages(['monto' => 'El monto debe ser mayor a cero.']);
+        $boletaIds = array_column($comisiones, 'boleta_id');
+        $montos = collect($comisiones)->keyBy('boleta_id');
         $item = PlanillaComplementaria::create(['empresa_id' => $empresa->id, 'ciclo_id' => $ciclo->id, 'nombre' => 'Comisiones pendientes '.$ciclo->nombre, 'motivo' => $motivo, 'estado' => 'calculada', 'creado_por' => $usuarioId]);
         $item = $this->agregarColaboradores($empresa, $item, $boletaIds);
         $concepto = ConceptoRemuneracion::where('codigo', 'COMISION')->where('activo', true)->firstOrFail();
-        foreach ($item->detalles as $detalle) $item = $this->agregarConcepto($empresa, $detalle, $concepto->id, null, $monto, $motivo, $usuarioId);
+        foreach ($item->detalles as $detalle) {
+            $monto = (float) ($montos->get($detalle->boleta_original_id)['monto'] ?? 0);
+            if ($monto <= 0) throw ValidationException::withMessages(['comisiones' => 'Ingresa un monto válido para cada colaborador.']);
+            $item = $this->agregarConcepto($empresa, $detalle, $concepto->id, null, $monto, $motivo, $usuarioId);
+        }
         return $item;
     }
 
@@ -130,6 +136,10 @@ class PlanillaComplementariaService
 
             foreach ($boletas as $boleta) {
                 $base = $this->baseParaReintegro($boleta);
+                // Si la base proviene de una complementaria pagada anterior,
+                // conservar sus montos pero no las marcas operativas que
+                // bloqueaban agregar conceptos en este nuevo borrador.
+                unset($base['descansos_semanales'], $base['feriado_regularizado']);
                 $pago = $boleta->datosPago;
                 $colaborador = $boleta->colaborador;
 
@@ -195,7 +205,8 @@ class PlanillaComplementariaService
         // asumirse como único límite de tenant en una query entre módulos.
         $conteos = AsistenciaResultadoDiario::withoutGlobalScopes()
             ->where('empresa_id', $empresa->id)
-            ->where('estado', 'presente')
+            ->whereNotNull('entrada_at')->whereNotNull('salida_at')
+            ->whereColumn('salida_at', '>', 'entrada_at')->where('minutos_trabajados', '>', 0)
             ->whereDate('fecha', '>=', $ciclo->fecha_inicio->toDateString())
             ->whereDate('fecha', '<=', $ciclo->fecha_fin->toDateString())
             ->selectRaw('colaborador_id, count(*) as dias')
@@ -409,7 +420,7 @@ class PlanillaComplementariaService
             ];
         }
 
-        $colaboradores = $boletas->filter(fn ($b) => $b->regimen_laboral_snapshot !== 'Locacion de Servicios')
+        $colaboradores = $boletas
             ->map(fn ($b) => ['boleta_id' => $b->id, 'colaborador_id' => $b->colaborador_id,
                 'colaborador' => trim($b->colaborador->nombres.' '.$b->colaborador->apellidos),
                 'documento' => $b->colaborador->numero_documento])->values()->all();
@@ -453,7 +464,7 @@ class PlanillaComplementariaService
             foreach ($entradas->groupBy('boleta_id') as $boletaId => $grupo) {
                 $boleta = $boletas[$boletaId];
                 $nombreColaborador = trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos);
-                if ($boleta->regimen_laboral_snapshot === 'Locacion de Servicios') throw ValidationException::withMessages(['boleta_id' => 'Las horas extra laborales no aplican a locación de servicios.']);
+                $esHonorarios = $boleta->regimen_laboral_snapshot === 'Locacion de Servicios';
                 $detalle = $item->detalles()->where('boleta_original_id', $boletaId)->firstOrFail();
                 $detalle->load(['colaborador.empresa', 'boletaOriginal.ciclo']);
                 if (! empty($detalle->calculo_snapshot['descansos_semanales']) || ! empty($detalle->calculo_snapshot['feriado_regularizado'])) {
@@ -470,7 +481,9 @@ class PlanillaComplementariaService
                     }
                     $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $boleta->colaborador_id)->whereDate('vigencia_desde', '<=', $entrada['fecha'])->latest('vigencia_desde')->latest('id')->first();
                     if (! $remuneracion) throw ValidationException::withMessages(['horas_extra' => "No existe remuneración histórica para {$nombreColaborador} al {$entrada['fecha']}."]);
-                    $parametros = ParametrosVigentesResolver::paraRegimen($empresa, $condicion?->regimen_laboral ?? $boleta->regimen_laboral_snapshot, $entrada['fecha']);
+                    $parametros = $esHonorarios
+                        ? ParametrosVigentesResolver::paraHonorarios($empresa, $entrada['fecha'])
+                        : ParametrosVigentesResolver::paraRegimen($empresa, $condicion?->regimen_laboral ?? $boleta->regimen_laboral_snapshot, $entrada['fecha']);
                     $factor = match ((string) $entrada['tasa']) { '25' => $parametros['horas_extra_tasa_x25'], '35' => $parametros['horas_extra_tasa_x35'], '100' => $parametros['horas_extra_tasa_nocturna'] };
                     $codigo = 'HE_'.(string) $entrada['tasa'];
                     $monto = round(((float) $remuneracion->salario / 240) * $factor * ((int) $entrada['minutos'] / 60), 2);
@@ -486,9 +499,13 @@ class PlanillaComplementariaService
                         'tasa' => (string) $entrada['tasa'], 'minutos' => (int) $entrada['minutos'], 'monto' => $monto,
                         'motivo' => $entrada['motivo'] ?? null, 'registrado_por' => $usuarioId, 'registrado_en' => now()->toDateTimeString()];
                 }
-                $this->recalcularAfpEssalud($detalle, $snapshot, $delta);
-                $this->recalcularRentaQuinta($detalle, $snapshot, $delta);
-                $this->recalcularProvisiones($detalle, $snapshot, $delta);
+                // Honorarios conserva la retención del recibo original, igual que
+                // CalcularReciboHonorarios: los adicionales HE no cambian su base.
+                if (! $esHonorarios) {
+                    $this->recalcularAfpEssalud($detalle, $snapshot, $delta);
+                    $this->recalcularRentaQuinta($detalle, $snapshot, $delta);
+                    $this->recalcularProvisiones($detalle, $snapshot, $delta);
+                }
                 $this->guardarSnapshotYDiferencias($detalle, $snapshot);
             }
             return $this->cargar($item);
@@ -1089,6 +1106,7 @@ class PlanillaComplementariaService
      */
     public function agregarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, int $conceptoId, ?int $conceptoDefinicionId, float $monto, ?string $motivo, int $usuarioId, bool $regularizacionFeriado = false): PlanillaComplementaria
     {
+        $this->limpiarMarcasHeredadas($detalle);
         if (! empty($detalle->calculo_snapshot['descansos_semanales']) || ! empty($detalle->calculo_snapshot['feriado_regularizado'])) {
             throw ValidationException::withMessages(['detalle' => 'Para corregir las semanas, elimina el borrador y vuelve a generar el reintegro.']);
         }
@@ -1188,6 +1206,10 @@ class PlanillaComplementariaService
      */
     public function eliminarConcepto(Empresa $empresa, PlanillaComplementariaDetalle $detalle, string $lineaId): PlanillaComplementaria
     {
+        $this->limpiarMarcasHeredadas($detalle);
+        if (! empty($detalle->calculo_snapshot['bono_asistencia_gerencia'])) {
+            throw ValidationException::withMessages(['detalle' => 'Para corregir un bono importado, elimina su complementaria calculada y vuelve a importar el Excel aprobado.']);
+        }
         if (! empty($detalle->calculo_snapshot['descansos_semanales']) || ! empty($detalle->calculo_snapshot['feriado_regularizado'])) {
             throw ValidationException::withMessages(['detalle' => 'Para corregir las semanas, elimina el borrador y vuelve a generar el reintegro.']);
         }
@@ -1261,6 +1283,28 @@ class PlanillaComplementariaService
     }
 
     /**
+     * Repara borradores creados antes de que agregarColaboradores() limpiara
+     * las marcas del feriado/descanso pagado usado como base. Una diferencia
+     * cero demuestra que el detalle actual todavía no tiene una operación
+     * propia; solo en ese caso se retiran las marcas heredadas.
+     */
+    private function limpiarMarcasHeredadas(PlanillaComplementariaDetalle $detalle): void
+    {
+        if (round((float) $detalle->diferencia_neta, 2) !== 0.0) {
+            return;
+        }
+
+        $snapshot = $detalle->calculo_snapshot;
+        if (empty($snapshot['descansos_semanales']) && empty($snapshot['feriado_regularizado'])) {
+            return;
+        }
+
+        unset($snapshot['descansos_semanales'], $snapshot['feriado_regularizado']);
+        $detalle->update(['calculo_snapshot' => $snapshot]);
+        $detalle->setAttribute('calculo_snapshot', $snapshot);
+    }
+
+    /**
      * Recalcula AFP/ONP y EsSalud/SIS sobre la base remunerativa + $deltaBase
      * (positivo al agregar un ingreso remunerativo, negativo al eliminarlo),
      * reutilizando EXACTAMENTE las mismas fórmulas de
@@ -1275,9 +1319,44 @@ class PlanillaComplementariaService
      * Nunca se llama para honorarios (ya filtrado por el caller): un
      * locador no tiene AFP/ONP/EsSalud.
      */
+    public function agregarBonoHonorariosGerencia(Empresa $empresa, PlanillaComplementariaDetalle $detalle, float $monto, string $motivo, int $usuarioId): void
+    {
+        $this->verificarItem($empresa, $detalle->complementaria);
+        if ($detalle->complementaria->estado !== 'calculada' || $detalle->boletaOriginal->regimen_laboral_snapshot !== 'Locacion de Servicios' || $monto <= 0) {
+            throw ValidationException::withMessages(['bono' => 'El adicional requiere honorarios y una complementaria calculada.']);
+        }
+        $detalle->load(['colaborador', 'boletaOriginal.ciclo']);
+        $parametros = ParametrosVigentesResolver::paraHonorarios($empresa, $detalle->boletaOriginal->ciclo->fecha_corte_asistencia->toDateString());
+        $snapshot = $detalle->calculo_snapshot;
+        $base = (float) collect($snapshot['ingresos'])->where('codigo', 'HONORARIO_BRUTO')->sum('monto');
+        $retencion = fn ($valor) => $detalle->colaborador->tiene_suspension_renta_4ta || $valor <= $parametros['umbral_retencion_4ta']
+            ? 0 : round($valor * $parametros['tasa_retencion_4ta'], 2);
+        $adicionalRetencion = max(0, round($retencion($base + $monto) - $retencion($base), 2));
+        $snapshot['ingresos'][] = ['id' => (string) Str::uuid(), 'codigo' => 'HONORARIO_BRUTO', 'monto' => round($monto, 2),
+            'formula_texto' => 'Bono por asistencia aprobado por Gerencia: '.$motivo,
+            'motivo' => $motivo, 'agregado_por' => $usuarioId, 'agregado_en' => now()->toDateTimeString()];
+        if ($adicionalRetencion > 0) {
+            $indice = collect($snapshot['egresos'])->search(fn ($l) => $l['codigo'] === 'RETENCION_RENTA_4TA');
+            if ($indice === false) {
+                $snapshot['egresos'][] = ['codigo' => 'RETENCION_RENTA_4TA', 'monto' => $adicionalRetencion,
+                    'base_utilizada' => $base + $monto, 'tasa_aplicada' => $parametros['tasa_retencion_4ta']];
+            } else {
+                $snapshot['egresos'][$indice]['monto'] = round($snapshot['egresos'][$indice]['monto'] + $adicionalRetencion, 2);
+                $snapshot['egresos'][$indice]['base_utilizada'] = $base + $monto;
+            }
+        }
+        $this->guardarSnapshotYDiferencias($detalle, $snapshot);
+    }
+
     private function recalcularAfpEssalud(PlanillaComplementariaDetalle $detalle, array &$snapshot, float $deltaBase): void
     {
-        $colaborador = $detalle->colaborador;
+        // cargar() optimiza la respuesta del modal seleccionando solo columnas
+        // de presentación del colaborador. Si ese mismo objeto se reutiliza
+        // para agregar un concepto, empresa_id/AFP/tipo_comision pueden no
+        // estar hidratados. Recargar las relaciones completas evita calcular
+        // con datos parciales (o fallar intentando resolver los parámetros).
+        $detalle->load(['colaborador.empresa', 'boletaOriginal.ciclo']);
+        $colaborador = $this->colaboradorPrevisionalParaRecalculo($detalle, $snapshot);
         $ciclo = $detalle->boletaOriginal->ciclo;
         $regimen = $colaborador->regimen_laboral ?: 'General';
         $fechaCorte = $ciclo->fecha_corte_asistencia->toDateString();
@@ -1309,6 +1388,50 @@ class PlanillaComplementariaService
             ->values()->all();
     }
 
+    /**
+     * Compatibilidad con boletas antiguas que guardaron el nombre de la AFP
+     * en sistema_previsional, pero dejaron afp_id/tipo_comision vacíos. Esas
+     * boletas sí descontaron el aporte obligatorio y luego fallaban con un
+     * RuntimeException al agregar o retirar un ingreso remunerativo de una
+     * complementaria.
+     *
+     * Se trabaja sobre una copia en memoria: no corrige silenciosamente la
+     * ficha actual ni modifica la boleta pagada. La AFP se resuelve por su
+     * clave y el tipo se infiere de la línea histórica de comisión: una tasa
+     * positiva corresponde a flujo; cero, al componente flujo de mixta.
+     */
+    private function colaboradorPrevisionalParaRecalculo(PlanillaComplementariaDetalle $detalle, array $snapshot)
+    {
+        $colaborador = $detalle->colaborador->replicate();
+        $colaborador->setRelation('empresa', $detalle->colaborador->empresa);
+
+        if ($colaborador->sistema_previsional === 'onp') {
+            return $colaborador;
+        }
+
+        $condicion = ColaboradorCondicionLaboral::vigenteEn(
+            $detalle->colaborador_id,
+            $detalle->boletaOriginal->ciclo->fecha_corte_asistencia->toDateString(),
+        );
+
+        $colaborador->sistema_previsional = $condicion?->sistema_previsional ?: $colaborador->sistema_previsional;
+        $colaborador->afp_id = $condicion?->afp_id ?: $colaborador->afp_id;
+        $colaborador->tipo_comision = $condicion?->tipo_comision ?: $colaborador->tipo_comision;
+
+        if (! $colaborador->afp_id && filled($colaborador->sistema_previsional)) {
+            $colaborador->afp_id = Afp::where('clave', $colaborador->sistema_previsional)->value('id');
+        }
+
+        if (! in_array($colaborador->tipo_comision, ['flujo', 'mixta'], true)) {
+            $lineaComision = collect($snapshot['egresos'] ?? [])->firstWhere('codigo', 'AFP_COMISION');
+            $colaborador->tipo_comision = (float) ($lineaComision['tasa_aplicada'] ?? 0) > 0
+                ? 'flujo'
+                : 'mixta';
+        }
+
+        return $colaborador;
+    }
+
     private function recalcularRentaQuinta(PlanillaComplementariaDetalle $detalle, array &$snapshot, float $deltaBase): void
     {
         $colaborador = $detalle->colaborador;
@@ -1316,7 +1439,8 @@ class PlanillaComplementariaService
         $fechaCorte = $ciclo->fecha_corte_asistencia->toDateString();
         $parametros = ParametrosVigentesResolver::paraRegimen($colaborador->empresa, $colaborador->regimen_laboral ?: 'General', $fechaCorte);
         $lineaActual = collect($snapshot['egresos'] ?? [])->firstWhere('codigo', 'RENTA_5TA');
-        $baseActual = (float) ($lineaActual['base_utilizada'] ?? collect($snapshot['ingresos'] ?? [])->sum('monto'));
+        // El snapshot ya contiene el ingreso agregado (o eliminado).
+        $baseActual = (float) ($lineaActual['base_utilizada'] ?? (collect($snapshot['ingresos'] ?? [])->sum('monto') - $deltaBase));
         $nueva = $this->calculador->calcularRenta5ta($colaborador, max(0, $baseActual + $deltaBase), $parametros, $fechaCorte, $ciclo->id);
 
         $snapshot['egresos'] = collect($snapshot['egresos'] ?? [])
@@ -1418,6 +1542,42 @@ class PlanillaComplementariaService
         return $this->cargar($item);
     }
 
+    public function reabrir(Empresa $empresa, PlanillaComplementaria $item, int $usuarioId, string $motivo): PlanillaComplementaria
+    {
+        return DB::transaction(function () use ($empresa, $item, $usuarioId, $motivo) {
+            $item = PlanillaComplementaria::whereKey($item->id)->lockForUpdate()->firstOrFail();
+            $this->verificarItem($empresa, $item);
+
+            if ($item->estado !== 'aprobada') {
+                throw ValidationException::withMessages([
+                    'estado' => 'Solo se puede reabrir una complementaria aprobada que todavía no fue pagada.',
+                ]);
+            }
+
+            $reapertura = [
+                'motivo' => trim($motivo),
+                'reabierto_por' => $usuarioId,
+                'reabierto_at' => now()->toDateTimeString(),
+                'aprobado_por_anterior' => $item->aprobado_por,
+                'aprobado_at_anterior' => $item->aprobado_at?->toDateTimeString(),
+            ];
+
+            foreach ($item->detalles()->lockForUpdate()->get() as $detalle) {
+                $snapshot = $detalle->calculo_snapshot;
+                $snapshot['reaperturas'][] = $reapertura;
+                $detalle->update(['calculo_snapshot' => $snapshot]);
+            }
+
+            $item->update([
+                'estado' => 'calculada',
+                'aprobado_por' => null,
+                'aprobado_at' => null,
+            ]);
+
+            return $this->cargar($item);
+        });
+    }
+
     /**
      * Elimina por completo una complementaria creada por error — solo
      * mientras siga "calculada": una vez aprobada representa un compromiso
@@ -1504,18 +1664,25 @@ class PlanillaComplementariaService
             ->filter(fn ($d) => ($d->boletaOriginal->regimen_laboral_snapshot === 'Locacion de Servicios') === $esCuarta)
             ->map(function ($detalle) {
                 $boleta = $detalle->boletaOriginal->replicate();
+                $colaborador = $detalle->boletaOriginal->colaborador;
+                $bancoId = $detalle->banco_id ?: $colaborador?->banco_id;
                 $boleta->id = $detalle->boleta_original_id;
                 $boleta->neto_a_pagar = $detalle->diferencia_neta;
-                $boleta->setRelation('colaborador', $detalle->boletaOriginal->colaborador);
+                $boleta->setRelation('colaborador', $colaborador);
                 $datosPago = new BoletaDatosPago([
-                    'banco_id' => $detalle->banco_id,
-                    'tipo_cuenta_snapshot' => $detalle->tipo_cuenta_snapshot,
-                    'moneda_snapshot' => $detalle->moneda_snapshot,
-                    'numero_cuenta_snapshot' => $detalle->numero_cuenta_snapshot,
-                    'cci_snapshot' => $detalle->cci_snapshot,
+                    // La complementaria conserva su snapshot original. Solo
+                    // completamos campos que nacieron vacíos con los datos
+                    // bancarios actuales, por ejemplo un CCI corregido luego
+                    // de aprobar el reintegro; nunca reemplazamos un valor que
+                    // ya estaba congelado.
+                    'banco_id' => $bancoId,
+                    'tipo_cuenta_snapshot' => $detalle->tipo_cuenta_snapshot ?: $colaborador?->tipo_cuenta,
+                    'moneda_snapshot' => $detalle->moneda_snapshot ?: $colaborador?->moneda_cuenta,
+                    'numero_cuenta_snapshot' => $detalle->numero_cuenta_snapshot ?: $colaborador?->numero_cuenta,
+                    'cci_snapshot' => $detalle->cci_snapshot ?: $colaborador?->cci,
                     'fecha_snapshot' => $detalle->created_at,
                 ]);
-                $datosPago->setRelation('banco', \App\Modules\Configuracion\Models\Banco::find($detalle->banco_id));
+                $datosPago->setRelation('banco', \App\Modules\Configuracion\Models\Banco::find($bancoId));
                 $boleta->setRelation('datosPago', $datosPago);
                 return $boleta;
             })->values();

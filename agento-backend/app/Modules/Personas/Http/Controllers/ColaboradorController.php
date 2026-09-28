@@ -328,11 +328,14 @@ class ColaboradorController extends Controller
 
     public function cesar(Request $request, Colaborador $colaborador): ColaboradorResource
     {
+        $esHonorarios = $colaborador->regimen_laboral === 'Locacion de Servicios';
         $datos = $request->validate([
             'fecha_cese' => ['required', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'before_or_equal:today'],
             'motivo_cese' => ['required', 'string', 'max:255'],
-            'incluir_remuneracion' => ['required', 'boolean'], 'incluir_cts' => ['required', 'boolean'],
-            'incluir_gratificacion' => ['required', 'boolean'], 'incluir_vacaciones' => ['required', 'boolean'],
+            'incluir_remuneracion' => [$esHonorarios ? 'sometimes' : 'required', 'boolean'],
+            'incluir_cts' => [$esHonorarios ? 'sometimes' : 'required', 'boolean'],
+            'incluir_gratificacion' => [$esHonorarios ? 'sometimes' : 'required', 'boolean'],
+            'incluir_vacaciones' => [$esHonorarios ? 'sometimes' : 'required', 'boolean'],
         ]);
 
         return new ColaboradorResource(

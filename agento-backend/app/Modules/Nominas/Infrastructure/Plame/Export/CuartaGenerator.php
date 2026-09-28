@@ -43,7 +43,8 @@ final class CuartaGenerator
                 fn (Boleta $a, Boleta $b) => $a->colaborador->tipo_documento <=> $b->colaborador->tipo_documento,
                 fn (Boleta $a, Boleta $b) => $a->colaborador->numero_documento <=> $b->colaborador->numero_documento,
             ])
-            ->map(fn (Boleta $boleta) => $this->registro($contexto, $boleta))
+            ->flatMap(fn (Boleta $boleta) => $boleta->comprobantesRh
+                ->map(fn (BoletaComprobanteRh $comprobante) => $this->registro($contexto, $boleta, $comprobante)))
             ->values()
             ->all();
     }
@@ -51,18 +52,12 @@ final class CuartaGenerator
     /**
      * @return array<int, string>
      */
-    private function registro(PlameExportContext $contexto, Boleta $boleta): array
+    private function registro(PlameExportContext $contexto, Boleta $boleta, BoletaComprobanteRh $comprobante): array
     {
         /** @var Colaborador $colaborador */
         $colaborador = $boleta->colaborador;
         if (! $colaborador) {
             throw PlameExportException::campoRequeridoFaltante('colaborador', $boleta->colaborador_id);
-        }
-
-        /** @var BoletaComprobanteRh|null $comprobante */
-        $comprobante = $boleta->comprobanteRh;
-        if (! $comprobante) {
-            throw PlameExportException::campoRequeridoFaltante('boleta_comprobante_rh', $boleta->id);
         }
 
         $tipoDocumento = $contexto->mapeos->codigo('tipo_documento', $colaborador->tipo_documento);
@@ -78,7 +73,7 @@ final class CuartaGenerator
         [$serie, $numero] = $this->serieYNumero($comprobante, $colaborador->id);
 
         $montoServicio = $this->formatearMonto(
-            $this->montoTotalServicio($boleta),
+            (float) $comprobante->monto_total_servicio,
             self::MAX_DIGITOS_ENTEROS_MONTO_SERVICIO,
             "monto_total_servicio (colaborador_id={$colaborador->id})",
         );

@@ -102,7 +102,7 @@ class ConceptoRemuneracionSeeder extends Seeder
                 'sunat_motivo_estado' => 'Concepto operativo de descuento; requiere clasificación SUNAT explícita antes de declararse en PLAME.',
             ],
             [
-                'codigo' => 'DESCUENTO_COMPRA_MERCADERIA', 'nombre' => 'Descuento por compra de mercadería', 'tipo' => 'egreso',
+                'codigo' => 'DESCUENTO_COMPRA_MERCADERIA', 'nombre' => 'Descuento por compra de mercadería', 'tipo' => 'egreso', 'codigo_plame' => '0706',
                 'sunat_motivo_estado' => 'Concepto operativo de descuento; requiere clasificación SUNAT explícita antes de declararse en PLAME.',
             ],
             // V3 A9/A10 — sin codigo_plame a propósito, ver migración

@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Application\Plame;
 
 use App\Modules\Asistencia\Domain\Plame\ResolverSuspensionSunat;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Domain\Plame\ConceptosPlame;
 use App\Modules\Nominas\Domain\Plame\RequisitoRucPlame;
@@ -59,7 +60,7 @@ class PlameValidator
      *   complementarias_incluidas: array<int, array>,
      * }
      */
-    public function validar(CicloRemunerativo $ciclo): array
+    public function validar(CicloRemunerativo $ciclo, array $boletaIds = []): array
     {
         $empresa = $ciclo->empresa;
         $hallazgos = [];
@@ -67,8 +68,8 @@ class PlameValidator
         $hallazgos = [...$hallazgos, ...$this->validarEmpresaYCiclo($empresa, $ciclo)];
         $hallazgos = [...$hallazgos, ...$this->validarComplementariasPendientes($ciclo)];
 
-        $boletasPlanilla = PlameCicloDatosLoader::boletasPlanilla($ciclo);
-        $boletasRh = PlameCicloDatosLoader::boletasRh($ciclo);
+        $boletasPlanilla = PlameCicloDatosLoader::boletasPlanilla($ciclo, $boletaIds);
+        $boletasRh = PlameCicloDatosLoader::boletasRh($ciclo, $boletaIds);
 
         // Mapeos genéricos cargados de una sola vez (Sección 50: nunca N
         // queries por colaborador) — indexados por tipo → clave_interna.
@@ -84,7 +85,7 @@ class PlameValidator
         $condicionesPorColaborador = PlameCicloDatosLoader::condicionesPorColaborador($colaboradorIds);
 
         $hallazgos = [...$hallazgos, ...$this->validarPlanilla($boletasPlanilla, $ciclo, $mapeos, $condicionesPorColaborador)];
-        $hallazgos = [...$hallazgos, ...$this->validarJor($boletasPlanilla)];
+        $hallazgos = [...$hallazgos, ...$this->validarJor($boletasPlanilla, $ciclo)];
         $hallazgos = [...$hallazgos, ...$this->validarSnl($boletasPlanilla, $ciclo, $mapeos)];
         $hallazgos = [...$hallazgos, ...$this->validarRem($boletasPlanilla)];
         $hallazgos = [...$hallazgos, ...$this->validarRh($boletasRh, $mapeos)];
@@ -243,12 +244,21 @@ class PlameValidator
 
     // ===================== .jor =====================
 
-    private function validarJor(Collection $boletas): array
+    private function validarJor(Collection $boletas, CicloRemunerativo $ciclo): array
     {
         $hallazgos = [];
+        $procesadas = AsistenciaResultadoDiario::query()
+            ->whereIn('colaborador_id', $boletas->pluck('colaborador_id'))
+            ->whereBetween('fecha', [$ciclo->fecha_inicio, $ciclo->fecha_fin])
+            ->selectRaw('colaborador_id, COUNT(*) as total')
+            ->groupBy('colaborador_id')
+            ->pluck('total', 'colaborador_id');
 
         foreach ($boletas as $boleta) {
-            if (! $boleta->asistencia_procesada) {
+            // Una boleta pagada puede conservar el indicador histórico en
+            // false si la asistencia se reprocesó después. Los resultados
+            // diarios del período son la fuente actual de verdad.
+            if (! $boleta->asistencia_procesada && (int) ($procesadas[$boleta->colaborador_id] ?? 0) === 0) {
                 $hallazgos[] = $this->hallazgoColaborador(
                     'PLAME_JOR_ASISTENCIA_SIN_PROCESAR', 'error', ['jor'], self::GRUPO_JORNADA, $boleta->colaborador,
                     'La asistencia del período no fue procesada — no se pueden determinar horas ordinarias/extra reales.',
@@ -425,6 +435,7 @@ class PlameValidator
                 'numero' => $comprobante->numero,
                 'fecha_emision' => $comprobante->fecha_emision,
                 'fecha_pago' => $comprobante->fecha_pago,
+                'monto_total_servicio' => $comprobante->monto_total_servicio,
             ])->filter(fn ($v) => blank($v))->keys();
 
             if ($camposFaltantes->isNotEmpty()) {
@@ -490,7 +501,7 @@ class PlameValidator
             ],
             'archivos' => $archivos,
             'hallazgos' => $hallazgos,
-            'complementarias_incluidas' => $this->complementariasIncluidas($ciclo),
+            'complementarias_incluidas' => $this->complementariasIncluidas($ciclo, $boletasPlanilla->pluck('colaborador_id')),
         ];
     }
 
@@ -503,12 +514,17 @@ class PlameValidator
      *
      * @return array<int, array>
      */
-    private function complementariasIncluidas(CicloRemunerativo $ciclo): array
+    private function complementariasIncluidas(CicloRemunerativo $ciclo, Collection $colaboradorIds): array
     {
+        if ($colaboradorIds->isEmpty()) {
+            return [];
+        }
+
         return PlanillaComplementariaDetalle::whereHas(
             'complementaria',
             fn ($q) => $q->where('ciclo_id', $ciclo->id)->whereIn('estado', ['aprobada', 'pagada']),
         )
+            ->whereIn('colaborador_id', $colaboradorIds)
             ->with('colaborador', 'complementaria')
             ->get()
             ->map(fn (PlanillaComplementariaDetalle $d) => [

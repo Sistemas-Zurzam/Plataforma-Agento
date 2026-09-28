@@ -67,14 +67,23 @@ class UsuarioController extends Controller
     public function update(UpdateUsuarioRequest $request, User $usuario): UsuarioResource
     {
         $empresaActiva = $request->user('api')->empresa;
+        $empresaIds = $request->validated('empresa_ids');
+        $porId = Empresa::whereIn('id', $empresaIds)->get()->keyBy('id');
+        $empresas = collect($empresaIds)->map(fn ($id) => $porId->get($id))->filter()->values();
+        $roleId = $request->validated('role_id')
+            ?? $empresaActiva->users()->where('users.id', $usuario->id)->firstOrFail()->pivot->role_id;
+        $rol = Role::findOrFail($roleId);
 
         $this->usuarios->actualizar(
             $empresaActiva,
             $usuario,
             $request->only('name', 'username', 'email', 'area_id', 'password'),
+            $empresas,
+            $rol,
+            $request->user('api'),
         );
 
-        $usuarioActualizado = $empresaActiva->users()->with('area')->where('users.id', $usuario->id)->first();
+        $usuarioActualizado = $empresaActiva->users()->with(['area', 'empresas'])->where('users.id', $usuario->id)->first();
         $usuarioActualizado->setAttribute('empresaActiva', [
             'id' => $empresaActiva->id,
             'nombre' => $empresaActiva->nombre_comercial,

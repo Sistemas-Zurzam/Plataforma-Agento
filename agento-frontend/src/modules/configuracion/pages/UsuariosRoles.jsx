@@ -20,7 +20,6 @@ export default function UsuariosRoles({ user }) {
     fetchUsuarios,
     crearUsuario,
     actualizarUsuario,
-    cambiarRol,
     cambiarEstado,
     eliminarUsuario,
   } = useUsuarios();
@@ -67,28 +66,9 @@ export default function UsuariosRoles({ user }) {
   };
 
   const handleEditar = async (values, form) => {
-    const { role_id: nuevoRoleId, ...datosBasicos } = values;
-    const cambioDeRol = nuevoRoleId && nuevoRoleId !== editingUsuario.role?.id;
-
     setEditSubmitting(true);
     try {
-      await actualizarUsuario(editingUsuario.id, datosBasicos);
-
-      if (cambioDeRol) {
-        try {
-          await cambiarRol(editingUsuario.id, nuevoRoleId);
-        } catch (err) {
-          message.error(
-            err.response?.data?.errors?.rol?.[0] ??
-              err.response?.data?.message ??
-              'Los datos se guardaron, pero no se pudo cambiar el rol',
-          );
-          setEditingUsuario(null);
-          fetchRoles();
-          fetchUsuarios(pagination.current, pagination.pageSize);
-          return;
-        }
-      }
+      await actualizarUsuario(editingUsuario.id, values);
 
       setEditingUsuario(null);
       fetchRoles();
@@ -314,6 +294,7 @@ export default function UsuariosRoles({ user }) {
         open={!!editingUsuario}
         usuario={editingUsuario}
         roles={roles}
+        empresas={empresas}
         onSubmit={handleEditar}
         onCancel={() => setEditingUsuario(null)}
         submitting={editSubmitting}

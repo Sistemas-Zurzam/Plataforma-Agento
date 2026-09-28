@@ -36,6 +36,8 @@ class BoletaResource extends JsonResource
                 // la necesita) para no generar un lazy-load por fila.
                 'numero_documento' => $this->colaborador?->numero_documento,
                 'area' => $this->colaborador?->relationLoaded('area') ? $this->colaborador->area?->nombre : null,
+                'sede' => $this->colaborador?->relationLoaded('sede') ? $this->colaborador->sede?->nombre : null,
+                'categoria_trabajador' => $this->colaborador?->categoria_trabajador,
                 'fecha_ingreso' => $this->colaborador?->fecha_ingreso?->toDateString(),
             ],
             // Detalle completo de la empresa (RUC, dirección, logo) para el
@@ -56,6 +58,14 @@ class BoletaResource extends JsonResource
             'datos_pago' => $this->whenLoaded('datosPago', fn () => $this->resolverDatosPago()),
             // Adjuntado por BoletaService::ver() — no es una relación Eloquent.
             'ausencias_periodo' => $this->ausencias_periodo,
+            // Reintegros de planillas complementarias ya PAGADOS sobre esta
+            // boleta — ver BoletaService::resolverReintegros(). La boleta en
+            // sí no se modifica; esto es solo para que el colaborador vea el
+            // efecto combinado en su documento.
+            'reintegros' => $this->reintegros ?? [],
+            // Desglose "de remuneración" vs "de reintegros" por cada concepto
+            // previsional (AFP/ONP) — ver BoletaService::resolverDesglosePrevisional().
+            'desglose_previsional' => $this->desglose_previsional ?? [],
             'version' => $this->version,
             'regimen_laboral' => $this->regimen_laboral_snapshot,
             'sueldo_basico' => $this->sueldo_basico_snapshot,

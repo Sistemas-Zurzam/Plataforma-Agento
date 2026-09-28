@@ -20,6 +20,7 @@ import {
   SettingOutlined,
   TeamOutlined,
   UnlockOutlined,
+  UploadOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
 import { App, Avatar, Button, DatePicker, Empty, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
@@ -28,10 +29,8 @@ import { useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import BoletaImprimibleModal from '../../modules/remuneraciones/components/BoletaImprimibleModal';
 import BoletasImprimirMasivoModal from '../../modules/remuneraciones/components/BoletasImprimirMasivoModal';
-import BonoAsistenciaLotePanel from '../../modules/remuneraciones/components/BonoAsistenciaLotePanel';
 import ComprobanteRhModal from '../../modules/remuneraciones/components/ComprobanteRhModal';
 import ConfiguracionNominaModal from '../../modules/remuneraciones/components/ConfiguracionNominaModal';
-import AntecedentesHistoricosTab from '../../modules/remuneraciones/components/AntecedentesHistoricosTab';
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
 import LiquidacionesCeseTab from '../../modules/remuneraciones/components/LiquidacionesCeseTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
@@ -39,6 +38,7 @@ import AportesPrevisionalesTab from '../../modules/remuneraciones/components/Apo
 import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCashModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
+import ImportarComprobantesRhModal from '../../modules/remuneraciones/components/ImportarComprobantesRhModal';
 import PlanillasComplementariasModal from '../../modules/remuneraciones/components/PlanillasComplementariasModal';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
 import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
@@ -218,7 +218,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
-    resumen, fetchResumen, fetchResumenContable,
+    resumen, fetchResumen, fetchResumenContable, fetchReporteEjecutivoDatos,
     verBoleta, imprimirBoletasMasivo, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
@@ -230,12 +230,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
     exportarPlanillaPagadaExcel,
+    exportarReporteEjecutivoExcel,
     exportarComplementariasExcel,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
-    exportarExcelBono, importarExcelBono, crearComisionesComplementaria,
+    exportarExcelBono, importarExcelBono, importarComprobantesRh, crearComisionesComplementaria,
     fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, crearComplementariaHorasExtra, agregarHorasExtraComplementaria, fetchColaboradoresPorAsistencia, aplicarBonoPorAsistencia, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, reabrirComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo,
-    crearBonoAsistenciaLote, fetchBonoAsistenciaLotes, fetchBonoAsistenciaLote, exportarBonoAsistenciaLote, importarBonoAsistenciaLote, aplicarBonoAsistenciaLote, eliminarBonoAsistenciaLote,
   } = useRemuneraciones();
 
   const [cicloId, setCicloId] = useState(null);
@@ -262,12 +262,14 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [tipoFiltro, setTipoFiltro] = useState(null);
   const [busquedaPlanilla, setBusquedaPlanilla] = useState('');
   const [boletasSeleccionadas, setBoletasSeleccionadas] = useState([]);
+  const [boletasSeleccionadasDatos, setBoletasSeleccionadasDatos] = useState([]);
   const [seleccionandoTodas, setSeleccionandoTodas] = useState(false);
   const [boletaImprimirId, setBoletaImprimirId] = useState(null);
   const [imprimirMasivoOpen, setImprimirMasivoOpen] = useState(false);
   const [comprobanteRhBoletaId, setComprobanteRhBoletaId] = useState(null);
   const [guardandoComprobanteRh, setGuardandoComprobanteRh] = useState(false);
   const [plameModalOpen, setPlameModalOpen] = useState(false);
+  const [importarRhOpen, setImportarRhOpen] = useState(false);
   const [afpNetModalOpen, setAfpNetModalOpen] = useState(false);
   const [telecreditoBcpModalOpen, setTelecreditoBcpModalOpen] = useState(false);
   const [bbvaNetCashModalOpen, setBbvaNetCashModalOpen] = useState(false);
@@ -328,11 +330,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   }, [puedeVer, mesPrevisualizacion, user?.empresa?.id]);
 
   const cicloActivo = ciclos.find((c) => c.id === cicloId);
-  // El bono de asistencia (política Livex — ver bono_asistencia_habilitado
-  // en Empresa) es un tab de primer nivel siempre visible mientras la
-  // empresa tenga el flag activo, incluso con el ciclo ya cerrado/pagado
-  // (modo solo lectura). BonoAsistenciaLotePanel deriva ese modo solo
-  // lectura de cicloActivo.estado — no hay nada que calcular aquí.
 
   /**
    * El selector de ciclo lista los de TODAS las empresas que el usuario
@@ -1034,6 +1031,9 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             PDT PLAME
           </Button>
         </Tooltip>
+        <Tooltip title={cicloActivo ? 'Importa comprobantes RH por documento dentro de esta empresa y ciclo' : 'Selecciona un ciclo'}>
+          <Button icon={<UploadOutlined />} disabled={!cicloActivo} onClick={() => setImportarRhOpen(true)}>Importar RH</Button>
+        </Tooltip>
         <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Regulariza diferencias sin modificar la planilla pagada' : 'Disponible para ciclos pagados'}>
           <Button icon={<PlusOutlined />} disabled={cicloActivo?.estado !== 'pagado'} onClick={() => setComplementariasModalOpen(true)}>
             Planilla complementaria
@@ -1199,7 +1199,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                   scroll={{ x: 1100 }}
                   rowSelection={puedeSeleccionarBoletas ? {
                     selectedRowKeys: boletasSeleccionadas,
-                    onChange: setBoletasSeleccionadas,
+                    onChange: (keys, selectedRows) => {
+                      setBoletasSeleccionadas(keys);
+                      setBoletasSeleccionadasDatos((prev) => {
+                        const disponibles = [...prev, ...selectedRows];
+                        return keys.map((id) => disponibles.find((b) => b.id === id)).filter(Boolean);
+                      });
+                    },
                     preserveSelectedRowKeys: true,
                     getCheckboxProps: (boleta) => {
                       if (boleta.estado === 'calculada') return { disabled: !puedeAprobar };
@@ -1244,29 +1250,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             ),
           },
           {
-            key: 'bonos',
-            label: 'Bonos',
-            disabled: !user?.empresa?.bono_asistencia_habilitado,
-            children: cicloActivo ? (
-              <BonoAsistenciaLotePanel
-                ciclo={cicloActivo}
-                catalogo={catalogoConceptos}
-                api={{
-                  crearBonoAsistenciaLote,
-                  fetchBonoAsistenciaLotes,
-                  fetchBonoAsistenciaLote,
-                  exportarBonoAsistenciaLote,
-                  importarBonoAsistenciaLote,
-                  aplicarBonoAsistenciaLote,
-                  eliminarBonoAsistenciaLote,
-                  fetchCatalogoConceptos,
-                }}
-              />
-            ) : (
-              <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
-            ),
-          },
-          {
             key: 'aportes-previsionales',
             label: 'Aportes previsionales',
             children: cicloId ? (
@@ -1299,11 +1282,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             key: 'liquidaciones',
             label: 'Liquidaciones',
             children: <LiquidacionesCeseTab empresaId={user?.empresa?.id} puedeAprobar={puedeAprobar} puedePagar={puedePagar} />,
-          },
-          {
-            key: 'antecedentes-historicos',
-            label: 'Antecedentes históricos',
-            children: <AntecedentesHistoricosTab puedeGestionarCiclos={puedeGestionarCiclos} puedeAprobar={puedeAprobar} />,
           },
           {
             key: 'documentacion',
@@ -1356,7 +1334,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setImprimirMasivoOpen(false)}
         cicloId={cicloId}
         boletaIds={boletasSeleccionadas}
-        crearComisionesComplementaria={crearComisionesComplementaria}
         imprimirBoletasMasivo={imprimirBoletasMasivo}
       />
 
@@ -1373,9 +1350,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         open={plameModalOpen}
         onCancel={() => setPlameModalOpen(false)}
         ciclo={cicloActivo}
+        boletaIds={boletasSeleccionadas}
         fetchValidacion={fetchPlameValidacion}
         exportarPlame={exportarPlame}
       />
+      <ImportarComprobantesRhModal open={importarRhOpen} onCancel={() => setImportarRhOpen(false)} ciclo={cicloActivo} importar={importarComprobantesRh} />
 
       <AfpNetModal
         open={afpNetModalOpen}
@@ -1408,6 +1387,8 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setResumenContableModalOpen(false)}
         ciclo={cicloActivo}
         fetchResumenContable={fetchResumenContable}
+        fetchReporteEjecutivoDatos={fetchReporteEjecutivoDatos}
+        exportarReporteEjecutivoExcel={exportarReporteEjecutivoExcel}
         onVerPlanilla={(id) => {
           setCicloId(id);
           setTabActiva('planilla');
@@ -1420,9 +1401,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => setComplementariasModalOpen(false)}
         ciclo={cicloActivo}
         boletaIds={boletasSeleccionadas}
+        boletasSeleccionadas={boletasSeleccionadasDatos}
         api={{ exportarExcelBono, importarExcelBono, fetchComplementarias, crearComplementaria, fetchDescansosSemanales, reintegrarDescansosSemanales, fetchDescuentosComplementaria, reintegrarDescuentosComplementaria, fetchFeriadosHistoricos, crearRegularizacionFeriadoHistorico, fetchHorasExtraPendientesComplementaria, crearComplementariaHorasExtra, agregarHorasExtraComplementaria, fetchColaboradoresPorAsistencia, aplicarBonoPorAsistencia, fetchCatalogoConceptos, agregarConceptoComplementaria, eliminarConceptoComplementaria, fetchColaboradoresDisponiblesComplementaria, agregarColaboradoresComplementaria, eliminarComplementaria, aprobarComplementaria, reabrirComplementaria, pagarComplementaria, exportarComplementaria, exportarComplementariasMasivo }}
         permisos={{ calcular: puedeCalcular, aprobar: puedeAprobar, pagar: puedePagar, telecredito: puedeExportarTelecredito, bbva: puedeExportarBbvaNetCash }}
         catalogoConceptos={catalogoConceptos}
+        crearComisionesComplementaria={crearComisionesComplementaria}
       />
     </div>
   );

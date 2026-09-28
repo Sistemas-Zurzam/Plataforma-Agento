@@ -21,6 +21,12 @@ class UsuarioResource extends JsonResource
             'email' => $this->email,
             'activo' => $this->activo,
             'empresa' => $this->empresaActiva,
+            'empresas' => $this->whenLoaded('empresas', fn () => $this->empresas
+                ->sortByDesc(fn ($empresa) => $empresa->id === ($this->empresaActiva['id'] ?? null))
+                ->map(fn ($empresa) => [
+                    'id' => $empresa->id,
+                    'nombre_comercial' => $empresa->nombre_comercial,
+                ])->values()),
             'area' => $this->area ? [
                 'id' => $this->area->id,
                 'nombre' => $this->area->nombre,

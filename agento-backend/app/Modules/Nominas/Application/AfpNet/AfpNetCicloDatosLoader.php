@@ -77,33 +77,36 @@ final class AfpNetCicloDatosLoader
             'complementaria',
             fn ($q) => $q->where('ciclo_id', $ciclo->id)->whereIn('estado', ['aprobada', 'pagada']),
         )
-            ->where('calculo_snapshot->regimen_laboral', '!=', 'Locacion de Servicios')
-            ->latest('id')
-            ->get()
-            ->unique('colaborador_id')
-            ->keyBy('colaborador_id');
+            // Los snapshots creados por PlanillaComplementariaService no
+            // guardan `regimen_laboral`. Filtrar por esa clave JSON hacía
+            // que SQL descartara todos esos reintegros porque NULL != valor
+            // no es verdadero. La población de boletas ya excluye locadores;
+            // acotarla por la boleta original es además el vínculo inequívoco.
+            ->whereIn('boleta_original_id', $boletas->pluck('id'))
+            ->get(['id', 'boleta_original_id', 'diferencia_ingresos', 'calculo_snapshot'])
+            ->groupBy('boleta_original_id');
 
         if ($detalles->isEmpty()) {
             return;
         }
 
         foreach ($boletas as $boleta) {
-            /** @var PlanillaComplementariaDetalle|null $detalle */
-            $detalle = $detalles->get($boleta->colaborador_id);
-            if (! $detalle) {
+            $detallesBoleta = $detalles->get($boleta->id, collect());
+            if ($detallesBoleta->isEmpty()) {
                 continue;
             }
 
-            $lineaAfp = collect($detalle->calculo_snapshot['egresos'] ?? [])
-                ->first(fn (array $l) => $l['codigo'] === 'AFP_APORTE_OBLIGATORIO');
-            if (! $lineaAfp) {
+            $conceptoAfp = $boleta->conceptos->first(fn ($c) => $c->concepto?->codigo === 'AFP_APORTE_OBLIGATORIO');
+            if (! $conceptoAfp) {
                 continue; // colaborador ONP — ya excluido por el filtro AFP de cargar(), resguardo explícito
             }
 
-            $conceptoAfp = $boleta->conceptos->first(fn ($c) => $c->concepto?->codigo === 'AFP_APORTE_OBLIGATORIO');
-            if ($conceptoAfp) {
-                $conceptoAfp->base_utilizada = $lineaAfp['base_utilizada'];
-            }
+            // Cada detalle representa el incremento de ingresos de su
+            // reintegro. Se acumulan sobre la base AFP original para que
+            // AFPnet incluya todos los reintegros, no solo el último snapshot.
+            $baseOriginal = (float) $conceptoAfp->base_utilizada;
+            $baseReintegros = (float) $detallesBoleta->sum(fn (PlanillaComplementariaDetalle $detalle) => (float) $detalle->diferencia_ingresos);
+            $conceptoAfp->base_utilizada = number_format($baseOriginal + $baseReintegros, 2, '.', '');
         }
     }
 

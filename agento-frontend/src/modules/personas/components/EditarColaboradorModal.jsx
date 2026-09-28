@@ -66,7 +66,9 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
       periodicidad_pago: vigente?.periodicidad_pago ?? 'mensual',
       asignacion_familiar: vigente?.asignacion_familiar ?? 0,
       vigencia_desde: vigente?.vigencia_desde ? dayjs(vigente.vigencia_desde) : dayjs(),
-      condicion_vigencia_desde: dayjs().startOf('month'),
+      condicion_vigencia_desde: colaborador.condicion_laboral?.vigencia_desde
+        ? dayjs(colaborador.condicion_laboral.vigencia_desde)
+        : dayjs().startOf('month'),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, colaborador, vigente, form]);

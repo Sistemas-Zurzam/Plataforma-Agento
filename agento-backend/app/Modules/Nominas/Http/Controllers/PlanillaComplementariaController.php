@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
+use App\Modules\Nominas\Infrastructure\PlanillaComplementaria\Export\PlanillaComplementariaExcelExporter;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\PlanillaComplementaria;
@@ -11,6 +12,7 @@ use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Services\PlanillaComplementariaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use RuntimeException;
@@ -46,6 +48,22 @@ class PlanillaComplementariaController extends Controller
         return response()->json(['data' => $this->service->listar($empresa, $ciclo)->map(fn ($i) => $this->presentar($i))]);
     }
 
+    public function exportarExcel(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $empresa = $this->empresa($request, $ciclo);
+        $items = $this->service->listar($empresa, $ciclo);
+        abort_if($items->isEmpty(), 422, 'El ciclo no tiene planillas complementarias para exportar.');
+
+        $contenido = PlanillaComplementariaExcelExporter::generar($ciclo->loadMissing('empresa'), $items);
+        $nombre = sprintf('%s_%s_reintegros.xlsx', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
+    }
+
     public function descuentos(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
         $datos = $request->validate(['boleta_ids' => ['required', 'array', 'min:1'], 'boleta_ids.*' => ['required', 'integer', 'distinct']]);
@@ -68,8 +86,8 @@ class PlanillaComplementariaController extends Controller
 
     public function comisiones(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
-        $datos = $request->validate(['boleta_ids' => ['required', 'array', 'min:1'], 'boleta_ids.*' => ['required', 'integer', 'distinct'], 'monto' => ['required', 'numeric', 'decimal:0,2', 'min:0.01'], 'motivo' => ['required', 'string', 'max:1000']]);
-        $item = $this->service->crearComisiones($this->empresa($request, $ciclo), $ciclo, $datos['boleta_ids'], (float) $datos['monto'], $datos['motivo'], $request->user('api')->id);
+        $datos = $request->validate(['comisiones' => ['required', 'array', 'min:1'], 'comisiones.*.boleta_id' => ['required', 'integer', 'distinct'], 'comisiones.*.monto' => ['required', 'numeric', 'decimal:0,2', 'min:0.01'], 'motivo' => ['required', 'string', 'max:1000']]);
+        $item = $this->service->crearComisiones($this->empresa($request, $ciclo), $ciclo, $datos['comisiones'], $datos['motivo'], $request->user('api')->id);
         return response()->json(['data' => $this->presentar($item)], 201);
     }
 
@@ -96,6 +114,11 @@ class PlanillaComplementariaController extends Controller
 
     public function colaboradoresPorAsistencia(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
+        if ($request->boolean('reporte_gerencia')) {
+            $datos = $request->validate(['mes' => ['required', 'date_format:Y-m'], 'area_id' => ['nullable', 'integer']]);
+            return response()->json(['data' => app(\App\Modules\Nominas\Services\ReporteBonoAsistenciaService::class)
+                ->generar($this->empresa($request, $ciclo), $datos['mes'], $datos['area_id'] ?? null)]);
+        }
         $datos = $request->validate([
             'dias' => ['required', 'integer', 'min:1'],
             'operador' => ['required', Rule::in(['exacto', 'minimo'])],
@@ -109,6 +132,38 @@ class PlanillaComplementariaController extends Controller
             $datos['operador'],
             (int) $datos['concepto_id'],
         )]);
+    }
+
+    public function exportarBonoExcel(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $datos = $request->validate(['mes' => ['required', 'date_format:Y-m'], 'area_id' => ['nullable', 'integer'], 'monto_base' => ['required', 'numeric', 'min:0.01', 'max:9999999']]);
+        $libro = app(\App\Modules\Nominas\Services\ExcelBonoAsistenciaService::class)
+            ->exportar($this->empresa($request, $ciclo), $datos['mes'], (float) $datos['monto_base'], $datos['area_id'] ?? null);
+        return response()->streamDownload(function () use ($libro) {
+            try { (new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($libro))->save('php://output'); }
+            finally { $libro->disconnectWorksheets(); }
+        }, 'Bono_asistencia_'.$datos['mes'].'.xlsx', ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet']);
+    }
+
+    public function importarBonoExcel(Request $request, CicloRemunerativo $ciclo): JsonResponse
+    {
+        $datos = $request->validate([
+            'archivo' => ['required', 'file', 'mimes:xlsx', 'max:10240'],
+            'generar' => ['sometimes', 'boolean'],
+            'concepto_id' => ['nullable', 'integer', 'exists:conceptos_remuneracion,id'],
+            'concepto_definicion_id' => ['nullable', 'integer'],
+            'motivo' => [$request->boolean('generar') ? 'required' : 'nullable', 'string', 'max:255'],
+        ]);
+        $empresa = $this->empresa($request, $ciclo);
+        $service = app(\App\Modules\Nominas\Services\ExcelBonoAsistenciaService::class);
+        try {
+            if (! $request->boolean('generar')) return response()->json(['data' => $service->validar($empresa, $ciclo, $request->file('archivo')->getRealPath())]);
+            $item = $service->generar($empresa, $ciclo, $request->file('archivo')->getRealPath(), $datos['concepto_id'] ?? null,
+                $datos['concepto_definicion_id'] ?? null, $datos['motivo'], $request->user('api')->id);
+            return response()->json(['data' => $this->presentar($item)], 201);
+        } catch (\PhpOffice\PhpSpreadsheet\Exception $e) {
+            throw ValidationException::withMessages(['archivo' => 'No se pudo leer el Excel. Usa la plantilla .xlsx exportada, sin cambiar su estructura.']);
+        }
     }
 
     public function aplicarBonoPorAsistencia(Request $request, CicloRemunerativo $ciclo): JsonResponse
@@ -290,6 +345,19 @@ class PlanillaComplementariaController extends Controller
         return response()->json(['data' => $this->presentar($item)]);
     }
 
+    public function reabrir(Request $request, PlanillaComplementaria $complementaria): JsonResponse
+    {
+        $datos = $request->validate(['motivo' => ['required', 'string', 'max:1000']]);
+        $item = $this->service->reabrir(
+            $this->empresaItem($request, $complementaria),
+            $complementaria,
+            $request->user('api')->id,
+            $datos['motivo'],
+        );
+
+        return response()->json(['data' => $this->presentar($item)]);
+    }
+
     public function pagar(Request $request, PlanillaComplementaria $complementaria): JsonResponse
     {
         $datos = $request->validate(['referencia_pago' => ['required', 'string', 'max:255']]);
@@ -352,11 +420,25 @@ class PlanillaComplementariaController extends Controller
     private function presentar(PlanillaComplementaria $item): array
     {
         $detalles = $item->detalles;
+        $elegibilidad = $this->elegibilidadBancaria($detalles);
+        $pendientes = $detalles->where('diferencia_neta', '>', 0);
+
         return [
             'id' => $item->id, 'ciclo_id' => $item->ciclo_id, 'nombre' => $item->nombre,
             'motivo' => $item->motivo, 'estado' => $item->estado,
-            'total_a_pagar' => number_format((float) $detalles->where('diferencia_neta', '>', 0)->sum('diferencia_neta'), 2, '.', ''),
+            'total_a_pagar' => number_format((float) $pendientes->sum('diferencia_neta'), 2, '.', ''),
             'saldo_a_descontar' => number_format(abs((float) $detalles->where('diferencia_neta', '<', 0)->sum('diferencia_neta')), 2, '.', ''),
+            // Un reintegro solo es exportable por un canal si TODOS sus
+            // colaboradores con diferencia positiva tienen los datos que
+            // exige ese canal (cuenta propia del banco, o CCI si es de
+            // otro banco) — TelecreditoBcpPagoBuilder/BbvaNetCashDetalleBuilder
+            // lanzan una excepción dura si falta uno solo, y esa excepción
+            // tumba el archivo completo, no solo a esa persona (más grave
+            // aún en la exportación consolidada de varios reintegros).
+            'elegible_telecredito' => $pendientes->isNotEmpty() && $pendientes->every(fn ($d) => $elegibilidad[$d->id]['telecredito']),
+            'elegible_netcash' => $pendientes->isNotEmpty() && $pendientes->every(fn ($d) => $elegibilidad[$d->id]['netcash']),
+            'colaboradores_datos_incompletos' => $pendientes->reject(fn ($d) => $elegibilidad[$d->id]['telecredito'] && $elegibilidad[$d->id]['netcash'])
+                ->map(fn ($d) => trim(($d->colaborador?->nombres ?? '').' '.($d->colaborador?->apellidos ?? '')))->values(),
             'detalles' => $detalles->map(fn ($d) => [
                 'id' => $d->id, 'colaborador_id' => $d->colaborador_id,
                 'colaborador' => trim(($d->colaborador?->nombres ?? '').' '.($d->colaborador?->apellidos ?? '')),
@@ -368,10 +450,36 @@ class PlanillaComplementariaController extends Controller
                 'descansos_semanales' => $d->calculo_snapshot['descansos_semanales'] ?? [],
                 'feriado_regularizado' => $d->calculo_snapshot['feriado_regularizado'] ?? null,
                 'horas_extra_regularizadas' => $d->calculo_snapshot['horas_extra_regularizadas'] ?? [],
+                'bono_asistencia_gerencia' => $d->calculo_snapshot['bono_asistencia_gerencia'] ?? null,
+                'elegible_telecredito' => $elegibilidad[$d->id]['telecredito'],
+                'elegible_netcash' => $elegibilidad[$d->id]['netcash'],
             ])->values(),
             'aprobado_at' => $item->aprobado_at?->toDateTimeString(), 'pagado_at' => $item->pagado_at?->toDateTimeString(),
             'referencia_pago' => $item->referencia_pago,
         ];
+    }
+
+    /** @return array<int, array{telecredito: bool, netcash: bool}> indexado por detalle->id */
+    private function elegibilidadBancaria($detalles): array
+    {
+        $colaboradores = \App\Modules\Personas\Models\Colaborador::withTrashed()
+            ->whereIn('id', $detalles->pluck('colaborador_id')->unique())
+            ->get(['id', 'banco_id', 'cci'])
+            ->keyBy('id');
+        $bancoIds = $detalles->pluck('banco_id')->filter()
+            ->merge($colaboradores->pluck('banco_id')->filter())->unique();
+        $bancos = \App\Modules\Configuracion\Models\Banco::whereIn('id', $bancoIds)->get()->keyBy('id');
+
+        return $detalles->mapWithKeys(function ($d) use ($bancos, $colaboradores) {
+            $colaborador = $colaboradores->get($d->colaborador_id);
+            $banco = $bancos->get($d->banco_id ?: $colaborador?->banco_id);
+            $cci = $d->cci_snapshot ?: $colaborador?->cci;
+            $tieneCci = is_string($cci) && preg_match('/^\d{20}$/', $cci) === 1;
+            return [$d->id => [
+                'telecredito' => $banco?->codigo === 'bcp' || $tieneCci,
+                'netcash' => $banco?->codigo === 'bbva' || $tieneCci,
+            ]];
+        })->all();
     }
 
     /**

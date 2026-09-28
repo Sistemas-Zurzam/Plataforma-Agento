@@ -20,10 +20,11 @@ use Illuminate\Support\Collection;
  */
 final class PlameCicloDatosLoader
 {
-    public static function boletasPlanilla(CicloRemunerativo $ciclo): Collection
+    public static function boletasPlanilla(CicloRemunerativo $ciclo, array $boletaIds = []): Collection
     {
         $boletas = Boleta::where('ciclo_id', $ciclo->id)
             ->where('es_version_vigente', true)
+            ->when($boletaIds !== [], fn ($q) => $q->whereIn('id', $boletaIds))
             ->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios')
             ->with(['colaborador', 'conceptos.concepto'])
             ->get();
@@ -91,6 +92,11 @@ final class PlameCicloDatosLoader
             }
 
             $snapshot = $detalle->calculo_snapshot;
+            // Las HE de huellero ya se leen desde asistencia_horas_extra en
+            // JorGenerator. Solo se trasladan aquí las HE manuales de la
+            // complementaria para evitar declararlas dos veces.
+            $boleta->setAttribute('minutos_extra_complementaria', (int) collect($snapshot['horas_extra_regularizadas'] ?? [])
+                ->where('origen', 'manual')->sum('minutos'));
             $conceptosReemplazo = collect([
                 ...collect($snapshot['ingresos'] ?? [])->map(fn (array $l) => [...$l, '_tipo' => 'ingreso']),
                 ...collect($snapshot['egresos'] ?? [])->map(fn (array $l) => [...$l, '_tipo' => 'egreso']),
@@ -125,12 +131,13 @@ final class PlameCicloDatosLoader
         }
     }
 
-    public static function boletasRh(CicloRemunerativo $ciclo): Collection
+    public static function boletasRh(CicloRemunerativo $ciclo, array $boletaIds = []): Collection
     {
         return Boleta::where('ciclo_id', $ciclo->id)
             ->where('es_version_vigente', true)
+            ->when($boletaIds !== [], fn ($q) => $q->whereIn('id', $boletaIds))
             ->where('regimen_laboral_snapshot', '=', 'Locacion de Servicios')
-            ->with(['colaborador', 'conceptos.concepto', 'comprobanteRh'])
+            ->with(['colaborador', 'conceptos.concepto', 'comprobanteRh', 'comprobantesRh'])
             ->get();
     }
 

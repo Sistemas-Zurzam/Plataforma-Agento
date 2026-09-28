@@ -1,5 +1,6 @@
-import { LogoutOutlined, SearchOutlined } from '@ant-design/icons';
-import { Button, Spin } from 'antd';
+import { BrowserMultiFormatReader } from '@zxing/browser';
+import { LogoutOutlined, SearchOutlined, ScanOutlined } from '@ant-design/icons';
+import { Alert, Button, Modal, Spin } from 'antd';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../../../services/api';
 import { colorForName, initialsForName } from '../../../utils/avatarColor';
@@ -46,6 +47,8 @@ export default function ControlAcceso({ onLogout }) {
   const [reloj, setReloj] = useState(() => new Date());
   const [ultimas, setUltimas] = useState([]);
   const [vista, setVista] = useState('escanear'); // 'escanear' | 'buscar' | 'confirmar'
+  const [scannerAbierto, setScannerAbierto] = useState(false);
+  const [errorScanner, setErrorScanner] = useState('');
   const [terminoBusqueda, setTerminoBusqueda] = useState('');
   const [buscando, setBuscando] = useState(false);
   const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
@@ -54,6 +57,10 @@ export default function ControlAcceso({ onLogout }) {
   const [fotoResultado, setFotoResultado] = useState(null);
   const inputRef = useRef(null);
   const bloqueoRef = useRef(false);
+  const videoRef = useRef(null);
+  const lectorRef = useRef(null);
+  const controlesScannerRef = useRef(null);
+  const procesarCodigoEscaneadoRef = useRef(null);
 
   const enfocar = useCallback(() => inputRef.current?.focus(), []);
 
@@ -65,6 +72,50 @@ export default function ControlAcceso({ onLogout }) {
   useEffect(() => {
     if (vista === 'escanear') enfocar();
   }, [vista, enfocar]);
+
+  const detenerScanner = useCallback(() => {
+    controlesScannerRef.current?.stop();
+    controlesScannerRef.current = null;
+    lectorRef.current?.reset();
+    if (videoRef.current?.srcObject) {
+      videoRef.current.srcObject.getTracks().forEach((pista) => pista.stop());
+      videoRef.current.srcObject = null;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!scannerAbierto || !videoRef.current) return undefined;
+    let cancelado = false;
+    const lector = new BrowserMultiFormatReader();
+    lectorRef.current = lector;
+    setErrorScanner('');
+
+    lector.decodeFromVideoDevice(undefined, videoRef.current, (resultado, error, controles) => {
+      if (cancelado) {
+        controles.stop();
+        return;
+      }
+      controlesScannerRef.current = controles;
+      if (resultado) {
+        const valor = resultado.getText().trim();
+        if (!valor) return;
+        cancelado = true;
+        controles.stop();
+        setScannerAbierto(false);
+        setCodigo(valor);
+        procesarCodigoEscaneadoRef.current?.(valor);
+      } else if (error && error.name !== 'NotFoundException' && error.name !== 'ChecksumException' && error.name !== 'FormatException') {
+        setErrorScanner('No se pudo iniciar la cámara. Verifique los permisos del navegador y vuelva a intentarlo.');
+      }
+    }).catch(() => {
+      if (!cancelado) setErrorScanner('No se pudo acceder a la cámara. Use el sitio con HTTPS y permita el acceso a la cámara.');
+    });
+
+    return () => {
+      cancelado = true;
+      detenerScanner();
+    };
+  }, [scannerAbierto, detenerScanner]);
 
   useEffect(() => {
     if (!resultado) return undefined;
@@ -102,8 +153,8 @@ export default function ControlAcceso({ onLogout }) {
     };
   }, [terminoBusqueda, vista]);
 
-  const volverAEscanear = () => {
-    setVista('escanear');
+  const volverAlInicio = () => {
+    setVista(window.matchMedia('(max-width: 640px)').matches ? 'buscar' : 'escanear');
     setTerminoBusqueda('');
     setResultadosBusqueda([]);
     setSeleccionado(null);
@@ -171,6 +222,9 @@ export default function ControlAcceso({ onLogout }) {
       enfocar();
     }
   };
+  useEffect(() => {
+    procesarCodigoEscaneadoRef.current = escanear;
+  }, [escanear]);
 
   const confirmarYRegistrarManual = async () => {
     if (bloqueoRef.current || !seleccionado) return;
@@ -180,7 +234,7 @@ export default function ControlAcceso({ onLogout }) {
     try {
       const { data } = await api.post(`/control-acceso/colaboradores/${seleccionado.id}/marcar-manual`);
       const info = data.data;
-      setVista('escanear');
+      setVista(window.matchMedia('(max-width: 640px)').matches ? 'buscar' : 'escanear');
       setSeleccionado(null);
       if (fotoSeleccionado) URL.revokeObjectURL(fotoSeleccionado);
       setFotoSeleccionado(null);
@@ -194,7 +248,7 @@ export default function ControlAcceso({ onLogout }) {
     } catch (error) {
       const errores = error.response?.data?.errors ?? {};
       const clave = Object.keys(errores)[0];
-      setVista('escanear');
+      setVista(window.matchMedia('(max-width: 640px)').matches ? 'buscar' : 'escanear');
       setResultado({
         resultado: 'error',
         mensaje: MENSAJE_POR_CLAVE_ERROR[clave] ?? errores[clave]?.[0] ?? 'No se pudo registrar la marcación.',
@@ -215,32 +269,37 @@ export default function ControlAcceso({ onLogout }) {
   const estilo = ESTILO_RESULTADO[resultado?.resultado] ?? ESTILO_RESULTADO.error;
 
   return (
-    <div className="flex min-h-svh flex-col bg-slate-900 text-white">
-      <header className="flex items-center justify-between px-8 py-5">
-        <h1 className="text-xl font-bold tracking-wide">CONTROL DE ACCESO</h1>
-        <div className="flex items-center gap-6">
-          <span className="font-mono text-2xl tabular-nums">{reloj.toLocaleTimeString('es-PE')}</span>
+    <div className="flex min-h-svh min-w-0 flex-col bg-slate-900 text-white">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-8 sm:py-5">
+        <h1 className="text-lg font-bold tracking-wide sm:text-xl">CONTROL DE ACCESO</h1>
+        <div className="flex items-center gap-3 sm:gap-6">
+          <span className="font-mono text-base tabular-nums sm:text-2xl">{reloj.toLocaleTimeString('es-PE')}</span>
           <Button ghost icon={<LogoutOutlined />} onClick={onLogout}>Cerrar sesión</Button>
         </div>
       </header>
 
-      <main className="flex flex-1 flex-col items-center justify-center gap-6 px-6">
+      <main className="flex w-full flex-1 flex-col items-center justify-start gap-6 px-4 py-8 sm:justify-center sm:px-6">
         {!resultado && vista === 'escanear' && (
           <>
-            <p className="text-2xl text-slate-300">Escanee el carnet del colaborador</p>
-            <form onSubmit={manejarSubmit}>
-              <input
-                ref={inputRef}
-                value={codigo}
-                onChange={(evento) => setCodigo(evento.target.value)}
-                onBlur={enfocar}
-                autoFocus
-                disabled={procesando}
-                autoComplete="off"
-                className="w-[420px] rounded-xl border-2 border-slate-600 bg-slate-800 px-6 py-4 text-center text-2xl tracking-widest text-white outline-none focus:border-blue-400"
-                placeholder={procesando ? 'Procesando…' : ''}
-              />
-            </form>
+            <p className="text-center text-xl text-slate-300 sm:text-2xl">Escanee el carnet del colaborador</p>
+            <Button type="primary" size="large" icon={<ScanOutlined />} disabled={procesando} onClick={() => setScannerAbierto(true)}>
+              Escanear con cámara
+            </Button>
+            <details className="w-full max-w-[420px] text-center">
+              <summary className="cursor-pointer text-sm text-slate-400 underline decoration-dotted underline-offset-4">Usar lector conectado o ingresar código</summary>
+              <form onSubmit={manejarSubmit} className="mt-3">
+                <input
+                  ref={inputRef}
+                  value={codigo}
+                  onChange={(evento) => setCodigo(evento.target.value)}
+                  disabled={procesando}
+                  autoComplete="off"
+                  className="w-full rounded-xl border-2 border-slate-600 bg-slate-800 px-6 py-4 text-center text-2xl tracking-widest text-white outline-none focus:border-blue-400"
+                  placeholder={procesando ? 'Procesando…' : 'Código del carnet'}
+                />
+                <Button htmlType="submit" className="mt-3" disabled={!codigo.trim() || procesando}>Registrar código</Button>
+              </form>
+            </details>
             <button
               type="button"
               onClick={() => setVista('buscar')}
@@ -252,21 +311,21 @@ export default function ControlAcceso({ onLogout }) {
         )}
 
         {!resultado && vista === 'buscar' && (
-          <div className="flex w-120 flex-col gap-4">
+          <div className="flex w-full max-w-[480px] min-w-0 flex-col gap-4">
             <p className="text-center text-xl text-slate-300">Busque al colaborador por nombre o documento</p>
             <div className="relative">
               <SearchOutlined className="pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-slate-400" />
               <input
                 value={terminoBusqueda}
                 onChange={(evento) => setTerminoBusqueda(evento.target.value)}
-                autoFocus
+                autoFocus={window.matchMedia('(min-width: 641px)').matches}
                 autoComplete="off"
                 placeholder="Nombre o documento…"
                 className="w-full rounded-xl border-2 border-slate-600 bg-slate-800 py-3 pr-4 pl-11 text-lg text-white outline-none focus:border-blue-400"
               />
             </div>
 
-            <div className="flex max-h-90 flex-col gap-2 overflow-y-auto">
+            <div className="flex max-h-[50svh] flex-col gap-2 overflow-y-auto sm:max-h-90">
               {buscando && (
                 <div className="flex justify-center py-4"><Spin /></div>
               )}
@@ -278,7 +337,7 @@ export default function ControlAcceso({ onLogout }) {
                   key={persona.id}
                   type="button"
                   onClick={() => seleccionarParaConfirmar(persona)}
-                  className="flex items-center gap-3 rounded-lg bg-slate-800 p-3 text-left hover:bg-slate-700"
+                  className="flex min-h-16 items-center gap-3 rounded-lg bg-slate-800 p-3 text-left hover:bg-slate-700"
                 >
                   <span
                     className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
@@ -294,12 +353,12 @@ export default function ControlAcceso({ onLogout }) {
               ))}
             </div>
 
-            <Button ghost onClick={volverAEscanear}>Cancelar — volver a escanear</Button>
+            <Button ghost onClick={volverAlInicio}>Volver al escáner</Button>
           </div>
         )}
 
         {!resultado && vista === 'confirmar' && seleccionado && (
-          <div className="flex flex-col items-center gap-4 text-center">
+          <div className="flex w-full max-w-[480px] flex-col items-center gap-4 text-center">
             <p className="text-xl text-slate-300">¿Es esta persona?</p>
             {fotoSeleccionado ? (
               <img
@@ -315,9 +374,9 @@ export default function ControlAcceso({ onLogout }) {
                 {initialsForName(seleccionado.nombre_mostrable)}
               </span>
             )}
-            <p className="text-3xl font-bold">{seleccionado.nombre_mostrable}</p>
+            <p className="break-words text-2xl font-bold sm:text-3xl">{seleccionado.nombre_mostrable}</p>
             <p className="text-lg text-slate-400">{seleccionado.cargo ?? 'Colaborador'}</p>
-            <div className="mt-2 flex gap-4">
+            <div className="mt-2 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:gap-4">
               <Button size="large" ghost disabled={procesando} onClick={cancelarConfirmacion}>No es esta persona</Button>
               <Button size="large" type="primary" loading={procesando} onClick={confirmarYRegistrarManual}>
                 Sí, registrar
@@ -327,7 +386,7 @@ export default function ControlAcceso({ onLogout }) {
         )}
 
         {resultado && (
-          <div className="flex flex-col items-center gap-4 text-center">
+          <div className="flex w-full max-w-[480px] flex-col items-center gap-4 text-center">
             {resultado.colaborador?.id && (
               fotoResultado ? (
                 <img
@@ -346,9 +405,9 @@ export default function ControlAcceso({ onLogout }) {
               )
             )}
             <span className="text-6xl" style={{ color: estilo.color }}>{estilo.icono}</span>
-            <p className="text-3xl font-extrabold" style={{ color: estilo.color }}>{estilo.titulo}</p>
+            <p className="text-2xl font-extrabold sm:text-3xl" style={{ color: estilo.color }}>{estilo.titulo}</p>
             {resultado.colaborador?.nombre_mostrable && (
-              <p className="text-4xl font-bold">{resultado.colaborador.nombre_mostrable}</p>
+              <p className="break-words text-2xl font-bold sm:text-4xl">{resultado.colaborador.nombre_mostrable}</p>
             )}
             {resultado.hora && <p className="text-2xl text-slate-300">{resultado.hora}</p>}
             <p className="text-xl text-slate-400">{resultado.mensaje}</p>
@@ -356,8 +415,24 @@ export default function ControlAcceso({ onLogout }) {
         )}
       </main>
 
+      <Modal
+        title="Escanear código de barras"
+        open={scannerAbierto}
+        onCancel={() => setScannerAbierto(false)}
+        footer={<Button onClick={() => setScannerAbierto(false)}>Cerrar cámara</Button>}
+        destroyOnHidden
+        centered
+        width={520}
+      >
+        <p className="mb-3 text-slate-600">Apunte la cámara al código del carnet.</p>
+        {errorScanner && <Alert className="mb-3" type="error" showIcon message={errorScanner} />}
+        <div className="overflow-hidden rounded-xl bg-black">
+          <video ref={videoRef} className="aspect-video w-full object-cover" muted playsInline />
+        </div>
+      </Modal>
+
       {ultimas.length > 0 && (
-        <footer className="border-t border-slate-700 px-8 py-4">
+        <footer className="border-t border-slate-700 px-4 py-4 sm:px-8">
           <p className="mb-2 text-sm text-slate-400">Últimas marcaciones</p>
           <div className="flex flex-wrap gap-4 text-sm text-slate-300">
             {ultimas.map((item) => (

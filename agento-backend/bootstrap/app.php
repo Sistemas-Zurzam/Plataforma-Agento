@@ -3,6 +3,8 @@
 use App\Http\Middleware\JwtMiddleware;
 use App\Modules\Configuracion\Http\Middleware\EnsureIsEmpresaAdmin;
 use App\Modules\Configuracion\Http\Middleware\EnsurePermission;
+use App\Modules\PortalCliente\Http\Middleware\EnsurePortalClienteHabilitado;
+use App\Modules\PortalCliente\Http\Middleware\EnsurePortalEmpresaVigente;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
@@ -23,6 +25,8 @@ return Application::configure(basePath: dirname(__DIR__))
             'jwt' => JwtMiddleware::class,
             'empresa.admin' => EnsureIsEmpresaAdmin::class,
             'permiso' => EnsurePermission::class,
+            'portal.habilitado' => EnsurePortalClienteHabilitado::class,
+            'portal.empresa' => EnsurePortalEmpresaVigente::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

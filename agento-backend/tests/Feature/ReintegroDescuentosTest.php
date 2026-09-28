@@ -9,6 +9,7 @@ use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Services\BoletaService;
 use App\Modules\Nominas\Services\PlanillaComplementariaService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -81,10 +82,12 @@ class ReintegroDescuentosTest extends TestCase
     public function test_exporta_netcash_consolidado_de_cuarta_categoria(): void
     {
         [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
-        $boleta->colaborador->update(['cci' => '00219112345678901234']);
         $descuento = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id])[0];
         $item = $service->reintegrarDescuentos($empresa, $ciclo, [$descuento], 'Devolución', $usuarioId);
         $service->aprobar($empresa, $item, $usuarioId);
+        // Caso real: RR.HH. completa el CCI después de que la
+        // complementaria ya guardó su snapshot bancario vacío.
+        $boleta->colaborador->update(['cci' => '00219112345678901234']);
         $cuenta = new EmpresaCuentaBancaria(['tipo_cuenta' => 'corriente', 'moneda' => 'PEN', 'numero_cuenta' => '191234567890123456']);
 
         $lineas = explode("\n", $service->exportarBbvaMasivo($empresa, [$item->id], $cuenta, '4'));
@@ -93,6 +96,21 @@ class ReintegroDescuentosTest extends TestCase
         $this->assertSame('800', substr($lineas[0], 0, 3));
         $this->assertSame('002', substr($lineas[1], 0, 3));
         $this->assertSame(233, strlen($lineas[1]));
+    }
+
+    public function test_boleta_de_honorarios_muestra_la_devolucion_como_reintegro_y_no_como_retencion(): void
+    {
+        [$empresa, $ciclo, $boleta, $usuarioId, $service] = $this->escenario();
+        $descuento = $service->descuentosReintegrables($empresa, $ciclo, [$boleta->id])[0];
+        $item = $service->reintegrarDescuentos($empresa, $ciclo, [$descuento], 'Devolución', $usuarioId);
+        $item = $service->aprobar($empresa, $item, $usuarioId);
+        $service->marcarPagada($empresa, $item, $usuarioId, 'OP-TEST');
+
+        $boletaImprimible = app(BoletaService::class)->ver($empresa, $boleta);
+        $reintegro = $boletaImprimible->reintegros[0];
+
+        $this->assertSame(46.67, $reintegro['monto']);
+        $this->assertSame(0, $reintegro['afp_retenido']);
     }
 
     public function test_netcash_informa_dato_bancario_faltante_sin_error_500(): void

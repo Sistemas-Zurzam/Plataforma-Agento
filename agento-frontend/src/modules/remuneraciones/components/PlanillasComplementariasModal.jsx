@@ -11,16 +11,19 @@ import HorasExtraComplementariaPanel from './HorasExtraComplementariaPanel';
 const soles = (valor) => `S/ ${Number(valor || 0).toFixed(2)}`;
 const nombreConcepto = (codigo) => codigo === 'DESCUENTO_FALTA_BASICO' ? 'Faltas descontadas de la remuneración básica' : CONCEPTOS_REGISTRABLES.find((c) => c.codigo === codigo)?.nombre ?? codigo;
 
-export default function PlanillasComplementariasModal({ open, onCancel, ciclo, boletaIds, api, permisos, catalogoConceptos = [], crearComisionesComplementaria }) {
+export default function PlanillasComplementariasModal({ open, onCancel, ciclo, boletaIds, boletasSeleccionadas = [], api, permisos, catalogoConceptos = [], crearComisionesComplementaria }) {
   const { message } = App.useApp();
   const { cuentas, fetchCuentas } = useCuentasBancariasEmpresa(ciclo?.empresa?.id);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [creando, setCreando] = useState(false);
   const [itemParaColaboradores, setItemParaColaboradores] = useState(null);
+  const [itemParaReabrir, setItemParaReabrir] = useState(null);
+  const [motivoReapertura, setMotivoReapertura] = useState('');
+  const [reabriendo, setReabriendo] = useState(false);
   const [motivo, setMotivo] = useState('');
   const [tipoRegularizacion, setTipoRegularizacion] = useState('reintegro_descuentos');
-  const [montoComision, setMontoComision] = useState(null);
+  const [montosComision, setMontosComision] = useState({});
   const [semanasDescanso, setSemanasDescanso] = useState([]);
   const [semanasSeleccionadas, setSemanasSeleccionadas] = useState([]);
   const [cargandoSemanas, setCargandoSemanas] = useState(false);
@@ -94,6 +97,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       setFiltroDescuento(null);
       setTipoRegularizacion('reintegro_descuentos');
       setMontoComision(null);
+      setMontosComision(Object.fromEntries(boletasSeleccionadas.map((b) => [b.id, null])));
       setSemanasDescanso([]);
       setSemanasSeleccionadas([]);
       setConfirmarDescansos(false);
@@ -122,9 +126,10 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
     if (!motivo.trim()) return message.warning('Ingresa el motivo de la regularización.');
     if (!boletaIds.length) return message.warning('Selecciona las boletas pagadas que deseas regularizar.');
     if (tipoRegularizacion === 'comisiones') {
-      if (!montoComision || montoComision <= 0) return message.warning('Ingresa el monto de la comisión.');
+      const comisiones = boletasSeleccionadas.map((b) => ({ boleta_id: b.id, monto: Number(montosComision[b.id]) || 0 }));
+      if (!comisiones.length || comisiones.some((c) => c.monto <= 0)) return message.warning('Ingresa la comisión de cada colaborador.');
       setCreando(true);
-      try { await api.crearComisionesComplementaria(ciclo.id, boletaIds, montoComision, motivo.trim()); message.success('Comisiones generadas.'); setMotivo(''); await cargar(); }
+      try { await crearComisionesComplementaria(ciclo.id, comisiones, motivo.trim()); message.success('Comisiones generadas.'); setMotivo(''); await cargar(); }
       catch (e) { message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudieron generar las comisiones.'); }
       finally { setCreando(false); }
       return;
@@ -172,6 +177,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
   const exportar = async (item, banco) => {
     const esBcp = banco === 'telecredito-bcp';
     if (esBcp && !cuentaBcp) return message.warning('Selecciona una cuenta BCP de cargo.');
+    if (!(esBcp ? item.elegible_telecredito : item.elegible_netcash)) {
+      return message.error(`Falta cuenta ${esBcp ? 'BCP' : 'BBVA'} o CCI para: ${item.colaboradores_datos_incompletos.join(', ')}.`);
+    }
     const parametros = esBcp
       ? { cuenta_cargo_id: cuentaBcp, fecha_proceso: dayjs().format('YYYY-MM-DD'), subtipo: categoria === '4' ? '4' : 'X' }
       : { subtipo: categoria };
@@ -180,10 +188,17 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
 
   const reintegrosAprobados = items.filter((item) => item.estado === 'aprobada');
 
+  const elegibleParaBanco = (item, banco) => banco === 'telecredito-bcp' ? item.elegible_telecredito : item.elegible_netcash;
+
   const exportarMasivo = async (banco) => {
     const esBcp = banco === 'telecredito-bcp';
     if (esBcp && !cuentaBcp) return message.warning('Selecciona una cuenta BCP de cargo.');
     if (!seleccionReintegros.length) return message.warning('Selecciona al menos un reintegro aprobado.');
+    const conDatosIncompletos = items.filter((i) => seleccionReintegros.includes(i.id) && !elegibleParaBanco(i, banco));
+    if (conDatosIncompletos.length) {
+      const nombres = [...new Set(conDatosIncompletos.flatMap((i) => i.colaboradores_datos_incompletos))].join(', ');
+      return message.error(`Quita de la selección los reintegros con colaboradores sin cuenta ${esBcp ? 'BCP' : 'BBVA'} ni CCI: ${nombres}.`);
+    }
     const parametros = esBcp
       ? { cuenta_cargo_id: cuentaBcp, fecha_proceso: dayjs().format('YYYY-MM-DD'), subtipo: categoria === '4' ? '4' : 'X' }
       : { subtipo: categoria };
@@ -227,7 +242,7 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       title: '',
       key: 'acciones',
       width: 40,
-      render: (_, detalle) => detalle.descansos_semanales?.length || detalle.feriado_regularizado ? null : (
+      render: (_, detalle) => (detalle.descansos_semanales?.length || detalle.feriado_regularizado) && Number(detalle.diferencia_neta) !== 0 ? null : (
         <Button
           size="small"
           type="text"
@@ -278,7 +293,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
               : tipoRegularizacion === 'horas_extra'
               ? <>Selecciona horas aprobadas del huellero o registra manualmente las que no tuvieron marcación. Se agregarán a una complementaria calculada y se recalcularán sus aportes.</>
               : tipoRegularizacion === 'bono_asistencia'
-              ? <>Filtra por días asistidos (exactos o como mínimo) y aplica el mismo concepto y monto a varios colaboradores a la vez. Se crea una complementaria nueva; no requiere un borrador previo.</>
+              ? <>Evalúa la asistencia mensual y exporta la propuesta para Gerencia. Después registra los colaboradores y montos aprobados en una complementaria.</>
+              : tipoRegularizacion === 'comisiones'
+              ? <>Ingresa el monto de comisión correspondiente a cada colaborador seleccionado. Se recalcularán sus aportes y provisiones.</>
               : <>Se calculará únicamente la diferencia de las <strong>{boletaIds.length}</strong> boletas seleccionadas. La boleta pagada no se modifica.</>}
           </div>
           {tipoRegularizacion === 'descanso_semanal' && (
@@ -373,7 +390,15 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           {tipoRegularizacion === 'bono_asistencia' && (
             <BonoAsistenciaComplementariaPanel ciclo={ciclo} api={api} onUpdated={cargar} catalogo={catalogoConceptos} />
           )}
-          {tipoRegularizacion === 'comisiones' && <InputNumber className="mb-2 w-48" min={0.01} precision={2} value={montoComision} onChange={setMontoComision} placeholder="Monto comisión" />}
+          {tipoRegularizacion === 'comisiones' && boletasSeleccionadas.map((boleta) => (
+            <div key={boleta.id} className="mb-2 flex items-center justify-between gap-3">
+              <span>{boleta.colaborador?.nombre_completo ?? boleta.colaborador?.nombres ?? `Boleta #${boleta.id}`}</span>
+              <InputNumber min={0.01} precision={2} value={montosComision[boleta.id]} onChange={(value) => setMontosComision((prev) => ({ ...prev, [boleta.id]: value }))} placeholder="Monto comisión" />
+            </div>
+          ))}
+          {tipoRegularizacion === 'comisiones' && !boletasSeleccionadas.length && (
+            <div className="mb-2 text-sm text-amber-700">Selecciona las boletas pagadas para ingresar la comisión de cada colaborador.</div>
+          )}
           {!['horas_extra', 'bono_asistencia'].includes(tipoRegularizacion) && <div className="flex gap-2">
             <Input.TextArea value={motivo} onChange={(e) => setMotivo(e.target.value)} autoSize={{ minRows: 1, maxRows: 3 }} placeholder="Motivo: regularización de asistencia del 29/08..." />
             <Button type="primary" icon={<PlusOutlined />} loading={creando} disabled={ciclo?.estado !== 'pagado' || !permisos.calcular} onClick={crear}>
@@ -388,6 +413,14 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
           <div className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
             <Button size="small" disabled={!reintegrosAprobados.length} onClick={() => setSeleccionReintegros(reintegrosAprobados.map((i) => i.id))}>
               Seleccionar aprobados ({reintegrosAprobados.length})
+            </Button>
+            <Button size="small" disabled={!reintegrosAprobados.some((i) => i.elegible_telecredito)}
+              onClick={() => setSeleccionReintegros(reintegrosAprobados.filter((i) => i.elegible_telecredito).map((i) => i.id))}>
+              Elegibles Telecrédito ({reintegrosAprobados.filter((i) => i.elegible_telecredito).length})
+            </Button>
+            <Button size="small" disabled={!reintegrosAprobados.some((i) => i.elegible_netcash)}
+              onClick={() => setSeleccionReintegros(reintegrosAprobados.filter((i) => i.elegible_netcash).map((i) => i.id))}>
+              Elegibles Net Cash ({reintegrosAprobados.filter((i) => i.elegible_netcash).length})
             </Button>
             <Button size="small" disabled={!seleccionReintegros.length} onClick={() => setSeleccionReintegros([])}>Limpiar selección</Button>
             {permisos.telecredito && (
@@ -425,6 +458,14 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                   <div className="flex flex-wrap items-center gap-2">
                     <strong>{item.nombre}</strong>
                     <Tag>{item.estado}</Tag>
+                    {item.estado === 'aprobada' && !item.elegible_telecredito && !item.elegible_netcash && (
+                      <Tag color="red" title={`Sin cuenta BCP/BBVA ni CCI: ${item.colaboradores_datos_incompletos.join(', ')}`}>Sin datos bancarios: {item.colaboradores_datos_incompletos.join(', ')}</Tag>
+                    )}
+                    {item.estado === 'aprobada' && item.elegible_telecredito !== item.elegible_netcash && (
+                      <Tag color="orange" title={`Falta CCI para ${item.elegible_telecredito ? 'Net Cash' : 'Telecrédito'}: ${item.colaboradores_datos_incompletos.join(', ')}`}>
+                        Solo {item.elegible_telecredito ? 'Telecrédito' : 'Net Cash'}
+                      </Tag>
+                    )}
                   </div>
                   <div className="text-xs text-gray-500">{item.motivo}</div>
                 </div>
@@ -449,6 +490,9 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                   </Popconfirm>
                 )}
                 {item.estado === 'calculada' && permisos.aprobar && <Button onClick={() => ejecutar(() => api.aprobarComplementaria(item.id), 'Complementaria aprobada.')}>Aprobar</Button>}
+                {item.estado === 'aprobada' && permisos.aprobar && (
+                  <Button onClick={() => { setItemParaReabrir(item); setMotivoReapertura(''); }}>Reabrir</Button>
+                )}
                 {item.estado === 'aprobada' && permisos.telecredito && (
                   <Popconfirm
                     title="Cuenta BCP de cargo"
@@ -474,6 +518,10 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
                 rowExpandable: (detalle) => detalle.conceptos_manuales?.length > 0 || detalle.reintegros_descuentos?.length > 0 || detalle.descansos_semanales?.length > 0 || detalle.feriado_regularizado || detalle.horas_extra_regularizadas?.length > 0,
                 expandedRowRender: (detalle) => (
                   <div className="space-y-1.5 py-1">
+                    {detalle.bono_asistencia_gerencia && <div className="rounded border border-blue-100 bg-blue-50 p-2 text-sm">
+                      <p>Bono bruto aprobado: {soles(detalle.bono_asistencia_gerencia.monto)} · {detalle.bono_asistencia_gerencia.responsable} · {detalle.bono_asistencia_gerencia.fecha}</p>
+                      <p>Meta comercial: {detalle.bono_asistencia_gerencia.meta}. {detalle.bono_asistencia_gerencia.sustento}</p>
+                    </div>}
                     {detalle.feriado_regularizado && <p className="text-sm text-green-700">Feriado trabajado {dayjs(detalle.feriado_regularizado.fecha).format('DD/MM/YYYY')}: {soles(detalle.feriado_regularizado.importe_bruto)} bruto adicional ({detalle.feriado_regularizado.tipo_pago === 'honorarios' ? 'honorarios ×1' : 'planilla ×2'}).</p>}
                     {detalle.descansos_semanales?.map((s) => <p key={s.semana_inicio} className="text-sm text-green-700">Descanso semanal {s.semana_inicio} – {s.semana_fin}: {soles(s.sueldo)} / 30 × 2 = {soles(s.importe_bruto)} bruto.</p>)}
                     {detalle.reintegros_descuentos?.length > 0 && <>
@@ -538,6 +586,39 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
         detalle={detalleParaConcepto}
         catalogo={catalogoConceptos}
       />
+      <Modal
+        title="Reabrir planilla complementaria"
+        open={Boolean(itemParaReabrir)}
+        okText="Reabrir"
+        cancelText="Cancelar"
+        confirmLoading={reabriendo}
+        okButtonProps={{ disabled: !motivoReapertura.trim() }}
+        onCancel={() => { if (!reabriendo) setItemParaReabrir(null); }}
+        onOk={async () => {
+          if (!itemParaReabrir || !motivoReapertura.trim()) return;
+          setReabriendo(true);
+          try {
+            await api.reabrirComplementaria(itemParaReabrir.id, motivoReapertura.trim());
+            message.success('Complementaria reabierta. Ya puedes agregar colaboradores y conceptos.');
+            setItemParaReabrir(null);
+            setMotivoReapertura('');
+            await cargar();
+          } catch (e) {
+            message.error(e.response?.data?.message ?? Object.values(e.response?.data?.errors ?? {})?.[0]?.[0] ?? 'No se pudo reabrir la complementaria.');
+          } finally {
+            setReabriendo(false);
+          }
+        }}
+      >
+        <p className="mb-3 text-sm text-gray-600">Los archivos bancarios generados antes de la reapertura deben descartarse y generarse nuevamente después de aprobar.</p>
+        <Input.TextArea
+          value={motivoReapertura}
+          onChange={(e) => setMotivoReapertura(e.target.value)}
+          maxLength={1000}
+          autoSize={{ minRows: 3, maxRows: 6 }}
+          placeholder="Motivo de la reapertura..."
+        />
+      </Modal>
       <AgregarColaboradoresComplementariaModal
         open={Boolean(itemParaColaboradores)}
         item={itemParaColaboradores}

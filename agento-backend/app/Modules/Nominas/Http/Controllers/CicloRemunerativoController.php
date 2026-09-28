@@ -16,6 +16,7 @@ use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashExportService;
 use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashValidator;
 use App\Modules\Nominas\Application\Plame\PlameExportService;
 use App\Modules\Nominas\Application\Plame\PlameValidator;
+use App\Modules\Nominas\Application\ReporteEjecutivo\ReporteEjecutivoRemuneracionesCalculador;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpExportService;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpValidator;
 use App\Modules\Nominas\Domain\AfpNet\AfpNetExportResultado;
@@ -27,17 +28,22 @@ use App\Modules\Nominas\Http\Resources\ColaboradorConceptoPeriodoResource;
 use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
 use App\Modules\Nominas\Infrastructure\Plame\Export\PlameZipBuilder;
 use App\Modules\Nominas\Infrastructure\PlanillaPagada\Export\PlanillaPagadaExcelExporter;
+use App\Modules\Nominas\Infrastructure\ReporteEjecutivo\Export\ReporteEjecutivoRemuneracionesExcelExporter;
+use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Services\BoletaService;
 use App\Modules\Nominas\Services\CicloRemunerativoService;
+use App\Modules\Nominas\Services\ImportarComprobantesRhService;
 use App\Modules\Nominas\Services\ResumenContableService;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -92,7 +98,12 @@ class CicloRemunerativoController extends Controller
         $boletas = $ciclo->boletas()
             ->where('es_version_vigente', true)
             ->where('estado', 'pagada')
-            ->with(['colaborador:id,nombres,apellidos,numero_documento', 'datosPago.banco:id,nombre'])
+            ->with([
+                'colaborador:id,nombres,apellidos,numero_documento,cargo,sede_id,area_id',
+                'colaborador.sede:id,nombre',
+                'colaborador.area:id,nombre',
+                'datosPago.banco:id,nombre',
+            ])
             ->get()
             ->sortBy(fn ($boleta) => mb_strtolower(trim(($boleta->colaborador?->apellidos ?? '').' '.($boleta->colaborador?->nombres ?? ''))))
             ->values();
@@ -114,6 +125,119 @@ class CicloRemunerativoController extends Controller
             'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
             'Content-Length' => (string) strlen($contenido),
         ]);
+    }
+
+    /**
+     * Vista gerencial consolidada de la planilla pagada de un período —
+     * desglose de AFP/ONP y ESSALUD por colaborador agrupado por empresa,
+     * más un resumen en lenguaje llano. A diferencia de
+     * exportarPlanillaPagadaExcel() (un listado de pago por ciclo puntual),
+     * este junta TODAS las empresas autorizadas del usuario que tengan
+     * boletas pagadas en el período, igual que resumenContable().
+     */
+    public function exportarReporteEjecutivoExcel(Request $request): Response
+    {
+        [$datos, $boletas, $periodoLabel, $reintegrosPorBoleta] = $this->resolverReporteEjecutivo($request);
+
+        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas, $reintegrosPorBoleta);
+        $nombre = sprintf('reporte_ejecutivo_remuneraciones_%s.xlsx', $datos['periodo']);
+
+        Log::info('reporte_ejecutivo_remuneraciones.excel_exportado', [
+            'usuario_id' => $request->user('api')->id,
+            'periodo' => $datos['periodo'],
+            'empresas' => $boletas->pluck('empresa_id')->unique()->count(),
+            'boletas' => $boletas->count(),
+        ]);
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
+    }
+
+    /**
+     * Mismos datos que exportarReporteEjecutivoExcel() pero en JSON, para la
+     * vista imprimible en PDF del frontend (window.print del navegador,
+     * mismo mecanismo que la boleta — ver EstilosImpresionBoleta.jsx).
+     */
+    public function datosReporteEjecutivo(Request $request): JsonResponse
+    {
+        [, $boletas, $periodoLabel, $reintegrosPorBoleta] = $this->resolverReporteEjecutivo($request);
+
+        $filas = ReporteEjecutivoRemuneracionesCalculador::filas($periodoLabel, $boletas, $reintegrosPorBoleta);
+
+        return response()->json([
+            'periodo' => $periodoLabel,
+            'empresas' => ReporteEjecutivoRemuneracionesCalculador::agruparPorEmpresa($filas)
+                ->map(fn ($grupo, $empresa) => [
+                    'empresa' => $empresa,
+                    'colaboradores' => $grupo['colaboradores'],
+                    'filas' => $grupo['filas']->values(),
+                    'subtotal' => $grupo['subtotal'],
+                ])
+                ->values(),
+            'total_general' => ReporteEjecutivoRemuneracionesCalculador::totalGeneral($filas),
+            'total_colaboradores' => $filas->count(),
+        ]);
+    }
+
+    /**
+     * Valida periodo/estado/categoria, resuelve las boletas pagadas de todas
+     * las empresas autorizadas que caen en ese período, y arma la etiqueta
+     * legible del período — compartido entre el Excel y el JSON del PDF
+     * para no duplicar la consulta ni el criterio de elegibilidad.
+     *
+     * @return array{0: array{periodo: string, estado: ?string, categoria: ?string}, 1: Collection<int, Boleta>, 2: string, 3: Collection<int, float>}
+     */
+    private function resolverReporteEjecutivo(Request $request): array
+    {
+        $datos = $request->validate([
+            'periodo' => ['required', 'date_format:Y-m'],
+            'estado' => ['nullable', Rule::in(['borrador', 'abierto', 'calculado', 'cerrado', 'reabierto', 'pagado'])],
+            'categoria' => ['nullable', Rule::in(['planilla', 'honorarios'])],
+        ]);
+
+        $inicio = Carbon::createFromFormat('Y-m', $datos['periodo'])->startOfMonth()->toDateString();
+        $fin = Carbon::createFromFormat('Y-m', $datos['periodo'])->endOfMonth()->toDateString();
+
+        $cicloIds = CicloRemunerativo::whereIn('empresa_id', $this->empresaIdsAutorizadas($request))
+            ->whereDate('fecha_inicio', '<=', $fin)
+            ->whereDate('fecha_fin', '>=', $inicio)
+            ->when($datos['estado'] ?? null, fn ($query, $estado) => $query->where('estado', $estado))
+            ->pluck('id');
+
+        $boletas = Boleta::whereIn('ciclo_id', $cicloIds)
+            ->where('es_version_vigente', true)
+            ->where('estado', 'pagada')
+            ->when(($datos['categoria'] ?? null) === 'honorarios', fn ($query) => $query->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
+            ->when(($datos['categoria'] ?? null) === 'planilla', fn ($query) => $query->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
+            ->with(['colaborador:id,nombres,apellidos,numero_documento', 'conceptos.concepto:id,codigo', 'empresa:id,nombre_comercial'])
+            ->get()
+            // Orden estable en dos pasadas: por colaborador primero y luego por
+            // empresa, para que el resultado final quede agrupado por empresa
+            // y, dentro de cada una, por colaborador (Collection::sortBy usa
+            // uasort, estable desde PHP 8).
+            ->sortBy(fn ($boleta) => mb_strtolower(trim(($boleta->colaborador?->apellidos ?? '').' '.($boleta->colaborador?->nombres ?? ''))))
+            ->values()
+            ->sortBy(fn ($boleta) => mb_strtolower($boleta->empresa?->nombre_comercial ?? ''))
+            ->values();
+
+        abort_if($boletas->isEmpty(), 422, 'No hay boletas pagadas para el período y filtros seleccionados.');
+
+        $fechaPeriodo = Carbon::createFromFormat('Y-m', $datos['periodo']);
+        $periodoLabel = ucfirst(mb_strtolower($fechaPeriodo->translatedFormat('F'), 'UTF-8')).' '.$fechaPeriodo->format('Y');
+
+        // Mismo criterio que ResumenContableService::complementariasPorEmpresa()
+        // (aprobada/pagada, nunca calculada) pero indexado por boleta en vez
+        // de por empresa, para desglosarlo a nivel de colaborador.
+        $reintegrosPorBoleta = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
+            ->whereHas('complementaria', fn ($query) => $query->whereIn('estado', ['aprobada', 'pagada']))
+            ->selectRaw('boleta_original_id, COALESCE(SUM(diferencia_neta), 0) as total')
+            ->groupBy('boleta_original_id')
+            ->pluck('total', 'boleta_original_id');
+
+        return [$datos, $boletas, $periodoLabel, $reintegrosPorBoleta];
     }
 
     /**
@@ -345,22 +469,61 @@ class CicloRemunerativoController extends Controller
     {
         $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
-        return response()->json($this->plameValidator->validar($ciclo));
+        return response()->json($this->plameValidator->validar($ciclo, $this->boletaIdsPlame($request, $ciclo)));
     }
 
     public function exportarPlamePlanilla(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
     {
-        return $this->responderExportacion($request, $ciclo, 'planilla', fn () => $this->plameExportService->exportarPlanilla($ciclo));
+        $boletaIds = $this->boletaIdsPlame($request, $ciclo);
+
+        return $this->responderExportacion($request, $ciclo, 'planilla', fn () => $this->plameExportService->exportarPlanilla($ciclo, $boletaIds));
     }
 
     public function exportarPlameRh(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
     {
-        return $this->responderExportacion($request, $ciclo, 'rh', fn () => $this->plameExportService->exportarRh($ciclo));
+        $boletaIds = $this->boletaIdsPlame($request, $ciclo);
+
+        return $this->responderExportacion($request, $ciclo, 'rh', fn () => $this->plameExportService->exportarRh($ciclo, $boletaIds));
     }
 
     public function exportarPlameCompleto(Request $request, CicloRemunerativo $ciclo): JsonResponse|BinaryFileResponse
     {
-        return $this->responderExportacion($request, $ciclo, 'completo', fn () => $this->plameExportService->exportarCompleto($ciclo));
+        $boletaIds = $this->boletaIdsPlame($request, $ciclo);
+
+        return $this->responderExportacion($request, $ciclo, 'completo', fn () => $this->plameExportService->exportarCompleto($ciclo, $boletaIds));
+    }
+
+    public function importarComprobantesRh(Request $request, CicloRemunerativo $ciclo, ImportarComprobantesRhService $service): JsonResponse
+    {
+        $datos = $request->validate([
+            'archivo' => ['required', 'file', 'mimes:xlsx,xls', 'max:10240'],
+            'fecha_pago' => ['required', 'date', 'after_or_equal:'.$ciclo->fecha_inicio->toDateString()],
+            'confirmar' => ['sometimes', 'boolean'],
+        ]);
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $ruta = $request->file('archivo')->getRealPath();
+        $resultado = $request->boolean('confirmar')
+            ? $service->importar($empresa, $ciclo, $ruta, $datos['fecha_pago'], $request->user('api')->id)
+            : $service->revisar($empresa, $ciclo, $ruta, $datos['fecha_pago']);
+
+        return response()->json(['data' => $resultado]);
+    }
+
+    /** @return array<int, int> */
+    private function boletaIdsPlame(Request $request, CicloRemunerativo $ciclo): array
+    {
+        $datos = $request->validate([
+            'boleta_ids' => ['sometimes', 'array', 'min:1'],
+            'boleta_ids.*' => [
+                'integer',
+                'distinct',
+                Rule::exists('boletas', 'id')->where(fn ($query) => $query
+                    ->where('ciclo_id', $ciclo->id)
+                    ->where('es_version_vigente', true)),
+            ],
+        ]);
+
+        return array_map('intval', $datos['boleta_ids'] ?? []);
     }
 
     /**

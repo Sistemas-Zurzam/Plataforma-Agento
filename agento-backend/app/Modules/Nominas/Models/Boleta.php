@@ -70,7 +70,12 @@ class Boleta extends Model
 
     public function comprobanteRh(): HasOne
     {
-        return $this->hasOne(BoletaComprobanteRh::class);
+        return $this->hasOne(BoletaComprobanteRh::class)->latestOfMany();
+    }
+
+    public function comprobantesRh(): HasMany
+    {
+        return $this->hasMany(BoletaComprobanteRh::class)->orderBy('fecha_emision')->orderBy('id');
     }
 
     public function datosPago(): HasOne
