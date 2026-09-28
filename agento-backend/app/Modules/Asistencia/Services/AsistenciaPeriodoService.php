@@ -63,13 +63,63 @@ class AsistenciaPeriodoService
 
         $this->asegurarSinFechasFuturas($periodo);
 
-        // Fase 1 (transaccional, sin cambios de fondo respecto a la versión
-        // previa): decide si hace falta encolar la cobertura diaria. El
-        // lockForUpdate solo protege ESTA decisión (evitar que dos clics
-        // casi simultáneos encolen el job dos veces) — nunca debe envolver
-        // pasos posteriores que puedan lanzar una ValidationException,
-        // porque eso revertiría también cualquier escritura legítima hecha
-        // mientras tanto (ver Fase 2).
+        $cobertura = $this->reconciliar($empresa, $periodo, $usuarioId);
+        if ($cobertura !== null) {
+            return $cobertura;
+        }
+
+        $pendientes = $this->pendientesPeriodo($empresa, $periodo);
+        if ($pendientes !== null) {
+            throw ValidationException::withMessages(['pendientes' => [$this->mensajePendientes($pendientes)]]);
+        }
+
+        return null;
+    }
+
+    /**
+     * Verificación de asistencia SIN cerrar el período — pensada para que
+     * RR.HH. revise durante el mes (después de importar el huellero, por
+     * ejemplo) en vez de recién enterarse de días sin clasificar/faltas al
+     * momento de cerrar (que ya implica "listo para pagar"). Corre la misma
+     * reconciliación que prepararCierre() (cobertura diaria + descanso
+     * flexible si está habilitado), pero nunca lanza por pendientes — los
+     * devuelve para mostrarlos, nunca bloquea nada acá.
+     *
+     * @return array{cobertura_estado: string, message?: string, pendientes?: array{incidencias: array<string, int>, horas_extra: int, permisos: int}|null}
+     */
+    public function verificarCobertura(Empresa $empresa, AsistenciaPeriodo $periodo, int $usuarioId): array
+    {
+        abort_unless($periodo->empresa_id === $empresa->id, 404);
+
+        if ($periodo->estado !== 'abierto') {
+            // Un período ya cerrado/enviado no se reconcilia de nuevo (sus
+            // fechas están protegidas) — solo se informa su estado actual.
+            return ['cobertura_estado' => 'completa', 'pendientes' => $this->pendientesPeriodo($empresa, $periodo)];
+        }
+
+        $cobertura = $this->reconciliar($empresa, $periodo, $usuarioId);
+        if ($cobertura !== null) {
+            return $cobertura;
+        }
+
+        return ['cobertura_estado' => 'completa', 'pendientes' => $this->pendientesPeriodo($empresa, $periodo)];
+    }
+
+    /**
+     * Fase 1 (transaccional): decide si hace falta encolar la cobertura
+     * diaria. El lockForUpdate solo protege ESTA decisión (evitar que dos
+     * clics casi simultáneos encolen el job dos veces) — nunca debe
+     * envolver pasos posteriores que puedan lanzar una ValidationException,
+     * porque eso revertiría también cualquier escritura legítima hecha
+     * mientras tanto (ver Fase 2). Compartido por prepararCierre() y
+     * verificarCobertura() — la reconciliación es la misma, cambia solo qué
+     * hace cada caller con el resultado (bloquear el cierre vs. solo
+     * informar).
+     *
+     * @return array{message: string, cobertura_estado: string}|null null = cobertura y descanso flexible ya resueltos.
+     */
+    private function reconciliar(Empresa $empresa, AsistenciaPeriodo $periodo, int $usuarioId): ?array
+    {
         $cobertura = DB::transaction(function () use ($empresa, $periodo, $usuarioId) {
             $periodo = AsistenciaPeriodo::query()->lockForUpdate()->findOrFail($periodo->id);
 
@@ -103,7 +153,7 @@ class AsistenciaPeriodoService
                 return [
                     'message' => $reintentandoTrasError
                         ? 'La verificación anterior terminó con errores — Agento está reintentando completar la cobertura del período.'
-                        : 'Se detectaron días de asistencia aún no procesados. Agento está completando la cobertura del período antes de poder cerrarlo.',
+                        : 'Se detectaron días de asistencia aún no procesados. Agento está completando la cobertura del período.',
                     'cobertura_estado' => 'en_proceso',
                 ];
             }
@@ -120,19 +170,12 @@ class AsistenciaPeriodoService
         // la transacción de arriba y con sus propias transacciones por
         // segmento (AsignarDescansoFlexibleSemanal::persistirSegmento()):
         // si genera una incidencia semanal, debe quedar realmente
-        // persistida aunque el chequeo de pendientes de abajo rechace este
-        // intento de cierre — de lo contrario la incidencia desaparecería
-        // junto con el rollback, y RR.HH. nunca podría encontrarla para
-        // resolverla. Reutiliza pendientesPeriodo() tal cual (ya agrupa
-        // cualquier incidencia pendiente por tipo) para bloquear el cierre
-        // — sin ningún gate de bloqueo nuevo.
+        // persistida aunque el caller termine bloqueando el cierre por
+        // pendientes — de lo contrario la incidencia desaparecería junto
+        // con un rollback, y RR.HH. nunca podría encontrarla para
+        // resolverla.
         if ($empresa->descanso_flexible_automatico) {
             $this->descansoFlexible->procesarPeriodo($empresa, $periodo, $usuarioId);
-        }
-
-        $pendientes = $this->pendientesPeriodo($empresa, $periodo);
-        if ($pendientes !== null) {
-            throw ValidationException::withMessages(['pendientes' => [$this->mensajePendientes($pendientes)]]);
         }
 
         return null;

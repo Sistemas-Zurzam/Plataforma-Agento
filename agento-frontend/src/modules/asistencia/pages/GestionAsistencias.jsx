@@ -21,6 +21,21 @@ const ESTADOS = {
   permiso: ['PE', 'Permiso', 'cyan'], falta_justificada: ['FJ', 'Falta justificada', 'gold'],
   dia_sin_clasificar: ['?', 'Rotativo sin planificar — pendiente de clasificación', 'magenta'],
 };
+// Mismas etiquetas que ETIQUETAS_INCIDENCIA en AsistenciaPeriodoService (backend)
+// — para el resumen de "Verificar asistencia", que es informativo (nunca
+// bloquea nada, a diferencia del mensaje de "Cerrar período").
+const ETIQUETAS_INCIDENCIA_PENDIENTE = {
+  falta: 'faltas', marcacion_incompleta: 'marcaciones incompletas', horario_desplazado: 'horarios desplazados',
+  horas_incompletas: 'horas incompletas', dia_sin_clasificar: 'días sin clasificar',
+  trabajo_en_descanso: 'trabajos en descanso pendientes de decisión', sin_descanso_semanal: 'semanas sin descanso',
+  descanso_flexible_incompleto: 'descansos flexibles incompletos', semana_rotativa_omitida: 'semanas rotativas omitidas',
+};
+const mensajePendientesResumen = (pendientes) => {
+  const partes = Object.entries(pendientes.incidencias ?? {}).map(([tipo, total]) => `${total} ${ETIQUETAS_INCIDENCIA_PENDIENTE[tipo] ?? tipo}`);
+  if (pendientes.horas_extra > 0) partes.push(`${pendientes.horas_extra} horas extra pendientes`);
+  if (pendientes.permisos > 0) partes.push(`${pendientes.permisos} permisos pendientes`);
+  return `Asistencia verificada. Pendientes por revisar: ${partes.join(', ')}.`;
+};
 const duracion = (minutos) => `${Math.floor((minutos ?? 0) / 60)}h ${String((minutos ?? 0) % 60).padStart(2, '0')}m`;
 const hora = (valor) => (valor ? dayjs(valor).format('HH:mm') : '—');
 const claveEstado = (resultado) => (resultado?.estado === 'presente' && resultado?.minutos_tardanza > 0 ? 'tardanza' : resultado?.estado);
@@ -670,6 +685,34 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     );
   };
 
+  /**
+   * A diferencia de "Cerrar período" (que implica listo para pagar), esto
+   * corre la misma reconciliación (cobertura diaria + descanso flexible si
+   * está habilitado) sin cerrar nada — para que RR.HH. pueda revisar la
+   * clasificación real de los días durante el mes, apenas importa el
+   * huellero, en vez de recién verla al momento de cerrar.
+   */
+  const handleVerificarPeriodo = async (periodo) => {
+    try {
+      const { data, status } = await api.post(`/asistencia/periodos/${periodo.id}/verificar`);
+      if (status === 202) {
+        message.info(data.message);
+        setCoberturaEnProceso((prev) => ({ ...prev, [periodo.id]: true }));
+        pollEstadoCobertura(periodo.id);
+        return;
+      }
+      const pendientes = data.pendientes;
+      if (!pendientes) {
+        message.success('Asistencia verificada — no hay pendientes en este período.');
+      } else {
+        message.info(mensajePendientesResumen(pendientes), 8);
+      }
+      await cargar();
+    } catch (error) {
+      message.error(error.response?.data?.message ?? 'No se pudo verificar la asistencia del período');
+    }
+  };
+
   const handleCerrarPeriodo = (periodo) => {
     let motivo = '';
     Modal.confirm({
@@ -1217,7 +1260,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Hasta', dataIndex: 'fecha_fin', render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Versión', dataIndex: 'version', width: 80 },
     { title: 'Estado', dataIndex: 'estado', render: (value, row) => <Space size={4}><Tag color={value === 'abierto' ? 'green' : value === 'cerrado' ? 'gold' : 'blue'}>{value.replaceAll('_', ' ')}</Tag>{row.cobertura_estado === 'en_proceso' && <Tag icon={<ReloadOutlined spin />} color="processing">verificando cobertura</Tag>}</Space> },
-    { title: 'Acciones', width: 280, render: (_, row) => puedeGestionarPeriodos ? <Space size={3}>{row.estado === 'abierto' && <Button size="small" loading={coberturaEnProceso[row.id]} disabled={coberturaEnProceso[row.id]} onClick={() => handleCerrarPeriodo(row)}>Cerrar</Button>}{row.estado === 'cerrado' && <><Button size="small" type="primary" onClick={() => solicitarDecision('Enviar período a Nómina', `/asistencia/periodos/${row.id}`, 'enviar_nomina')}>Enviar a Nómina</Button><Button size="small" onClick={() => solicitarDecision('Reabrir período', `/asistencia/periodos/${row.id}`, 'reabrir')}>Reabrir</Button></>}</Space> : '—' },
+    { title: 'Acciones', width: 340, render: (_, row) => puedeGestionarPeriodos ? <Space size={3}>{row.estado === 'abierto' && <><Button size="small" loading={coberturaEnProceso[row.id]} disabled={coberturaEnProceso[row.id]} onClick={() => handleVerificarPeriodo(row)}>Verificar asistencia</Button><Button size="small" loading={coberturaEnProceso[row.id]} disabled={coberturaEnProceso[row.id]} onClick={() => handleCerrarPeriodo(row)}>Cerrar</Button></>}{row.estado === 'cerrado' && <><Button size="small" type="primary" onClick={() => solicitarDecision('Enviar período a Nómina', `/asistencia/periodos/${row.id}`, 'enviar_nomina')}>Enviar a Nómina</Button><Button size="small" onClick={() => solicitarDecision('Reabrir período', `/asistencia/periodos/${row.id}`, 'reabrir')}>Reabrir</Button></>}</Space> : '—' },
   ]} pagination={{ pageSize: 15, size: 'small' }} /></Card></div>;
   const tabs = [
     { key: 'resumen', label: 'Resumen', icon: <TeamOutlined />, children: resumen }, { key: 'colaboradores', label: 'Colaboradores', icon: <TeamOutlined />, children: vistaColaboradores },

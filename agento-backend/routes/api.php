@@ -166,6 +166,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/asistencia/periodos', [AsistenciaController::class, 'guardarPeriodo'])->middleware('permiso:asistencia.periodos');
     Route::patch('/asistencia/periodos/{periodo}', [AsistenciaController::class, 'transicionarPeriodo'])->middleware('permiso:asistencia.periodos');
     Route::get('/asistencia/periodos/{periodo}/estado-cobertura', [AsistenciaController::class, 'estadoCoberturaPeriodo'])->middleware('permiso:asistencia.ver');
+    Route::post('/asistencia/periodos/{periodo}/verificar', [AsistenciaController::class, 'verificarPeriodo'])->middleware('permiso:asistencia.periodos');
     Route::get('/asistencia/auditoria', [AsistenciaController::class, 'auditoria'])->middleware('permiso:asistencia.ver');
 
     // Control de Acceso — kiosco de marcación por carnet/código de barras.

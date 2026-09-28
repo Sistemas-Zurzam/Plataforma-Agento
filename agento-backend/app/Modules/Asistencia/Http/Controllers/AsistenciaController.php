@@ -301,6 +301,21 @@ class AsistenciaController extends Controller
         ]);
     }
 
+    /**
+     * Verifica/reconcilia el período (cobertura diaria + descanso flexible
+     * si está habilitado) SIN cerrarlo — para que RR.HH. pueda revisar la
+     * clasificación real de los días durante el mes, en vez de recién
+     * verla al momento de "Cerrar período" (que ya implica listo para
+     * pagar). A diferencia de transicionarPeriodo('cerrar'), nunca lanza
+     * por pendientes: los devuelve para mostrarlos.
+     */
+    public function verificarPeriodo(Request $request, AsistenciaPeriodo $periodo): JsonResponse
+    {
+        $resultado = $this->periodos->verificarCobertura($request->user('api')->empresa, $periodo, $request->user('api')->id);
+
+        return response()->json($resultado, $resultado['cobertura_estado'] === 'en_proceso' ? 202 : 200);
+    }
+
     public function auditoria(ResumenAsistenciaRequest $request): JsonResponse
     {
         return response()->json($this->operaciones->auditoria(
