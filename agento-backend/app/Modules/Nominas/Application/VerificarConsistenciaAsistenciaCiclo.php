@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Application;
 
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
+use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Support\Carbon;
@@ -36,6 +37,10 @@ use Illuminate\Validation\ValidationException;
  */
 class VerificarConsistenciaAsistenciaCiclo
 {
+    public function __construct(
+        private readonly FechaOperativa $fechaOperativa,
+    ) {}
+
     /**
      * @throws ValidationException
      */
@@ -103,6 +108,16 @@ class VerificarConsistenciaAsistenciaCiclo
      * colaborador cesado igual necesita cobertura para las fechas anteriores
      * a su cese), pero simplificado a un booleano con corte temprano: acá
      * solo hace falta saber SI falta algo, no enumerar cada combinación.
+     *
+     * Las fechas posteriores a hoy quedan explícitamente exentas -- por
+     * decisión de negocio (RR.HH. cierra el ciclo antes de que termine el
+     * mes y los días restantes se cuentan como presente; si el mes
+     * siguiente aparece una falta real ahí, se ajusta vía planilla
+     * complementaria). AsistenciaResultadoDiario nunca tiene filas para
+     * fechas futuras (ProcesarAsistenciaDiaria las marcaría como "falta"
+     * por no tener marcaciones, lo cual sería incorrecto para un día que
+     * todavía no ocurrió), así que exigir cobertura ahí bloquearía el
+     * cálculo para siempre sin aportar ninguna protección real.
      */
     private function tieneColaboradoresSinCobertura(Empresa $empresa, string $fechaInicio, string $fechaFin): bool
     {
@@ -119,7 +134,7 @@ class VerificarConsistenciaAsistenciaCiclo
         }
 
         $inicioRango = Carbon::parse($fechaInicio);
-        $finRango = Carbon::parse($fechaFin);
+        $finRango = Carbon::parse($fechaFin)->min($this->fechaOperativa->hoy());
 
         $cubiertasPorColaborador = AsistenciaResultadoDiario::query()
             ->where('empresa_id', $empresa->id)

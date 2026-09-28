@@ -64,6 +64,7 @@ function EstadoDia({ resultado, mostrarHoras = false }) {
 
 const ESTADOS_CORREGIBLES = [
   { value: 'presente', label: 'Presente' },
+  { value: 'falta', label: 'Falta' },
   { value: 'falta_justificada', label: 'Falta justificada' },
   { value: 'permiso', label: 'Permiso' },
   { value: 'home_office', label: 'Trabajo remoto' },

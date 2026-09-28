@@ -8,6 +8,7 @@ use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Tests\Concerns\CreaColaboradorDePrueba;
 use Tests\TestCase;
@@ -107,6 +108,36 @@ class VerificarConsistenciaAsistenciaCicloTest extends TestCase
         app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-02');
 
         $this->assertTrue(true); // no lanzó excepción
+    }
+
+    /**
+     * Decisión de negocio: RR.HH. puede cerrar el ciclo antes de que termine
+     * el mes -- los días que todavía no ocurrieron no deben bloquear el
+     * cálculo (se cuentan como presente; si el mes siguiente aparece una
+     * falta real, se ajusta vía planilla complementaria). Simula "hoy" con
+     * Carbon::setTestNow() porque FechaOperativa lee el reloj real.
+     */
+    public function test_no_exige_cobertura_para_fechas_posteriores_a_hoy(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-01 10:00:00', 'America/Lima'));
+
+        try {
+            $this->seed(DatabaseSeeder::class);
+            $empresa = Empresa::factory()->create();
+            $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
+
+            AsistenciaPeriodo::create([
+                'empresa_id' => $empresa->id, 'fecha_inicio' => '2026-07-01', 'fecha_fin' => '2026-07-02', 'estado' => 'cerrado',
+            ]);
+            // Solo el 01 (hoy) tiene resultado -- el 02 es un día futuro, exento de cobertura.
+            $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-01');
+
+            app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-02');
+
+            $this->assertTrue(true); // no lanzó excepción
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_ignora_colaboradores_fuera_de_su_vigencia_laboral(): void

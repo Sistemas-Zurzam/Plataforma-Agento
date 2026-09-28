@@ -48,7 +48,7 @@ class AsistenciaPeriodoService
      * @return array<string, mixed>|null null = todo listo, seguir con cambiarEstado('cerrar').
      *                                    array = cobertura en curso (202), el período sigue abierto.
      *
-     * @throws ValidationException fecha futura, cobertura en error, o pendientes sin resolver — cierre bloqueado.
+     * @throws ValidationException cobertura en error, o pendientes sin resolver — cierre bloqueado.
      */
     public function prepararCierre(Empresa $empresa, AsistenciaPeriodo $periodo, int $usuarioId): ?array
     {
@@ -60,8 +60,6 @@ class AsistenciaPeriodoService
             // para un período que no se puede cerrar de todas formas.
             return null;
         }
-
-        $this->asegurarSinFechasFuturas($periodo);
 
         $cobertura = $this->reconciliar($empresa, $periodo, $usuarioId);
         if ($cobertura !== null) {
@@ -213,7 +211,6 @@ class AsistenciaPeriodoService
         return DB::transaction(function () use ($empresa, $periodo, $accion, $usuarioId, $motivo) {
             $antes = $periodo->toArray();
             if ($accion === 'cerrar' && $periodo->estado === 'abierto') {
-                $this->asegurarSinFechasFuturas($periodo);
                 if ($this->cobertura->contarFaltantes($empresa, $periodo) > 0) {
                     throw ValidationException::withMessages([
                         'cobertura' => ['Todavía hay fechas de asistencia sin procesar. Usa "Cerrar" de nuevo para completar la cobertura antes de continuar.'],
@@ -297,22 +294,6 @@ class AsistenciaPeriodoService
             ->whereIn('estado', ['cerrado', 'enviado_nomina'])
             ->whereDate('fecha_inicio', '<=', $hasta)->whereDate('fecha_fin', '>=', $desde)->exists();
         if ($protegido) throw ValidationException::withMessages(['fecha_desde' => ['El rango contiene un período cerrado o enviado a Nómina.']]);
-    }
-
-    /**
-     * No se cierra un período que todavía contiene fechas futuras — cerrar
-     * debe significar "esto ya terminó y quedó resuelto", no "lo congelo
-     * antes de tiempo y dejo de revisar el resto". contarFaltantes() ya
-     * evita crear faltas futuras, pero eso solo resuelve QUÉ se procesa,
-     * no si corresponde cerrar todavía.
-     */
-    private function asegurarSinFechasFuturas(AsistenciaPeriodo $periodo): void
-    {
-        if ($periodo->fecha_fin->greaterThan($this->cobertura->hoy())) {
-            throw ValidationException::withMessages([
-                'fecha_fin' => ["No se puede cerrar el período porque todavía contiene fechas futuras. El período finaliza el {$periodo->fecha_fin->format('d/m/Y')}."],
-            ]);
-        }
     }
 
     /**
