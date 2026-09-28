@@ -359,7 +359,7 @@ class BoletaService
     public function calcularPlanilla(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): array
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
+        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), exigirPeriodoCerrado: false);
 
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([
@@ -401,7 +401,7 @@ class BoletaService
     public function iniciarCalculoAsync(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
+        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), exigirPeriodoCerrado: false);
 
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([

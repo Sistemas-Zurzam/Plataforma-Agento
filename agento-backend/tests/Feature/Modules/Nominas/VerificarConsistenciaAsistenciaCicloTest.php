@@ -68,6 +68,31 @@ class VerificarConsistenciaAsistenciaCicloTest extends TestCase
         app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-31');
     }
 
+    /**
+     * BoletaService::calcularPlanilla()/iniciarCalculoAsync() llaman a
+     * verificar() con exigirPeriodoCerrado: false -- es un "pre-cálculo"
+     * recalculable mientras RR.HH. todavía está resolviendo pendientes, así
+     * que un período abierto NO debe bloquearlo (a diferencia de
+     * cerrar()/marcarPagado(), que sí lo exigen por default).
+     */
+    public function test_no_exige_periodo_cerrado_cuando_se_pide_explicitamente(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $empresa = Empresa::factory()->create();
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
+
+        AsistenciaPeriodo::create([
+            'empresa_id' => $empresa->id, 'fecha_inicio' => '2026-07-01', 'fecha_fin' => '2026-07-02', 'estado' => 'abierto',
+        ]);
+        $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-01');
+        $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-02');
+
+        app(VerificarConsistenciaAsistenciaCiclo::class)
+            ->verificar($empresa, '2026-07-01', '2026-07-02', exigirPeriodoCerrado: false);
+
+        $this->assertTrue(true); // no lanzó excepción, a pesar de que el período sigue "abierto"
+    }
+
     public function test_rechaza_si_falta_cobertura_de_asistencia_para_algun_colaborador(): void
     {
         $this->seed(DatabaseSeeder::class);

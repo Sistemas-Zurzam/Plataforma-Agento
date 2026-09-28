@@ -42,9 +42,25 @@ class VerificarConsistenciaAsistenciaCiclo
     ) {}
 
     /**
+     * $exigirPeriodoCerrado distingue dos momentos muy distintos:
+     *  - true  (default, usado por CicloRemunerativoService::cerrar()/
+     *          marcarPagado()): el compromiso final -- ahí sí debe exigirse
+     *          que el período de asistencia esté cerrado/enviado a Nómina
+     *          (RR.HH. ya resolvió pendientes), porque después de esto se
+     *          paga de verdad.
+     *  - false (usado por BoletaService::calcularPlanilla()/
+     *          iniciarCalculoAsync()): un "pre-cálculo" recalculable las
+     *          veces que haga falta mientras RR.HH. todavía está
+     *          verificando/corrigiendo asistencia -- exigir el período
+     *          cerrado ahí bloquearía justo el flujo de "calculo, reviso,
+     *          corrijo, vuelvo a calcular" que se necesita ANTES de cerrar
+     *          de verdad. La cobertura diaria (¿hay algo que calcular?) sí
+     *          se sigue exigiendo en ambos casos -- lo que se relaja es
+     *          únicamente "¿ya está resuelto/cerrado?".
+     *
      * @throws ValidationException
      */
-    public function verificar(Empresa $empresa, string $fechaInicio, string $fechaFin): void
+    public function verificar(Empresa $empresa, string $fechaInicio, string $fechaFin, bool $exigirPeriodoCerrado = true): void
     {
         $fechasSinPeriodo = $this->fechasSinPeriodoAsociado($empresa, $fechaInicio, $fechaFin);
         if ($fechasSinPeriodo !== []) {
@@ -55,18 +71,20 @@ class VerificarConsistenciaAsistenciaCiclo
             ]);
         }
 
-        $finExclusivo = $this->finExclusivo($fechaFin);
+        if ($exigirPeriodoCerrado) {
+            $finExclusivo = $this->finExclusivo($fechaFin);
 
-        $periodoAbierto = AsistenciaPeriodo::query()
-            ->where('empresa_id', $empresa->id)
-            ->where('estado', 'abierto')
-            ->where('fecha_inicio', '<', $finExclusivo)
-            ->where('fecha_fin', '>=', $fechaInicio)
-            ->first();
-        if ($periodoAbierto) {
-            throw ValidationException::withMessages([
-                'asistencia' => ["El período de asistencia {$periodoAbierto->fecha_inicio->toDateString()} – {$periodoAbierto->fecha_fin->toDateString()} sigue abierto. Ciérralo o envíalo a Nómina antes de calcular este ciclo."],
-            ]);
+            $periodoAbierto = AsistenciaPeriodo::query()
+                ->where('empresa_id', $empresa->id)
+                ->where('estado', 'abierto')
+                ->where('fecha_inicio', '<', $finExclusivo)
+                ->where('fecha_fin', '>=', $fechaInicio)
+                ->first();
+            if ($periodoAbierto) {
+                throw ValidationException::withMessages([
+                    'asistencia' => ["El período de asistencia {$periodoAbierto->fecha_inicio->toDateString()} – {$periodoAbierto->fecha_fin->toDateString()} sigue abierto. Ciérralo o envíalo a Nómina antes de calcular este ciclo."],
+                ]);
+            }
         }
 
         if ($this->tieneColaboradoresSinCobertura($empresa, $fechaInicio, $fechaFin)) {
