@@ -382,12 +382,14 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const [filtroSede, setFiltroSede] = useState();
   const [filtroArea, setFiltroArea] = useState();
   const [filtroPreparacion, setFiltroPreparacion] = useState('todos');
+  const [colaboradoresSeleccionados, setColaboradoresSeleccionados] = useState([]);
   const [resultados, setResultados] = useState([]);
   const [colaboradores, setColaboradores] = useState([]);
   const [stats, setStats] = useState({});
   const [statsColaboradores, setStatsColaboradores] = useState({});
   const [loading, setLoading] = useState(false);
   const [reprocesando, setReprocesando] = useState(false);
+  const [exportandoReporte, setExportandoReporte] = useState(false);
   const [reprocesandoDia, setReprocesandoDia] = useState(false);
   const [corrigiendoDia, setCorrigiendoDia] = useState(false);
   const [perfil, setPerfil] = useState(null);
@@ -514,6 +516,26 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       }
     } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo reprocesar la asistencia'); }
     finally { setReprocesando(false); }
+  };
+
+  const exportarReporte = async () => {
+    setExportandoReporte(true);
+    try {
+      const params = colaboradoresSeleccionados.length > 0 ? { ...parametros, colaborador_ids: colaboradoresSeleccionados } : parametros;
+      const response = await api.get('/asistencia/reporte-colaboradores/excel', { params, responseType: 'blob' });
+      const disposicion = response.headers?.['content-disposition'] ?? '';
+      const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Resumen_asistencia.xlsx';
+      const url = window.URL.createObjectURL(response.data);
+      const enlace = document.createElement('a');
+      enlace.href = url;
+      enlace.download = nombreArchivo;
+      document.body.appendChild(enlace);
+      enlace.click();
+      enlace.remove();
+      window.URL.revokeObjectURL(url);
+      message.success('Reporte generado correctamente');
+    } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo generar el reporte'); }
+    finally { setExportandoReporte(false); }
   };
 
   const reprocesarDia = async (fecha, motivo) => {
@@ -1060,8 +1082,11 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       <Select size="middle" value={filtroPreparacion} onChange={setFiltroPreparacion} className="w-40 shrink-0" options={[{ value: 'todos', label: 'Todos' }, { value: 'listos', label: 'Listos' }, { value: 'sin_horario', label: 'Sin horario' }, { value: 'sin_calendario', label: 'Sin calendario' }, { value: 'sin_biometrico', label: 'Sin ID biométrico' }]} />
       {(busqueda || filtroSede || filtroArea || filtroPreparacion !== 'todos') && <Button type="text" size="small" onClick={() => { setBusqueda(''); setFiltroSede(); setFiltroArea(); setFiltroPreparacion('todos'); }}>Limpiar</Button>}
     </div>
-    <div className="flex flex-wrap items-center gap-1.5 text-xs"><Text type="secondary" className="mr-1">Leyenda</Text>{Object.entries(ESTADOS).map(([key, estado]) => <Tag className="!m-0" color={estado[2]} key={key}>{estado[0]} {estado[1]}</Tag>)}<Text type="secondary" className="ml-auto">{colaboradoresFiltrados.length} colaboradores</Text></div>
-    <Card className="overflow-hidden border-slate-200" styles={{ body: { padding: 0 } }}><Table size="small" tableLayout="fixed" rowKey="id" columns={columnasColaboradores} dataSource={colaboradoresFiltrados} loading={loading} rowClassName="hover:bg-slate-50" pagination={{ pageSize: 25, size: 'small', showSizeChanger: false, showTotal: (total) => `${total} colaboradores` }} locale={{ emptyText: <Empty description="No hay colaboradores para los filtros seleccionados" /> }} /></Card>
+    <div className="flex flex-wrap items-center gap-1.5 text-xs"><Text type="secondary" className="mr-1">Leyenda</Text>{Object.entries(ESTADOS).map(([key, estado]) => <Tag className="!m-0" color={estado[2]} key={key}>{estado[0]} {estado[1]}</Tag>)}
+      {colaboradoresSeleccionados.length > 0 && <><Tag color="blue" className="!m-0">{colaboradoresSeleccionados.length} seleccionado(s)</Tag><Button type="text" size="small" onClick={() => setColaboradoresSeleccionados([])}>Limpiar selección</Button></>}
+      <Text type="secondary" className="ml-auto">{colaboradoresFiltrados.length} colaboradores</Text>
+    </div>
+    <Card className="overflow-hidden border-slate-200" styles={{ body: { padding: 0 } }}><Table size="small" tableLayout="fixed" rowKey="id" columns={columnasColaboradores} dataSource={colaboradoresFiltrados} loading={loading} rowClassName="hover:bg-slate-50" rowSelection={{ selectedRowKeys: colaboradoresSeleccionados, onChange: setColaboradoresSeleccionados }} pagination={{ pageSize: 25, size: 'small', showSizeChanger: false, showTotal: (total) => `${total} colaboradores` }} locale={{ emptyText: <Empty description="No hay colaboradores para los filtros seleccionados" /> }} /></Card>
   </div>;
 
   const importar = <div className="space-y-5">
@@ -1297,7 +1322,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     />
   </>;
 
-  return <div className="space-y-4"><div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><Title level={3} className="!mb-1">Gestión de asistencias</Title><Text type="secondary">Control diario de {user?.empresa?.nombre_comercial ?? 'la empresa activa'}</Text></div><Space wrap><RangePicker value={rango} allowClear={false} format="DD/MM/YYYY" onChange={(value) => value && setRango(value)} />{puedeProcesar && <Button icon={<ReloadOutlined />} loading={reprocesando} onClick={reprocesar}>Reprocesar</Button>}</Space></div><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
+  return <div className="space-y-4"><div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><Title level={3} className="!mb-1">Gestión de asistencias</Title><Text type="secondary">Control diario de {user?.empresa?.nombre_comercial ?? 'la empresa activa'}</Text></div><Space wrap><RangePicker value={rango} allowClear={false} format="DD/MM/YYYY" onChange={(value) => value && setRango(value)} /><Button icon={<FileExcelOutlined />} loading={exportandoReporte} onClick={exportarReporte}>{colaboradoresSeleccionados.length > 0 ? `Descargar reporte (${colaboradoresSeleccionados.length})` : 'Descargar reporte'}</Button>{puedeProcesar && <Button icon={<ReloadOutlined />} loading={reprocesando} onClick={reprocesar}>Reprocesar</Button>}</Space></div><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
     <Modal title="Nuevo permiso" open={permisoModalOpen} onCancel={() => setPermisoModalOpen(false)} footer={null} destroyOnHidden width={520}>
       <Form form={permisoForm} layout="vertical" onFinish={crearPermiso} initialValues={{ tipo: 'personal' }} requiredMark="optional">
         <Form.Item name="colaborador_id" label="Empleado" rules={[{ required: true, message: 'Selecciona un empleado' }]}><Select showSearch optionFilterProp="label" placeholder="Seleccionar empleado" options={colaboradores.map((item) => ({ value: item.id, label: `${item.nombre_completo} · ${item.legajo}` }))} /></Form.Item>

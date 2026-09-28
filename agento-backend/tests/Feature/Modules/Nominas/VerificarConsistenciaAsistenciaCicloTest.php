@@ -14,8 +14,10 @@ use Tests\Concerns\CreaColaboradorDePrueba;
 use Tests\TestCase;
 
 /**
- * Incremento 2 del endurecimiento Asistencia-Nómina (A.1, primeros 3
- * chequeos). No cubre incidencias/horas extra pendientes ni
+ * Incremento 2 del endurecimiento Asistencia-Nómina (A.1). Ya no exige que
+ * exista un AsistenciaPeriodo asociado (ver docblock de la clase) -- solo
+ * período abierto (cuando exigirPeriodoCerrado) y cobertura real de
+ * asistencia. No cubre incidencias/horas extra pendientes ni
  * requiere_recalculo -- eso es el incremento 4.
  */
 class VerificarConsistenciaAsistenciaCicloTest extends TestCase
@@ -36,7 +38,12 @@ class VerificarConsistenciaAsistenciaCicloTest extends TestCase
         ]);
     }
 
-    public function test_rechaza_fechas_sin_ningun_periodo_de_asistencia_asociado(): void
+    /**
+     * Una empresa sin rotativos puede no crear nunca un AsistenciaPeriodo
+     * (ej. procesa asistencia directamente vía Reprocesar) -- verificar() no
+     * debe exigir que exista uno mientras la cobertura real esté completa.
+     */
+    public function test_no_exige_ningun_periodo_de_asistencia_asociado(): void
     {
         $this->seed(DatabaseSeeder::class);
         // Empresa aislada (no la sembrada por DatabaseSeeder) -- así el
@@ -44,10 +51,21 @@ class VerificarConsistenciaAsistenciaCicloTest extends TestCase
         // crea explícitamente, sin verse afectado por datos de otros
         // colaboradores sembrados en la empresa compartida.
         $empresa = Empresa::factory()->create();
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
 
-        $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('no pertenecen a ningún período de asistencia');
-        app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-31');
+        $this->assertSame(0, AsistenciaPeriodo::query()->where('empresa_id', $empresa->id)->count());
+
+        Carbon::setTestNow(Carbon::parse('2026-07-31 10:00:00', 'America/Lima'));
+        try {
+            $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-01');
+            $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-02');
+
+            app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-02');
+
+            $this->assertTrue(true); // no lanzó excepción a pesar de no existir ningún período
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_rechaza_si_hay_un_periodo_de_asistencia_abierto_superpuesto(): void

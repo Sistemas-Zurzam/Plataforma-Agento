@@ -25,6 +25,7 @@ use App\Modules\Asistencia\Http\Resources\AsistenciaResultadoResource;
 use App\Modules\Asistencia\Http\Resources\AsistenciaColaboradorResource;
 use App\Modules\Asistencia\Http\Resources\AsistenciaPermisoResource;
 use App\Modules\Asistencia\Http\Resources\SolicitudAreaResource;
+use App\Modules\Asistencia\Infrastructure\ReporteColaboradoresExcelExporter;
 use App\Modules\Asistencia\Services\AsistenciaConsultaService;
 use App\Modules\Asistencia\Services\AsistenciaPermisoService;
 use App\Modules\Asistencia\Services\SolicitudAreaService;
@@ -43,7 +44,9 @@ use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class AsistenciaController extends Controller
 {
@@ -76,6 +79,27 @@ class AsistenciaController extends Controller
 
         return AsistenciaColaboradorResource::collection($this->consultas->listarColaboradores($empresa, $filtros))
             ->additional(['stats' => $this->consultas->estadisticasColaboradores($empresa, $filtros)]);
+    }
+
+    /**
+     * Excel con el resumen de totales de asistencia + horas extra por
+     * colaborador -- pensado para que RR.HH. lo descargue y se lo envíe a
+     * cada empresa/jefe para que lo corrobore y apruebe fuera del sistema.
+     */
+    public function reporteColaboradoresExcel(ResumenAsistenciaRequest $request): Response
+    {
+        $empresa = $request->user('api')->empresa;
+        $filtros = $request->validated();
+
+        $colaboradores = $this->consultas->reporteColaboradores($empresa, $filtros);
+        $contenido = ReporteColaboradoresExcelExporter::generar($empresa, $filtros['fecha_desde'], $filtros['fecha_hasta'], $colaboradores);
+        $nombre = sprintf('Resumen_asistencia_%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $filtros['fecha_desde']);
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
     }
 
     public function colaborador(

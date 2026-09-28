@@ -136,6 +136,7 @@ Route::middleware('jwt')->group(function () {
 
     Route::get('/asistencia/resumen', [AsistenciaController::class, 'index'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/colaboradores', [AsistenciaController::class, 'colaboradores'])->middleware('permiso:asistencia.ver');
+    Route::get('/asistencia/reporte-colaboradores/excel', [AsistenciaController::class, 'reporteColaboradoresExcel'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/colaboradores/{colaborador}', [AsistenciaController::class, 'colaborador'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/permisos', [AsistenciaController::class, 'permisos'])->middleware('permiso:asistencia.ver');
     Route::post('/asistencia/permisos', [AsistenciaController::class, 'guardarPermiso'])->middleware('permiso:asistencia.permisos');

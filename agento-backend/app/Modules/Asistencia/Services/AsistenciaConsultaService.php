@@ -49,6 +49,44 @@ class AsistenciaConsultaService
 
     public function listarColaboradores(Empresa $empresa, array $filtros): LengthAwarePaginator
     {
+        return $this->queryColaboradoresFiltrados($empresa, $filtros)
+            ->orderBy('apellidos')
+            ->orderBy('nombres')
+            ->paginate($filtros['per_page'] ?? 25);
+    }
+
+    /**
+     * Resumen de asistencia + horas extra por colaborador, sin paginar —
+     * pensado para exportar (ReporteColaboradoresExcelExporter), no para la
+     * tabla en pantalla. Mismos filtros que listarColaboradores() (Sección
+     * "reutilizar antes de crear"), así que un reporte generado con los
+     * mismos filtros que la pestaña Colaboradores coincide exactamente con
+     * lo que RR.HH. está viendo ahí.
+     *
+     * @return \Illuminate\Support\Collection<int, Colaborador>
+     */
+    public function reporteColaboradores(Empresa $empresa, array $filtros): \Illuminate\Support\Collection
+    {
+        $colaboradores = $this->queryColaboradoresFiltrados($empresa, $filtros)
+            ->orderBy('apellidos')
+            ->orderBy('nombres')
+            ->get();
+
+        $horasExtraPorColaborador = AsistenciaHoraExtra::query()
+            ->where('empresa_id', $empresa->id)
+            ->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']])
+            ->get()
+            ->groupBy('colaborador_id');
+
+        foreach ($colaboradores as $colaborador) {
+            $colaborador->setRelation('horasExtraAsistencia', $horasExtraPorColaborador->get($colaborador->id, collect()));
+        }
+
+        return $colaboradores;
+    }
+
+    private function queryColaboradoresFiltrados(Empresa $empresa, array $filtros)
+    {
         $desde = $filtros['fecha_desde'];
         $hasta = $filtros['fecha_hasta'];
 
@@ -65,6 +103,7 @@ class AsistenciaConsultaService
                 'resultadosAsistencia' => fn ($query) => $query->whereBetween('fecha', [$desde, $hasta]),
                 'incidenciasAsistencia' => fn ($query) => $query->whereBetween('fecha', [$desde, $hasta])->where('estado', 'pendiente'),
             ])
+            ->when($filtros['colaborador_ids'] ?? null, fn ($query, $ids) => $query->whereIn('id', $ids))
             ->when($filtros['area_id'] ?? null, fn ($query, $areaId) => $query->where('area_id', $areaId))
             ->when($filtros['sede'] ?? null, fn ($query, $sede) => $query->whereHas('sede', fn ($q) => $q->where('nombre', $sede)))
             ->when($filtros['area'] ?? null, fn ($query, $area) => $query->whereHas('area', fn ($q) => $q->where('nombre', $area)))
@@ -96,10 +135,7 @@ class AsistenciaConsultaService
                         ->orWhere('numero_documento', 'like', "%{$busqueda}%")
                         ->orWhere('legajo', 'like', "%{$busqueda}%");
                 });
-            })
-            ->orderBy('apellidos')
-            ->orderBy('nombres')
-            ->paginate($filtros['per_page'] ?? 25);
+            });
     }
 
     public function estadisticasColaboradores(Empresa $empresa, array $filtros): array
