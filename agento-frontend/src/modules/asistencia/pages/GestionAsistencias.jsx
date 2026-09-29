@@ -82,15 +82,24 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
   const [entrada, setEntrada] = useState('');
   const [salida, setSalida] = useState('');
   const [estadoManual, setEstadoManual] = useState(undefined);
+  const [horariosExcepcionales, setHorariosExcepcionales] = useState([]);
+  const [horarioExcepcional, setHorarioExcepcional] = useState(undefined);
 
   useEffect(() => {
-    if (open) { setMotivo(''); setEntrada(''); setSalida(''); setEstadoManual(undefined); }
+    if (!open || !fecha) return;
+    const fechaTexto = fecha.format('YYYY-MM-DD');
+    setMotivo(''); setEntrada(''); setSalida(''); setEstadoManual(undefined);
+    setHorarioExcepcional(undefined);
+    api.get('/asistencia/horarios-excepcionales', { params: { fecha: fechaTexto } })
+      .then(({ data }) => setHorariosExcepcionales(data.data ?? []))
+      .catch(() => setHorariosExcepcionales([]));
   }, [open, fecha]);
 
   if (!fecha) return null;
 
   const fechaTexto = fecha.format('YYYY-MM-DD');
-  const tipoProgramado = colaborador.calendario?.[fechaTexto];
+  const configuracionDia = colaborador.calendario?.[fechaTexto];
+  const tipoProgramado = typeof configuracionDia === 'string' ? configuracionDia : configuracionDia?.tipo;
   const resultado = colaborador.resultados?.[fechaTexto];
   const estado = resultado ? (ESTADOS[claveEstado(resultado)] ?? ESTADOS.no_programado) : ESTADOS.no_programado;
   const marcacionesDelDia = (colaborador.marcaciones ?? [])
@@ -125,8 +134,8 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
             type="primary"
             icon={<EditOutlined />}
             loading={corrigiendo}
-            disabled={!motivo.trim() || !puedeCorregir || (!entrada && !salida && !estadoManual)}
-            onClick={() => onCorregir(resultado.id, { entrada: entrada || undefined, salida: salida || undefined, estado: estadoManual, motivo: motivo.trim() }).then(onCerrar).catch(() => {})}
+            disabled={!motivo.trim() || !puedeCorregir || (!entrada && !salida && !estadoManual && !horarioExcepcional)}
+            onClick={() => onCorregir(resultado.id, { entrada: entrada || undefined, salida: salida || undefined, estado: estadoManual, horario_excepcional_id: horarioExcepcional, motivo: motivo.trim() }).then(onCerrar).catch(() => {})}
           >
             Guardar corrección
           </Button>
@@ -170,6 +179,21 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
             })}
           </ul>
         )}
+      </div>
+      <div className="mt-4">
+        <Text type="secondary" className="text-xs">Horario excepcional para este día</Text>
+        <Select
+          allowClear
+          className="mt-1 w-full"
+          placeholder={configuracionDia?.horario_excepcional ? `Actual: ${configuracionDia.horario_excepcional}` : 'Mantener horario habitual'}
+          value={horarioExcepcional}
+          onChange={setHorarioExcepcional}
+          options={horariosExcepcionales.map((horario) => ({
+            value: horario.id,
+            label: `${horario.nombre} · ${String(horario.hora_entrada).slice(0, 5)}–${String(horario.hora_salida).slice(0, 5)}`,
+          }))}
+        />
+        <Text type="secondary" className="mt-1 block text-xs">Úsalo solo cuando el colaborador tuvo un turno distinto al habitual. Se recalcularán tardanza, horas trabajadas y horas extra.</Text>
       </div>
 
       <div className="mt-5 rounded-lg border border-slate-200 p-3">

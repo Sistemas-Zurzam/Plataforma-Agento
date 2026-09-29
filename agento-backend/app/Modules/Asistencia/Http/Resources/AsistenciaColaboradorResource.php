@@ -38,7 +38,11 @@ class AsistenciaColaboradorResource extends JsonResource
             'incidencias_pendientes' => $this->incidenciasAsistencia->where('estado', 'pendiente')->count(),
             'resumen' => $resumen,
             'calendario' => $this->calendario->keyBy(fn ($dia) => $dia->fecha->toDateString())
-                ->map(fn ($dia) => $dia->tipo),
+                ->map(fn ($dia) => [
+                    'tipo' => $dia->tipo,
+                    'horario_excepcional_id' => $dia->horario_excepcional_id,
+                    'horario_excepcional' => $dia->horarioExcepcional?->nombre,
+                ]),
             'resultados' => $resultados->map(fn ($resultado) => [
                 'id' => $resultado->id,
                 'estado' => $resultado->estado,

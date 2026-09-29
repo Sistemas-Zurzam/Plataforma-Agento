@@ -9,6 +9,7 @@ use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaSolicitudArea;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\AsistenciaMarcacion;
+use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo;
 use App\Modules\Personas\Models\ColaboradorCalendarioDia;
@@ -502,10 +503,22 @@ class AsistenciaDecisionService
         $fecha = $resultado->fecha->toDateString();
         $this->periodos->asegurarRangoEditable($empresa->id, $fecha, $fecha);
         $antes = $resultado->load('marcaciones')->toArray();
-        AsistenciaMarcacion::query()->where('empresa_id', $empresa->id)
-            ->where('colaborador_id', $resultado->colaborador_id)->where('origen', 'manual_rrhh')
-            ->whereDate('marcado_at', $fecha)->whereNull('anulada_at')
-            ->update(['anulada_at' => now(), 'anulada_por' => $usuario->id]);
+        $editaMarcaciones = array_key_exists('entrada', $datos) || array_key_exists('salida', $datos);
+        if ($editaMarcaciones) {
+            AsistenciaMarcacion::query()->where('empresa_id', $empresa->id)
+                ->where('colaborador_id', $resultado->colaborador_id)->where('origen', 'manual_rrhh')
+                ->whereDate('marcado_at', $fecha)->whereNull('anulada_at')
+                ->update(['anulada_at' => now(), 'anulada_por' => $usuario->id]);
+        }
+        if (! empty($datos['horario_excepcional_id'])) {
+            $horario = Horario::query()->whereKey($datos['horario_excepcional_id'])->where('activo', true)->firstOrFail();
+            $diaHorario = $horario->dias()->where('dia_semana', $resultado->fecha->dayOfWeekIso - 1)->first();
+            abort_unless($diaHorario?->hora_entrada && $diaHorario?->hora_salida, 422, 'El horario seleccionado no tiene un tramo laborable para esta fecha.');
+            ColaboradorCalendarioDia::query()->updateOrCreate(
+                ['colaborador_id' => $resultado->colaborador_id, 'fecha' => $fecha],
+                ['tipo' => 'laborable_presencial', 'origen' => ColaboradorCalendarioDia::ORIGEN_MANUAL, 'horario_excepcional_id' => $horario->id],
+            );
+        }
         foreach (['entrada', 'salida'] as $campo) {
             if (! empty($datos[$campo])) {
                 AsistenciaMarcacion::query()->firstOrCreate([

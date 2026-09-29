@@ -40,6 +40,7 @@ use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\AsistenciaSolicitudArea;
+use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -47,6 +48,7 @@ use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
 
 class AsistenciaController extends Controller
 {
@@ -249,6 +251,25 @@ class AsistenciaController extends Controller
         return response()->json(['data' => $this->decisiones->editarDia(
             $request->user('api')->empresa, $resultado, $request->validated(), $request->user('api')
         )]);
+    }
+
+    public function horariosExcepcionales(Request $request): JsonResponse
+    {
+        $datos = $request->validate(['fecha' => ['required', 'date']]);
+        $diaSemana = Carbon::parse($datos['fecha'])->dayOfWeekIso - 1;
+
+        $horarios = Horario::query()->where('activo', true)
+            ->with(['dias' => fn ($query) => $query->where('dia_semana', $diaSemana)])
+            ->get()->filter(fn ($horario) => $horario->dias->first()?->hora_entrada && $horario->dias->first()?->hora_salida)
+            ->map(fn ($horario) => [
+                'id' => $horario->id,
+                'nombre' => $horario->nombre,
+                'hora_entrada' => $horario->dias->first()->hora_entrada,
+                'hora_salida' => $horario->dias->first()->hora_salida,
+                'tolerancia_minutos' => $horario->tolerancia_minutos,
+            ])->values();
+
+        return response()->json(['data' => $horarios]);
     }
 
     public function horasExtra(ResumenAsistenciaRequest $request): JsonResponse

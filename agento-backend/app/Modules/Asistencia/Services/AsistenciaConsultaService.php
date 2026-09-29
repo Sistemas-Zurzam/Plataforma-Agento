@@ -22,7 +22,7 @@ class AsistenciaConsultaService
                 ->whereDate('vigencia_desde', '<=', $filtros['fecha_hasta'])
                 ->where(fn ($vigencia) => $vigencia->whereNull('vigencia_hasta')->orWhereDate('vigencia_hasta', '>=', $filtros['fecha_desde']))
                 ->with('horario'),
-            'calendario' => fn ($query) => $query->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']]),
+            'calendario' => fn ($query) => $query->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']])->with('horarioExcepcional'),
             'resultadosAsistencia' => fn ($query) => $query->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']]),
             // V3 Fase 3 — A4: el perfil único necesita poder abrir "Editar
             // marcaciones" para una incidencia sin una segunda consulta;

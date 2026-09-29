@@ -159,6 +159,7 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/asistencia/incidencias/{incidencia}/vincular-salida-siguiente', [AsistenciaController::class, 'vincularSalidaDiaSiguiente'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/incidencias', [AsistenciaController::class, 'resolverIncidenciasMasivo'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/resultados/{resultado}', [AsistenciaController::class, 'editarDia'])->middleware('permiso:asistencia.incidencias');
+    Route::get('/asistencia/horarios-excepcionales', [AsistenciaController::class, 'horariosExcepcionales'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/horas-extra', [AsistenciaController::class, 'horasExtra'])->middleware('permiso:asistencia.ver');
     Route::patch('/asistencia/horas-extra/{horaExtra}', [AsistenciaController::class, 'resolverHoraExtra'])->middleware('permiso:asistencia.horas_extra');
     Route::patch('/asistencia/horas-extra', [AsistenciaController::class, 'resolverHorasExtraMasivo'])->middleware('permiso:asistencia.horas_extra');

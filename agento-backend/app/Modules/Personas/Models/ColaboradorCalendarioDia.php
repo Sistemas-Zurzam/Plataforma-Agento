@@ -5,8 +5,9 @@ namespace App\Modules\Personas\Models;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use App\Modules\Asistencia\Models\Horario;
 
-#[Fillable(['colaborador_id', 'fecha', 'tipo', 'origen'])]
+#[Fillable(['colaborador_id', 'fecha', 'tipo', 'origen', 'horario_excepcional_id'])]
 class ColaboradorCalendarioDia extends Model
 {
     /**
@@ -67,5 +68,10 @@ class ColaboradorCalendarioDia extends Model
     public function colaborador(): BelongsTo
     {
         return $this->belongsTo(Colaborador::class);
+    }
+
+    public function horarioExcepcional(): BelongsTo
+    {
+        return $this->belongsTo(Horario::class, 'horario_excepcional_id');
     }
 }

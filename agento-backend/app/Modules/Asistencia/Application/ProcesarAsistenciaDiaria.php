@@ -79,7 +79,7 @@ class ProcesarAsistenciaDiaria
             ? (int) max(0, $entrada->diffInMinutes($salida) - $this->minutosRefrigerio($fecha, $horarioDia))
             : 0;
         $tolerancia = $colaborador->tolerancia_particular_minutos
-            ?? $jornada['asignacion']?->horario?->tolerancia_minutos
+            ?? $jornada['horario']?->tolerancia_minutos
             ?? 0;
         // Una sola marca no prueba una jornada trabajada: puede ser una
         // entrada sin salida, una salida aislada o una marca mal asociada.

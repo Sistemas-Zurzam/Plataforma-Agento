@@ -13,7 +13,7 @@ use Illuminate\Support\Carbon;
 class ResolverJornadaDiaria
 {
     /**
-     * @return array{tipo_dia: string, asignacion: ?ColaboradorHorarioAsignacion, horario_dia: ?HorarioDia}
+     * @return array{tipo_dia: string, asignacion: ?ColaboradorHorarioAsignacion, horario_dia: ?HorarioDia, horario: ?\App\Modules\Asistencia\Models\Horario}
      */
     public function resolver(Colaborador $colaborador, Carbon $fecha): array
     {
@@ -37,7 +37,14 @@ class ResolverJornadaDiaria
         $calendario = ColaboradorCalendarioDia::query()
             ->where('colaborador_id', $colaborador->id)
             ->whereDate('fecha', $fechaTexto)
+            ->with('horarioExcepcional.dias')
             ->first();
+
+        // Una excepción aplica solamente a esta fecha: reemplaza el tramo
+        // horario, no el calendario ni la vigencia normal del colaborador.
+        $horarioAplicado = $calendario?->horarioExcepcional ?? $asignacion?->horario;
+        $horarioDia = $horarioAplicado?->dias
+            ->firstWhere('dia_semana', $fecha->dayOfWeekIso - 1);
 
         // Un horario rotativo nunca dispara la generación automática desde
         // el procesamiento de asistencia -- si nadie declaró el día a mano
@@ -69,6 +76,7 @@ class ResolverJornadaDiaria
             'tipo_dia' => $tipoDia,
             'asignacion' => $asignacion,
             'horario_dia' => $horarioDia,
+            'horario' => $horarioAplicado,
         ];
     }
 }
