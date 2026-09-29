@@ -81,7 +81,11 @@ class ProcesarAsistenciaDiaria
         $tolerancia = $colaborador->tolerancia_particular_minutos
             ?? $jornada['asignacion']?->horario?->tolerancia_minutos
             ?? 0;
-        $tardanza = ! $permiso && $entrada && $inicioProgramado && $esLaborable
+        // Una sola marca no prueba una jornada trabajada: puede ser una
+        // entrada sin salida, una salida aislada o una marca mal asociada.
+        // Mientras la incidencia MI no se resuelva, no puede descontarse una
+        // tardanza ficticia (ej. una única marca a las 18:45 = 585 minutos).
+        $tardanza = ! $permiso && $entrada && $salida && $inicioProgramado && $esLaborable
             ? (int) max(0, $inicioProgramado->diffInMinutes($entrada, false) - $tolerancia)
             : 0;
         $salidaAnticipada = ! $permiso && $salida && $finProgramado && $esLaborable
