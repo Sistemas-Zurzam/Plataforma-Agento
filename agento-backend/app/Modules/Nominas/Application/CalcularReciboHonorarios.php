@@ -120,7 +120,8 @@ class CalcularReciboHonorarios
                 'base_utilizada' => round($valorHora, 6),
                 'tasa_aplicada' => $tramo['tasa'],
                 'cantidad' => $tramo['horas'],
-                'formula_texto' => "Honorario/240 ({$valorHora}) × {$tramo['horas']} horas aprobadas × {$tramo['tasa']}",
+                'formula_texto' => "Honorario/240 ({$valorHora}) × {$tramo['horas']} horas aprobadas × {$tramo['tasa']}"
+                    .($asistencia['detalle_horas_extra'][str_replace('HE_', '', $tramo['codigo'])] ?? '' ? ' — '.($asistencia['detalle_horas_extra'][str_replace('HE_', '', $tramo['codigo'])]) : ''),
             ];
         }
 
@@ -246,7 +247,7 @@ class CalcularReciboHonorarios
             return $config['contabilizar_faltas'] && $resultado->estado === 'falta';
         })->count();
 
-        $minutosHe = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
+        $horasExtraAprobadas = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
             ->whereBetween('fecha', [$fechaInicio, $fechaFin])
             ->where('estado', AsistenciaHoraExtra::ESTADO_APROBADO)
             ->get()
@@ -254,9 +255,17 @@ class CalcularReciboHonorarios
                 $condiciones,
                 $horaExtra->fecha->toDateString(),
                 $colaborador,
-            )['contabilizar_horas_extra'])
-            ->groupBy('tasa')
+            )['contabilizar_horas_extra']);
+        $minutosHe = $horasExtraAprobadas->groupBy('tasa')
             ->map(fn (Collection $items) => (int) $items->sum('minutos_aprobados'));
+        $detalleHorasExtra = $horasExtraAprobadas->sortBy('fecha')->groupBy('tasa')
+            ->map(fn (Collection $items) => $items->map(function (AsistenciaHoraExtra $horaExtra) {
+                $minutos = (int) $horaExtra->minutos_aprobados;
+                $duracion = intdiv($minutos, 60).' h'.($minutos % 60 ? ' '.($minutos % 60).' min' : '');
+
+                return $horaExtra->fecha->format('d/m').' · '.$duracion;
+            })->implode(', '))
+            ->all();
 
         return [
             'asistencia_procesada' => $resultados->isNotEmpty(),
@@ -265,6 +274,7 @@ class CalcularReciboHonorarios
             'horas_he25' => round((float) $minutosHe->get('25', 0) / 60, 2),
             'horas_he35' => round((float) $minutosHe->get('35', 0) / 60, 2),
             'horas_he100' => round((float) $minutosHe->get('100', 0) / 60, 2),
+            'detalle_horas_extra' => $detalleHorasExtra,
         ];
     }
 

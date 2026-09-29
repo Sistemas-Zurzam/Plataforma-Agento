@@ -155,6 +155,13 @@ class CalcularBoletaColaborador
         }
 
         foreach ($calculadora->calcularHorasExtra($sueldoBasico, $asistencia['horas_he25'], $asistencia['horas_he35'], $asistencia['horas_he100'], $parametros) as $linea) {
+            $tasa = str_replace('HE_', '', $linea['codigo']);
+            if ($detalle = $asistencia['detalle_horas_extra'][$tasa] ?? null) {
+                // La pantalla de boleta ya muestra formula_texto debajo del
+                // concepto: deja visible la fecha y duración que originaron
+                // el pago (especialmente útil para feriado/descanso).
+                $linea['formula_texto'] .= " — {$detalle}";
+            }
             $ingresos[] = $linea;
         }
 
@@ -488,7 +495,7 @@ class CalcularBoletaColaborador
     }
 
     /**
-     * @return array{dias_falta: float, horas_permiso_sin_goce: float, minutos_tardanza: int, horas_he25: float, horas_he35: float, horas_he100: float}
+     * @return array{dias_falta: float, horas_permiso_sin_goce: float, minutos_tardanza: int, horas_he25: float, horas_he35: float, horas_he100: float, detalle_horas_extra: array<string, string>}
      */
     private function obtenerAsistenciaDelPeriodo(Colaborador $colaborador, string $fechaInicio, string $fechaFin): array
     {
@@ -545,13 +552,24 @@ class CalcularBoletaColaborador
         // "posible HE"), no una aprobación. La única fuente de verdad para
         // Nómina es AsistenciaHoraExtra.estado='aprobado' con sus
         // minutos_aprobados — pendientes y rechazadas pagan 0 (V3 A2/T2).
-        $minutosHeAprobados = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
+        $horasExtraAprobadas = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
             ->whereBetween('fecha', [$fechaInicio, $fechaFin])
             ->where('estado', 'aprobado')
             ->when($fechasConfianza->isNotEmpty(), fn ($q) => $q->whereNotIn('fecha', $fechasConfianza->all()))
-            ->selectRaw('tasa, SUM(minutos_aprobados) as minutos')
+            ->orderBy('fecha')
+            ->get(['fecha', 'tasa', 'minutos_aprobados']);
+        $minutosHeAprobados = $horasExtraAprobadas
             ->groupBy('tasa')
-            ->pluck('minutos', 'tasa');
+            ->map(fn (Collection $items) => (int) $items->sum('minutos_aprobados'));
+        $detalleHorasExtra = $horasExtraAprobadas
+            ->groupBy('tasa')
+            ->map(fn (Collection $items) => $items->map(function (AsistenciaHoraExtra $horaExtra) {
+                $minutos = (int) $horaExtra->minutos_aprobados;
+                $duracion = intdiv($minutos, 60).' h'.($minutos % 60 ? ' '.($minutos % 60).' min' : '');
+
+                return $horaExtra->fecha->format('d/m').' · '.$duracion;
+            })->implode(', '))
+            ->all();
 
         // HD/HI (V3 A7/A9/A10): igual que con HE, el dato DETECTADO
         // (minutos_tardanza / minutos_salida_anticipada en el resultado
@@ -604,6 +622,7 @@ class CalcularBoletaColaborador
             'horas_he25' => round((float) ($minutosHeAprobados['25'] ?? 0) / 60, 2),
             'horas_he35' => round((float) ($minutosHeAprobados['35'] ?? 0) / 60, 2),
             'horas_he100' => round((float) ($minutosHeAprobados['100'] ?? 0) / 60, 2),
+            'detalle_horas_extra' => $detalleHorasExtra,
         ];
     }
 
