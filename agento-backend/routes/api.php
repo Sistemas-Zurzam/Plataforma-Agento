@@ -196,6 +196,7 @@ Route::middleware('jwt')->group(function () {
     Route::put('/colaboradores/{colaborador}', [ColaboradorController::class, 'update'])->middleware('permiso:colaboradores.editar');
     Route::get('/colaboradores/{colaborador}/liquidacion-cese/previsualizar', [ColaboradorController::class, 'previsualizarLiquidacionCese'])->middleware('permiso:colaboradores.cesar');
     Route::patch('/colaboradores/{colaborador}/cesar', [ColaboradorController::class, 'cesar'])->middleware('permiso:colaboradores.cesar');
+    Route::patch('/colaboradores/{colaborador}/reactivar', [ColaboradorController::class, 'reactivar'])->middleware('permiso:colaboradores.cesar');
     Route::get('/colaboradores/{colaborador}/vacacion-movimientos', [VacacionMovimientoController::class, 'index'])->middleware('permiso:colaboradores.ver');
     Route::post('/colaboradores/{colaborador}/vacacion-movimientos', [VacacionMovimientoController::class, 'store'])->middleware('permiso:colaboradores.editar');
     Route::delete('/colaboradores/{colaborador}/vacacion-movimientos/{movimiento}', [VacacionMovimientoController::class, 'destroy'])->middleware('permiso:colaboradores.editar');

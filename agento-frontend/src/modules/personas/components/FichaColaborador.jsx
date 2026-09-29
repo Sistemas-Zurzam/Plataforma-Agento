@@ -293,7 +293,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
   const { message, modal } = App.useApp();
   const {
     fetchColaborador, actualizarCalendario, actualizarHorario,
-    actualizarColaborador, actualizarConfiguracionNomina, actualizarRemuneracion, cesarColaborador, previsualizarLiquidacionCese, eliminarColaborador, subirDocumento, verDocumento,
+    actualizarColaborador, actualizarConfiguracionNomina, actualizarRemuneracion, cesarColaborador, reactivarColaborador, previsualizarLiquidacionCese, eliminarColaborador, subirDocumento, verDocumento,
     subirFotoPerfil, fetchFotoPerfil, listarVacacionMovimientos, crearVacacionMovimiento, eliminarVacacionMovimiento,
   } = useColaboradores();
   const [colaborador, setColaborador] = useState(null);
@@ -564,6 +564,13 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
     },
   });
 
+  const confirmarReactivacion = () => {
+    let motivo = '';
+    modal.confirm({ title: 'Reactivar colaborador', content: <Input.TextArea rows={3} placeholder="Motivo de la reactivación" onChange={(e) => { motivo = e.target.value; }} />, okText: 'Reactivar',
+      onOk: async () => { if (!motivo.trim()) throw new Error('motivo requerido'); const actualizado = await reactivarColaborador(colaborador.id, motivo.trim()); setColaborador(actualizado); message.success('Colaborador reactivado. Ahora puedes cambiar su contrato a RH.'); },
+    });
+  };
+
   if (loading) return <div className="flex min-h-96 items-center justify-center"><Spin size="large" /></div>;
   if (!colaborador) return <Empty description="No se pudo cargar el colaborador"><Button onClick={onVolver}>Volver</Button></Empty>;
 
@@ -616,7 +623,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
             <Button type="text" size="small" icon={<EditOutlined />} onClick={() => setEditarOpen(true)}>Editar datos</Button>
             <Button type="text" size="small" icon={<IdcardOutlined />} onClick={() => setCarnetOpen(true)}>Carnet</Button>
             <span className="mx-1 hidden w-px bg-gray-200 sm:block" />
-            <Button type="text" size="small" danger icon={<UserDeleteOutlined />} disabled={!colaborador.activo} onClick={() => setCeseOpen(true)}>Cesar</Button>
+            {colaborador.activo ? <Button type="text" size="small" danger icon={<UserDeleteOutlined />} onClick={() => setCeseOpen(true)}>Cesar</Button> : <Button type="text" size="small" className="text-green-700" onClick={confirmarReactivacion}>Reactivar</Button>}
             <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={confirmarEliminacion}>Eliminar</Button>
           </div>
         </div>

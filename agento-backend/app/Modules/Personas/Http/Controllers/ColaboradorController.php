@@ -348,6 +348,14 @@ class ColaboradorController extends Controller
         );
     }
 
+    public function reactivar(Request $request, Colaborador $colaborador): ColaboradorResource
+    {
+        $datos = $request->validate(['motivo' => ['required', 'string', 'max:255']]);
+        return new ColaboradorResource($this->colaboradores->reactivar(
+            $this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos['motivo'],
+        ));
+    }
+
     public function destroy(Request $request, Colaborador $colaborador): JsonResponse
     {
         $this->colaboradores->eliminar($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador);

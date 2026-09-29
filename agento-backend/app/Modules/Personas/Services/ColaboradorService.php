@@ -18,6 +18,7 @@ use App\Modules\Personas\Application\AjustarCalendarioPorCambioHorario;
 use App\Modules\Personas\Support\CalendarioMensualGenerator;
 use App\Modules\Personas\Support\FeriadosPeru;
 use App\Modules\Nominas\Services\LiquidacionCeseService;
+use App\Modules\Nominas\Models\LiquidacionCese;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
@@ -604,6 +605,22 @@ class ColaboradorService
         }
 
         $colaborador->delete();
+    }
+
+    public function reactivar(Empresa $empresa, Colaborador $colaborador, string $motivo): Colaborador
+    {
+        if ($colaborador->empresa_id !== $empresa->id) throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
+        DB::transaction(function () use ($empresa, $colaborador) {
+            $bloqueado = Colaborador::whereKey($colaborador->id)->lockForUpdate()->firstOrFail();
+            if ($bloqueado->activo || ! $bloqueado->fecha_cese) throw ValidationException::withMessages(['colaborador' => 'El colaborador no tiene un cese pendiente de revertir.']);
+            $liquidacion = LiquidacionCese::query()->where('empresa_id', $empresa->id)->where('colaborador_id', $bloqueado->id)->where('es_version_vigente', true)->first();
+            if ($liquidacion && $liquidacion->estado !== 'anulada') throw ValidationException::withMessages(['liquidacion' => 'Existe una liquidación vigente. Anúlala desde Liquidaciones antes de reactivar al colaborador.']);
+            $fechaCese = $bloqueado->fecha_cese->toDateString();
+            $bloqueado->update(['activo' => true, 'fecha_cese' => null, 'motivo_cese' => null]);
+            $bloqueado->asignacionesHorario()->whereDate('vigencia_hasta', $fechaCese)->update(['vigencia_hasta' => null]);
+        });
+        $colaborador->refresh();
+        return $this->obtenerDetalle($empresa, $colaborador);
     }
 
     /**

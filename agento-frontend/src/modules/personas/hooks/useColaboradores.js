@@ -113,6 +113,11 @@ export function useColaboradores() {
     return data.data;
   }, []);
 
+  const reactivarColaborador = useCallback(async (colaboradorId, motivo) => {
+    const { data } = await api.patch(`/colaboradores/${colaboradorId}/reactivar`, { motivo });
+    return data.data;
+  }, []);
+
   const previsualizarLiquidacionCese = useCallback(async (colaboradorId, values) => {
     const params = Object.fromEntries(Object.entries(values).map(([key, value]) => [
       key,
@@ -235,6 +240,7 @@ export function useColaboradores() {
     actualizarConfiguracionNomina,
     actualizarRemuneracion,
     cesarColaborador,
+    reactivarColaborador,
     previsualizarLiquidacionCese,
     eliminarColaborador,
     listarVacacionMovimientos,
