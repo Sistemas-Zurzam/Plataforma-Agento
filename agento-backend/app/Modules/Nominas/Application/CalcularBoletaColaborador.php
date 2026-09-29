@@ -13,6 +13,7 @@ use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Configuracion\Models\ReglaDescuentoTardanza;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
@@ -78,7 +79,10 @@ class CalcularBoletaColaborador
         // solo booleano para todo el período): un cambio de condición a
         // mitad de mes solo debe neutralizar los días posteriores a su
         // vigencia real, nunca el mes completo retroactivamente.
-        $asistencia = $this->obtenerAsistenciaDelPeriodo($colaborador, $fechaInicio, $fechaFin);
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
+        $asistencia = $this->obtenerAsistenciaDelPeriodo(
+            $colaborador, $periodoAsistencia['inicio'], $periodoAsistencia['fin']
+        );
 
         $condicionVigenteCorte = ColaboradorCondicionLaboral::vigenteEn($colaborador->id, $fechaCorte);
         if ($condicionVigenteCorte?->es_trabajador_confianza) {

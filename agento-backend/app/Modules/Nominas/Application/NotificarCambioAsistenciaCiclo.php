@@ -6,6 +6,7 @@ use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -48,16 +49,27 @@ class NotificarCambioAsistenciaCiclo
         // una referencia.
         $clave = $referencia ?? md5("{$colaboradorId}|{$fechaDesde}|{$fechaHasta}|{$motivo}");
         $finExclusivo = Carbon::parse($fechaHasta)->addDay()->toDateString();
+        // El rango de asistencia puede comenzar hasta un mes antes de la
+        // fecha_inicio del ciclo (corte diferido, p. ej. 28/08–27/09 para
+        // la planilla de septiembre). Se busca esa ventana adicional y se
+        // confirma el solapamiento exacto por ciclo dentro de la transacción.
+        $hastaPosibleInicioCiclo = Carbon::parse($fechaHasta)->addMonthNoOverflow()->toDateString();
 
-        DB::transaction(function () use ($empresaId, $colaboradorId, $fechaDesde, $fechaHasta, $motivo, $clave, $finExclusivo) {
+        DB::transaction(function () use ($empresaId, $colaboradorId, $fechaDesde, $fechaHasta, $motivo, $clave, $finExclusivo, $hastaPosibleInicioCiclo) {
             $ciclos = CicloRemunerativo::query()
                 ->where('empresa_id', $empresaId)
-                ->where('fecha_inicio', '<', $finExclusivo)
+                ->where('fecha_inicio', '<=', $hastaPosibleInicioCiclo)
                 ->where('fecha_fin', '>=', $fechaDesde)
                 ->lockForUpdate()
                 ->get();
 
             foreach ($ciclos as $ciclo) {
+                $periodo = PeriodoAsistenciaCiclo::resolver(
+                    $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString(),
+                );
+                if ($periodo['inicio'] >= $finExclusivo || $periodo['fin'] < $fechaDesde) {
+                    continue;
+                }
                 $this->procesarCiclo($ciclo, $colaboradorId, $fechaDesde, $fechaHasta, $motivo, $clave);
             }
         });

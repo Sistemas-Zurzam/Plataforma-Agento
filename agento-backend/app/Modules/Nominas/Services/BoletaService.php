@@ -8,6 +8,7 @@ use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
 use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -359,7 +360,8 @@ class BoletaService
     public function calcularPlanilla(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): array
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), exigirPeriodoCerrado: false);
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
+        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin'], exigirPeriodoCerrado: false);
 
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([
@@ -401,7 +403,8 @@ class BoletaService
     public function iniciarCalculoAsync(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), exigirPeriodoCerrado: false);
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
+        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin'], exigirPeriodoCerrado: false);
 
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([

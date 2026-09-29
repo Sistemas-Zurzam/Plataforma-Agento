@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Services;
 
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaDatosPago;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -152,7 +153,8 @@ class CicloRemunerativoService
     public function cerrar(Empresa $empresa, CicloRemunerativo $ciclo): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
+        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin']);
 
         $totalVigentes = $ciclo->boletas()->where('es_version_vigente', true)->count();
         if ($totalVigentes === 0) {
@@ -289,7 +291,8 @@ class CicloRemunerativoService
     public function marcarPagado(Empresa $empresa, CicloRemunerativo $ciclo): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
+        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin']);
 
         // Incremento 3 (A.4, "evitar carreras") -- entre este chequeo previo
         // y el guardado real puede colarse una notificarCambioAsistencia()

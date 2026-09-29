@@ -6,6 +6,7 @@ use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Asistencia\Services\AsistenciaPeriodoService;
+use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Support\Carbon;
@@ -18,6 +19,7 @@ class ReprocesarAsistenciaRango
         private readonly AsistenciaPeriodoService $periodos,
         private readonly AsistenciaAuditoriaService $auditoria,
         private readonly AsignarDescansoFlexibleSemanal $descansoFlexible,
+        private readonly FechaOperativa $fechaOperativa,
     ) {}
 
     /**
@@ -41,7 +43,10 @@ class ReprocesarAsistenciaRango
             ->get();
 
         $inicio = Carbon::parse($fechaDesde);
-        $fin = Carbon::parse($fechaHasta);
+        // Un reproceso solicitado hasta fin de mes no puede fabricar faltas
+        // para jornadas que todavía no existen. Las fechas posteriores se
+        // procesarán cuando llegue su Excel semanal o en el próximo reproceso.
+        $fin = Carbon::parse($fechaHasta)->min($this->fechaOperativa->hoy());
         $procesados = 0;
         $eliminadosAnterioresIngreso = 0;
         $omitidosSinRolRotativo = 0;
