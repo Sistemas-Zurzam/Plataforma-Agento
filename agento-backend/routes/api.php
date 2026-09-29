@@ -156,6 +156,7 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/asistencia/incidencias/{incidencia}/permiso', [AsistenciaController::class, 'resolverIncidenciaConPermiso'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/incidencias/{incidencia}/clasificar-dia', [AsistenciaController::class, 'clasificarDiaSinRol'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/incidencias/{incidencia}/resolver-trabajo-descanso', [AsistenciaController::class, 'resolverTrabajoEnDescanso'])->middleware('permiso:asistencia.incidencias');
+    Route::patch('/asistencia/incidencias/{incidencia}/vincular-salida-siguiente', [AsistenciaController::class, 'vincularSalidaDiaSiguiente'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/incidencias', [AsistenciaController::class, 'resolverIncidenciasMasivo'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/resultados/{resultado}', [AsistenciaController::class, 'editarDia'])->middleware('permiso:asistencia.incidencias');
     Route::get('/asistencia/horas-extra', [AsistenciaController::class, 'horasExtra'])->middleware('permiso:asistencia.ver');

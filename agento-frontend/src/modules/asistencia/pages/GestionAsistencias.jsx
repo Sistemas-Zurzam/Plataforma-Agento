@@ -50,6 +50,11 @@ function EstadoDia({ resultado, mostrarHoras = false }) {
           {duracion(Number(resultado.minutos_trabajados))}
         </span>
       )}
+      {mostrarHoras && Number(resultado?.minutos_tardanza) > 0 && (
+        <span className="text-[10px] font-medium text-amber-700" title="Minutos de tardanza detectados">
+          Tardanza: {Number(resultado.minutos_tardanza)} min
+        </span>
+      )}
       {mostrarHoras && (resultado?.entrada || resultado?.salida) && (
         <span
           className="text-[10px] leading-tight text-slate-500"
@@ -961,10 +966,28 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     <Button type="link" size="small" onClick={() => abrirCorregirPlanificacion(row)}>Corregir planificación</Button>
   </Space>;
 
+  const vincularSalidaDiaSiguiente = (row) => {
+    let motivo = '';
+    Modal.confirm({
+      title: 'Vincular salida del día siguiente',
+      content: <div className="mt-3 space-y-3"><Alert type="info" showIcon message="Se usará la primera marcación libre de la madrugada del día siguiente como salida excepcional. No cambia el horario normal del colaborador." /><Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} /></div>,
+      okText: 'Vincular y reprocesar',
+      onOk: async () => {
+        if (!motivo.trim()) { message.warning('Ingresa el motivo'); throw new Error('motivo_requerido'); }
+        await api.patch(`/asistencia/incidencias/${row.id}/vincular-salida-siguiente`, { motivo: motivo.trim() });
+        message.success('Salida vinculada y jornada reprocesada');
+        await cargar(); await cargarIncidencias();
+      },
+    });
+  };
+
   const accionesIncidencia = (row, opciones = {}) => {
     if (row.estado !== 'pendiente' || !puedeResolverIncidencias) return '—';
     if (row.tipo === 'dia_sin_clasificar') return accionesDiaSinClasificar(row);
     if (row.tipo === 'trabajo_en_descanso') return accionesTrabajoEnDescanso(row);
+    if (row.tipo === 'marcacion_incompleta' && row.resultado?.entrada_at && !row.resultado?.salida_at) {
+      return <Space size={2}><Button type="link" size="small" onClick={() => vincularSalidaDiaSiguiente(row)}>Vincular salida siguiente</Button><Dropdown menu={{ items: [{ key: 'marcaciones', label: 'Editar marcaciones' }, { key: 'permiso', label: 'Registrar permiso' }], onClick: ({ key }) => (key === 'marcaciones' ? editarMarcacionesDeIncidencia(row) : abrirModalPermiso(row)) }}><Button type="link" size="small">Resolver <DownOutlined /></Button></Dropdown></Space>;
+    }
     const onEditarMarcaciones = opciones.onEditarMarcaciones ?? (() => editarMarcacionesDeIncidencia(row));
     const advertencia = row.tipo === 'horario_desplazado'
       ? 'Al aprobar, el día quedará como presente sin descuento de tardanza.'

@@ -226,6 +226,15 @@ class AsistenciaController extends Controller
         )]);
     }
 
+    public function vincularSalidaDiaSiguiente(Request $request, AsistenciaIncidencia $incidencia): JsonResponse
+    {
+        $datos = $request->validate(['motivo' => ['required', 'string', 'max:2000']]);
+
+        return response()->json(['data' => $this->decisiones->vincularSalidaDiaSiguiente(
+            $request->user('api')->empresa, $incidencia, $datos['motivo'], $request->user('api')
+        )]);
+    }
+
     public function resolverIncidenciasMasivo(ResolverAsistenciaMasivaRequest $request): JsonResponse
     {
         $usuario = $request->user('api'); $datos = $request->validated();

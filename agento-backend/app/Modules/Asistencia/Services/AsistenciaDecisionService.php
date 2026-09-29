@@ -55,6 +55,42 @@ class AsistenciaDecisionService
         });
     }
 
+    /** Vincula una salida excepcional de madrugada al día laborable anterior. */
+    public function vincularSalidaDiaSiguiente(Empresa $empresa, AsistenciaIncidencia $incidencia, string $motivo, User $usuario): AsistenciaIncidencia
+    {
+        $this->asegurarEmpresa($empresa, $incidencia);
+        abort_unless($incidencia->tipo === AsistenciaIncidencia::TIPO_MARCACION_INCOMPLETA, 422, 'Esta acción solo aplica a marcaciones incompletas.');
+        $resultado = $incidencia->resultado()->with('colaborador')->firstOrFail();
+        abort_unless($resultado->entrada_at !== null && $resultado->salida_at === null, 422, 'La incidencia debe corresponder a una entrada sin salida.');
+
+        $fecha = $resultado->fecha->toDateString();
+        $fechaSiguiente = $resultado->fecha->copy()->addDay()->toDateString();
+        $this->periodos->asegurarRangoEditable($empresa->id, $fecha, $fechaSiguiente);
+
+        return DB::transaction(function () use ($empresa, $incidencia, $resultado, $fecha, $fechaSiguiente, $motivo, $usuario) {
+            $salida = AsistenciaMarcacion::query()
+                ->where('empresa_id', $empresa->id)->where('colaborador_id', $resultado->colaborador_id)
+                ->whereNull('anulada_at')->whereNull('datos_origen->vinculada_a_fecha')
+                ->whereBetween('marcado_at', [Carbon::parse($fechaSiguiente)->startOfDay(), Carbon::parse($fechaSiguiente)->addHours(12)])
+                ->orderBy('marcado_at')->first();
+            abort_unless($salida, 422, 'No se encontró una marcación libre durante la madrugada del día siguiente.');
+
+            $antes = $incidencia->toArray();
+            $origen = $salida->datos_origen ?? [];
+            $origen['vinculada_a_fecha'] = $fecha;
+            $origen['vinculada_por'] = $usuario->id;
+            $origen['vinculada_motivo'] = $motivo;
+            $salida->update(['datos_origen' => $origen]);
+
+            $actualizado = $this->procesador->procesar($resultado->colaborador, $resultado->fecha);
+            // Recalcula el día de la marca para retirar su MI independiente.
+            $this->procesador->procesar($resultado->colaborador, Carbon::parse($fechaSiguiente));
+            $this->auditoria->registrar($empresa->id, $usuario->id, 'salida_dia_siguiente_vinculada', $actualizado, $motivo, $antes, $actualizado->fresh('marcaciones')->toArray());
+
+            return $incidencia->fresh(['colaborador', 'resultado']);
+        });
+    }
+
     /**
      * V3 Fase 3 — A8/A11: resuelve una incidencia (Falta u Horas Incompletas
      * casi siempre, pero funciona para cualquier tipo) creando un

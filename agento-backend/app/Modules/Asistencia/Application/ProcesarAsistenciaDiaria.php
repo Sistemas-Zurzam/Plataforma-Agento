@@ -295,7 +295,18 @@ class ProcesarAsistenciaDiaria
                 $query->where('colaborador_id', $colaborador->id)
                     ->orWhere('person_id', $colaborador->numero_documento);
             })
-            ->whereBetween('marcado_at', [$desde, $hasta])
+            // Una salida excepcional vinculada por RR.HH. puede pertenecer
+            // al día anterior aun si el horario normal no es nocturno. La
+            // marca conserva su timestamp crudo y solo se usa fuera de su
+            // fecha original cuando existe esta decisión auditada.
+            ->where(function ($query) use ($desde, $hasta, $fecha) {
+                $query->whereBetween('marcado_at', [$desde, $hasta])
+                    ->orWhere('datos_origen->vinculada_a_fecha', $fecha->toDateString());
+            })
+            ->where(function ($query) use ($fecha) {
+                $query->whereNull('datos_origen->vinculada_a_fecha')
+                    ->orWhere('datos_origen->vinculada_a_fecha', $fecha->toDateString());
+            })
             ->orderBy('marcado_at')
             ->get();
     }
