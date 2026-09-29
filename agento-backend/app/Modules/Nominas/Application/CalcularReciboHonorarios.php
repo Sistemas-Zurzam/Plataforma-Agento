@@ -6,6 +6,7 @@ use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
@@ -95,7 +96,13 @@ class CalcularReciboHonorarios
             'formula_texto' => $formulaRetencion,
         ]];
 
-        $asistencia = $this->obtenerAsistenciaConfigurada($colaborador, $fechaInicio, $fechaFin);
+        // Honorarios y dependientes deben usar el mismo corte diferido. De
+        // otro modo un locador seguía descontando todo el mes calendario,
+        // aunque el ciclo tuviera corte el 27.
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
+        $asistencia = $this->obtenerAsistenciaConfigurada(
+            $colaborador, $periodoAsistencia['inicio'], $periodoAsistencia['fin']
+        );
         $valorHora = $honorarioBruto / 240;
 
         foreach ([
