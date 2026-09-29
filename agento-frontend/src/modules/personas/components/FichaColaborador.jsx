@@ -567,7 +567,18 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
   const confirmarReactivacion = () => {
     let motivo = '';
     modal.confirm({ title: 'Reactivar colaborador', content: <Input.TextArea rows={3} placeholder="Motivo de la reactivación" onChange={(e) => { motivo = e.target.value; }} />, okText: 'Reactivar',
-      onOk: async () => { if (!motivo.trim()) throw new Error('motivo requerido'); const actualizado = await reactivarColaborador(colaborador.id, motivo.trim()); setColaborador(actualizado); message.success('Colaborador reactivado. Ahora puedes cambiar su contrato a RH.'); },
+      onOk: async () => {
+        if (!motivo.trim()) { message.warning('Ingresa el motivo de la reactivación'); throw new Error('motivo requerido'); }
+        try {
+          const actualizado = await reactivarColaborador(colaborador.id, motivo.trim());
+          setColaborador(actualizado);
+          message.success('Colaborador reactivado. Ahora puedes cambiar su contrato a RH.');
+        } catch (error) {
+          const errors = error.response?.data?.errors;
+          message.error(errors ? Object.values(errors)[0]?.[0] : error.response?.data?.message ?? 'No se pudo reactivar al colaborador');
+          throw error;
+        }
+      },
     });
   };
 
