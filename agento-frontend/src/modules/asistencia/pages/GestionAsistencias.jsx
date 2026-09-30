@@ -37,6 +37,12 @@ const mensajePendientesResumen = (pendientes) => {
   return `Asistencia verificada. Pendientes por revisar: ${partes.join(', ')}.`;
 };
 const duracion = (minutos) => `${Math.floor((minutos ?? 0) / 60)}h ${String((minutos ?? 0) % 60).padStart(2, '0')}m`;
+const duracionEnTexto = (minutos) => {
+  const total = Math.max(0, Number(minutos) || 0);
+  const horas = Math.floor(total / 60);
+  const resto = total % 60;
+  return `${horas} ${horas === 1 ? 'hora' : 'horas'} y ${resto} ${resto === 1 ? 'minuto' : 'minutos'}`;
+};
 const hora = (valor) => (valor ? dayjs(valor).format('HH:mm') : '—');
 const claveEstado = (resultado) => (resultado?.estado === 'presente' && resultado?.minutos_tardanza > 0 ? 'tardanza' : resultado?.estado);
 
@@ -419,6 +425,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const [loading, setLoading] = useState(false);
   const [reprocesando, setReprocesando] = useState(false);
   const [exportandoReporte, setExportandoReporte] = useState(false);
+  const [exportandoHorasExtra, setExportandoHorasExtra] = useState(false);
   const [reprocesandoDia, setReprocesandoDia] = useState(false);
   const [corrigiendoDia, setCorrigiendoDia] = useState(false);
   const [perfil, setPerfil] = useState(null);
@@ -547,24 +554,40 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     finally { setReprocesando(false); }
   };
 
+  const descargarExcel = async (ruta, params, nombrePorDefecto) => {
+    const response = await api.get(ruta, { params, responseType: 'blob' });
+    const disposicion = response.headers?.['content-disposition'] ?? '';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? nombrePorDefecto;
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
   const exportarReporte = async () => {
     setExportandoReporte(true);
     try {
       const params = colaboradoresSeleccionados.length > 0 ? { ...parametros, colaborador_ids: colaboradoresSeleccionados } : parametros;
-      const response = await api.get('/asistencia/reporte-colaboradores/excel', { params, responseType: 'blob' });
-      const disposicion = response.headers?.['content-disposition'] ?? '';
-      const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Resumen_asistencia.xlsx';
-      const url = window.URL.createObjectURL(response.data);
-      const enlace = document.createElement('a');
-      enlace.href = url;
-      enlace.download = nombreArchivo;
-      document.body.appendChild(enlace);
-      enlace.click();
-      enlace.remove();
-      window.URL.revokeObjectURL(url);
+      await descargarExcel('/asistencia/reporte-colaboradores/excel', params, 'Resumen_asistencia.xlsx');
       message.success('Reporte generado correctamente');
     } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo generar el reporte'); }
     finally { setExportandoReporte(false); }
+  };
+
+  const exportarHorasExtra = async () => {
+    setExportandoHorasExtra(true);
+    try {
+      const params = horasExtraSeleccionadas.length > 0
+        ? { fecha_desde: parametros.fecha_desde, fecha_hasta: parametros.fecha_hasta, horas_extra_ids: horasExtraSeleccionadas }
+        : { fecha_desde: parametros.fecha_desde, fecha_hasta: parametros.fecha_hasta, colaborador_id: colaboradorFiltroHorasExtra, estado: estadoFiltroHorasExtra };
+      await descargarExcel('/asistencia/horas-extra/excel', params, 'Horas_extra.xlsx');
+      message.success('Excel de horas extra generado');
+    } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo generar el Excel de horas extra'); }
+    finally { setExportandoHorasExtra(false); }
   };
 
   const reprocesarDia = async (fecha, motivo) => {
@@ -1246,6 +1269,28 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     && (estadoFiltroHorasExtra === 'todos' || row.estado === estadoFiltroHorasExtra)
   ));
 
+  // La selección sirve también para exportar (cualquier estado), pero
+  // aprobar/rechazar solo aplica a pendientes: el backend rechaza el lote
+  // completo si incluye una ya resuelta.
+  const pendientesSeleccionadas = horasExtra
+    .filter((row) => horasExtraSeleccionadas.includes(row.id) && row.estado === 'pendiente')
+    .map((row) => row.id);
+
+  const resumenHorasExtraSeleccionadas = useMemo(() => {
+    const seleccionadas = horasExtra.filter((row) => horasExtraSeleccionadas.includes(row.id));
+    const minutosObservados = seleccionadas.reduce((total, row) => total + (Number(row.minutos_observados) || 0), 0);
+    const minutosPendientes = seleccionadas
+      .filter((row) => row.estado === 'pendiente')
+      .reduce((total, row) => total + (Number(row.minutos_observados) || 0), 0);
+    const porTasa = seleccionadas.reduce((total, row) => {
+      const tasa = String(row.tasa);
+      total[tasa] = (total[tasa] || 0) + (Number(row.minutos_observados) || 0);
+      return total;
+    }, {});
+
+    return { minutosObservados, minutosPendientes, porTasa };
+  }, [horasExtra, horasExtraSeleccionadas]);
+
   const resolverHorasExtraMasivo = (accion) => {
     let motivo = '';
     Modal.confirm({
@@ -1255,7 +1300,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
           <Alert
             type="info"
             showIcon
-            message={`${horasExtraSeleccionadas.length} registro(s) seleccionado(s)`}
+            message={`${pendientesSeleccionadas.length} registro(s) pendiente(s) seleccionado(s)`}
             description={accion === 'aprobar' ? 'Se aprobarán todos los minutos observados de cada registro.' : undefined}
           />
           <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} />
@@ -1266,8 +1311,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       cancelText: 'Cancelar',
       onOk: async () => {
         if (!motivo.trim()) { message.warning('Ingresa el motivo de la decisión'); throw new Error('motivo_requerido'); }
-        await api.patch('/asistencia/horas-extra', { ids: horasExtraSeleccionadas, accion, motivo: motivo.trim() });
-        message.success(`${horasExtraSeleccionadas.length} registro(s) procesado(s)`);
+        await api.patch('/asistencia/horas-extra', { ids: pendientesSeleccionadas, accion, motivo: motivo.trim() });
+        message.success(`${pendientesSeleccionadas.length} registro(s) procesado(s)`);
         setHorasExtraSeleccionadas([]);
         await cargar();
       },
@@ -1298,17 +1343,33 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
           { value: 'rechazado', label: 'Rechazadas' },
         ]}
       />
-      {puedeGestionarHorasExtra && horasExtraSeleccionadas.length > 0 && <>
+      {puedeGestionarHorasExtra && pendientesSeleccionadas.length > 0 && <>
         <Button type="primary" onClick={() => resolverHorasExtraMasivo('aprobar')}>Aprobar seleccionadas</Button>
         <Button danger onClick={() => resolverHorasExtraMasivo('rechazar')}>Rechazar seleccionadas</Button>
-        <Text type="secondary">{horasExtraSeleccionadas.length} seleccionada(s)</Text>
       </>}
+      {horasExtraSeleccionadas.length > 0 && <>
+        <Text type="secondary">
+          {horasExtraSeleccionadas.length} seleccionada(s)
+          {' · Observadas: '}{duracionEnTexto(resumenHorasExtraSeleccionadas.minutosObservados)}
+          {Object.entries(resumenHorasExtraSeleccionadas.porTasa).length > 1 && (
+            <> ({Object.entries(resumenHorasExtraSeleccionadas.porTasa).sort(([a], [b]) => Number(a) - Number(b)).map(([tasa, minutos]) => `${tasa}%: ${duracionEnTexto(minutos)}`).join('; ')})</>
+          )}
+          {pendientesSeleccionadas.length !== horasExtraSeleccionadas.length && ` · ${pendientesSeleccionadas.length} pendiente(s)`}
+          {resumenHorasExtraSeleccionadas.minutosPendientes > 0 && pendientesSeleccionadas.length !== horasExtraSeleccionadas.length && (
+            ` · Por aprobar: ${duracionEnTexto(resumenHorasExtraSeleccionadas.minutosPendientes)}`
+          )}
+        </Text>
+        <Button type="text" size="small" onClick={() => setHorasExtraSeleccionadas([])}>Limpiar selección</Button>
+      </>}
+      <Button className="ml-auto" icon={<FileExcelOutlined />} loading={exportandoHorasExtra} disabled={horasExtraFiltradas.length === 0} onClick={exportarHorasExtra}>
+        {horasExtraSeleccionadas.length > 0 ? `Descargar Excel (${horasExtraSeleccionadas.length})` : 'Descargar Excel'}
+      </Button>
     </div>
-    <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={horasExtraFiltradas} rowSelection={puedeGestionarHorasExtra ? {
+    <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={horasExtraFiltradas} rowSelection={{
       selectedRowKeys: horasExtraSeleccionadas,
       onChange: setHorasExtraSeleccionadas,
-      getCheckboxProps: (row) => ({ disabled: row.estado !== 'pendiente' }),
-    } : undefined} columns={[
+      selections: [Table.SELECTION_ALL, Table.SELECTION_NONE],
+    }} columns={[
     { title: 'Fecha', dataIndex: 'fecha', width: 110, render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Colaborador', render: (_, row) => `${row.colaborador?.nombres ?? ''} ${row.colaborador?.apellidos ?? ''}`.trim() },
     { title: 'Tasa', dataIndex: 'tasa', width: 75, render: (value) => <Tag>{value}%</Tag> },
