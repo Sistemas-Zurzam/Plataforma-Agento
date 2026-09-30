@@ -48,6 +48,14 @@ class PagoHonorariosPorDiasPresentesTest extends TestCase
                 'procesado_at' => now(),
             ]);
         }
+        AsistenciaResultadoDiario::create([
+            'empresa_id' => $colaborador->empresa_id,
+            'colaborador_id' => $colaborador->id,
+            'fecha' => '2026-08-29',
+            'tipo_dia' => 'laborable_presencial',
+            'estado' => 'presente',
+            'procesado_at' => now(),
+        ]);
         foreach (['2026-09-01', '2026-09-02', '2026-09-03'] as $fecha) {
             AsistenciaResultadoDiario::create([
                 'empresa_id' => $colaborador->empresa_id,
@@ -60,7 +68,7 @@ class PagoHonorariosPorDiasPresentesTest extends TestCase
         }
 
         $resultado = app(CalcularReciboHonorarios::class)->calcular(
-            $colaborador, '2026-09-01', '2026-09-30', '2026-09-30',
+            $colaborador, '2026-09-01', '2026-09-30', '2026-09-26',
         );
 
         $this->assertSame(180.0, $resultado['total_ingresos']);
@@ -68,5 +76,6 @@ class PagoHonorariosPorDiasPresentesTest extends TestCase
         $this->assertSame(180.0, $resultado['neto_a_pagar']);
         $this->assertCount(1, $resultado['ingresos']);
         $this->assertSame('HONORARIO_BRUTO', $resultado['ingresos'][0]['codigo']);
+        $this->assertStringContainsString('12/09, 18/09, 19/09', $resultado['ingresos'][0]['formula_texto']);
     }
 }
