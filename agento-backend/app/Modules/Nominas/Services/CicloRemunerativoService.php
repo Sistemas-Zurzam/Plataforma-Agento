@@ -166,16 +166,16 @@ class CicloRemunerativoService
     /**
      * Reglas de cierre (Sección 58): no se permite cerrar sin boletas
      * calculadas ni con boletas vigentes que todavía no estén aprobadas.
-     * Las incidencias pendientes se pueden gestionar después y no impiden
-     * cerrar ni generar archivos de pago sobre boletas ya aprobadas.
+     * La cobertura y el cierre del período de asistencia no bloquean el
+     * cierre de nómina: RR. HH. puede emitir el archivo bancario usando las
+     * boletas aprobadas mientras termina de revisar asistencia.
+     * Las incidencias pendientes tampoco impiden el cierre.
      *
      * @throws ValidationException
      */
     public function cerrar(Empresa $empresa, CicloRemunerativo $ciclo): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
-        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin']);
 
         $totalVigentes = $ciclo->boletas()->where('es_version_vigente', true)->count();
         if ($totalVigentes === 0) {
