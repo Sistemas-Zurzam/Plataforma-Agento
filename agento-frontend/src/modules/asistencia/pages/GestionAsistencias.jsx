@@ -665,8 +665,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
         {advertencia && <Alert className="mb-3" type="info" showIcon message={advertencia} />}
         <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} />
       </div>,
-      okText: accion === 'aprobar' ? 'Aprobar' : accion === 'rechazar' ? 'Rechazar' : 'Confirmar',
-      okButtonProps: { danger: accion === 'rechazar' },
+      okText: accion === 'aprobar' ? 'Aprobar' : accion === 'rechazar' ? 'Rechazar' : accion === 'anular_aprobacion' ? 'Anular aprobación' : 'Confirmar',
+      okButtonProps: { danger: ['rechazar', 'anular_aprobacion'].includes(accion) },
       cancelText: 'Cancelar',
       onOk: async () => {
         if (!motivo.trim()) { message.warning('Ingresa el motivo de la decisión'); throw new Error('motivo_requerido'); }
@@ -1316,7 +1316,16 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Aprobadas', dataIndex: 'minutos_aprobados', width: 105, render: duracion },
     { title: 'Estado', dataIndex: 'estado', width: 110, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'aprobado' ? 'green' : 'red'}>{value}</Tag> },
     { title: 'Motivo', dataIndex: 'motivo', ellipsis: true, render: (value) => value || '—' },
-    { title: 'Acciones', width: 160, render: (_, row) => row.estado === 'pendiente' && puedeGestionarHorasExtra ? <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Aprobar horas extra', `/asistencia/horas-extra/${row.id}`, 'aprobar', { minutos_aprobados: row.minutos_observados })}>Aprobar</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar horas extra', `/asistencia/horas-extra/${row.id}`, 'rechazar')}>Rechazar</Button></Space> : '—' },
+    {
+      title: 'Acciones',
+      width: 180,
+      render: (_, row) => {
+        if (!puedeGestionarHorasExtra) return '—';
+        if (row.estado === 'pendiente') return <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Aprobar horas extra', `/asistencia/horas-extra/${row.id}`, 'aprobar', { minutos_aprobados: row.minutos_observados })}>Aprobar</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar horas extra', `/asistencia/horas-extra/${row.id}`, 'rechazar')}>Rechazar</Button></Space>;
+        if (row.estado === 'aprobado') return <Button type="link" size="small" danger onClick={() => solicitarDecision('Anular aprobación de horas extra', `/asistencia/horas-extra/${row.id}`, 'anular_aprobacion', {}, 'La hora extra dejará de pagarse. Si la planilla ya fue calculada, quedará marcada para recalcular.')}>Anular aprobación</Button>;
+        return '—';
+      },
+    },
   ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay horas extra para el filtro seleccionado" /> }} /></Card>
   </div>;
 

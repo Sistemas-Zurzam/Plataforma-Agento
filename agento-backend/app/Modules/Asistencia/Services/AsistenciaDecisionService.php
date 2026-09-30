@@ -413,6 +413,12 @@ class AsistenciaDecisionService
         $this->asegurarEmpresa($empresa, $horaExtra);
         $fecha = $horaExtra->fecha->toDateString();
         $this->periodos->asegurarRangoEditable($empresa->id, $fecha, $fecha);
+        if ($datos['accion'] === 'anular_aprobacion' && $horaExtra->estado !== AsistenciaHoraExtra::ESTADO_APROBADO) {
+            throw ValidationException::withMessages(['accion' => ['Solo se puede anular una hora extra aprobada.']]);
+        }
+        if (in_array($datos['accion'], ['aprobar', 'rechazar'], true) && $horaExtra->estado !== AsistenciaHoraExtra::ESTADO_PENDIENTE) {
+            throw ValidationException::withMessages(['accion' => ['La hora extra ya fue resuelta. Usa anular aprobación si se aprobó por error.']]);
+        }
         $resultado = DB::transaction(function () use ($empresa, $horaExtra, $datos, $usuario) {
             $antes = $horaExtra->toArray();
             $aprobados = $datos['accion'] === 'aprobar'
@@ -425,6 +431,7 @@ class AsistenciaDecisionService
             $estado = match ($datos['accion']) {
                 'aprobar' => AsistenciaHoraExtra::ESTADO_APROBADO,
                 'rechazar' => AsistenciaHoraExtra::ESTADO_RECHAZADO,
+                'anular_aprobacion' => AsistenciaHoraExtra::ESTADO_RECHAZADO,
                 default => $datos['accion'],
             };
             $horaExtra->update([
