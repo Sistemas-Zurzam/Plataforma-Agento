@@ -305,6 +305,13 @@ class ProcesarAsistenciaDiaria
             // fecha original cuando existe esta decisión auditada.
             ->where(function ($query) use ($desde, $hasta, $fecha) {
                 $query->whereBetween('marcado_at', [$desde, $hasta])
+                    // RR.HH. ingresó o confirmó explícitamente esta marca;
+                    // no debe perderse por el margen automático de 6 h
+                    // (p. ej. salida real 20:21 en turno que acaba 14:00).
+                    ->orWhere(function ($manual) use ($fecha) {
+                        $manual->where('origen', 'manual_rrhh')
+                            ->whereDate('marcado_at', $fecha->toDateString());
+                    })
                     ->orWhere('datos_origen->vinculada_a_fecha', $fecha->toDateString());
             })
             ->where(function ($query) use ($fecha) {
