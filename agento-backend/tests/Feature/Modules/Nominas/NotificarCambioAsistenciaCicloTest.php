@@ -179,6 +179,21 @@ class NotificarCambioAsistenciaCicloTest extends TestCase
         $this->assertSame(1, substr_count($ciclo->recalculo_motivo, 'ref-123'));
     }
 
+    public function test_motivo_acumulado_se_limita_y_deja_referencia_a_auditoria(): void
+    {
+        $empresa = Empresa::factory()->create();
+        $ciclo = $this->crearCiclo($empresa, 'calculado');
+        $motivoLargo = str_repeat('cambio de asistencia ', 1000);
+
+        app(NotificarCambioAsistenciaCiclo::class)->notificar(
+            $empresa->id, 5, '2026-07-10', '2026-07-10', $motivoLargo, 'motivo-largo'
+        );
+
+        $ciclo->refresh();
+        $this->assertLessThanOrEqual(16000, mb_strlen($ciclo->recalculo_motivo, 'UTF-8'));
+        $this->assertStringContainsString('consulta la auditoría del ciclo', $ciclo->recalculo_motivo);
+    }
+
     public function test_cambio_original_revertido_nunca_notifica(): void
     {
         $empresa = Empresa::factory()->create();
