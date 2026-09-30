@@ -257,7 +257,11 @@ class CalcularReciboHonorarios
         $diasFalta = (float) $resultados->filter(function (AsistenciaResultadoDiario $resultado) use ($condiciones, $colaborador) {
             $config = $this->configuracionEnFecha($condiciones, $resultado->fecha->toDateString(), $colaborador);
 
-            return $config['contabilizar_faltas'] && $resultado->estado === 'falta';
+            // Del 27 al cierre la asistencia sigue en revisión de RR. HH.;
+            // no se descuenta hasta contar con las marcaciones definitivas.
+            return $config['contabilizar_faltas']
+                && $resultado->estado === 'falta'
+                && $resultado->fecha->day < 27;
         })->count();
         $diasPresentes = (float) $resultados->where('estado', 'presente')->count();
         $fechasPresentes = $resultados->where('estado', 'presente')

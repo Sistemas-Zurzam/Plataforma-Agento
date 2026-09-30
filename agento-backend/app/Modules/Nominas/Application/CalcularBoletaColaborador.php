@@ -615,7 +615,15 @@ class CalcularBoletaColaborador
 
         return [
             'asistencia_procesada' => $resultados->isNotEmpty(),
-            'dias_falta' => (float) $resultadosControlados->where('estado', 'falta')->count(),
+            // Los últimos días del mes permanecen bajo revisión de RR. HH.
+            // Las marcaciones se ingresan al mes siguiente, por lo que una
+            // falta automática entre el 27 y el cierre no descuenta todavía.
+            // El resultado diario se conserva para que el reproceso posterior
+            // determine su estado definitivo y marque la planilla afectada.
+            'dias_falta' => (float) $resultadosControlados
+                ->reject(fn (AsistenciaResultadoDiario $r) => $r->estado === 'falta' && $r->fecha->day >= 27)
+                ->where('estado', 'falta')
+                ->count(),
             'horas_permiso_sin_goce' => (float) $horasPermisoSinGoce,
             'minutos_tardanza' => $minutosTardanza,
             'minutos_horas_incompletas_aprobadas' => $minutosHorasIncompletasAprobadas,
