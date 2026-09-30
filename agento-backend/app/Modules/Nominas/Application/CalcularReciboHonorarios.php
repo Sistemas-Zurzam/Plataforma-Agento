@@ -33,7 +33,7 @@ use RuntimeException;
  */
 class CalcularReciboHonorarios
 {
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?float $salarioBaseOverride = null): array
     {
         $parametros = ParametrosVigentesResolver::paraHonorarios($colaborador->empresa, $fechaCorte);
 
@@ -43,16 +43,16 @@ class CalcularReciboHonorarios
             ->orderByDesc('id')
             ->first();
 
-        if (! $remuneracion) {
+        if (! $remuneracion && $salarioBaseOverride === null) {
             throw new RuntimeException("El colaborador #{$colaborador->id} no tiene un honorario pactado vigente a {$fechaCorte}.");
         }
 
-        $honorarioBruto = (float) $remuneracion->salario;
+        $honorarioBruto = (float) ($remuneracion?->salario ?? $salarioBaseOverride);
         $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
         $asistencia = $this->obtenerAsistenciaConfigurada(
             $colaborador, $periodoAsistencia['inicio'], $periodoAsistencia['fin']
         );
-        $pagoPorDiasPresentes = $remuneracion->modo_calculo_honorarios === 'por_dias_presentes';
+        $pagoPorDiasPresentes = $remuneracion?->modo_calculo_honorarios === 'por_dias_presentes';
         // Esta modalidad paga exactamente el período mostrado en la
         // planilla; el corte diferido no arrastra presentes de otro mes.
         $asistenciaParaPago = $pagoPorDiasPresentes

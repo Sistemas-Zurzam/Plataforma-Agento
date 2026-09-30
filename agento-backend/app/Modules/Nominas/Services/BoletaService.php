@@ -4,7 +4,6 @@ namespace App\Modules\Nominas\Services;
 
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
-use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
@@ -81,10 +80,6 @@ class BoletaService
         if ($condicion?->es_trabajador_confianza || ! ($condicion?->contabilizar_horas_extra ?? $colaborador->contabilizar_horas_extra ?? true)) {
             throw ValidationException::withMessages(['colaborador_id' => 'El colaborador no tiene habilitado el pago de horas extra en la fecha indicada.']);
         }
-        if (! ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)->whereDate('vigencia_desde', '<=', $fecha)->exists()) {
-            throw ValidationException::withMessages(['fecha' => 'No existe remuneración histórica vigente para calcular las horas extra en esa fecha.']);
-        }
-
         return DB::transaction(function () use ($empresa, $ciclo, $colaborador, $fecha, $minutos, $tasa, $motivo, $usuarioId) {
             $boleta = Boleta::query()->where('ciclo_id', $ciclo->id)
                 ->where('colaborador_id', $colaborador->id)
@@ -94,30 +89,35 @@ class BoletaService
                 throw ValidationException::withMessages(['boleta' => 'La boleta debe estar calculada y aún no aprobada para agregar horas extra.']);
             }
 
-            $resultado = AsistenciaResultadoDiario::withoutGlobalScopes()
-                ->where('empresa_id', $empresa->id)->where('colaborador_id', $colaborador->id)
-                ->whereDate('fecha', $fecha)->first();
-            if (! $resultado) {
-                throw ValidationException::withMessages(['fecha' => 'No existe un registro de asistencia para esa fecha. Reprocesa la asistencia antes de agregar horas extra.']);
+            $horaExtra = AsistenciaHoraExtra::withoutGlobalScopes()
+                ->where('empresa_id', $empresa->id)
+                ->where('colaborador_id', $colaborador->id)
+                ->whereDate('fecha', $fecha)
+                ->where('tasa', $tasa)
+                ->where('origen', 'planilla')
+                ->lockForUpdate()->first();
+            if ($horaExtra) {
+                throw ValidationException::withMessages(['tasa' => 'Ya se registraron horas manuales con esta fecha y tasa.']);
             }
 
-            $horaExtra = AsistenciaHoraExtra::withoutGlobalScopes()->where('resultado_diario_id', $resultado->id)
-                ->where('tasa', $tasa)->lockForUpdate()->first();
-            if ($horaExtra && $horaExtra->estado !== AsistenciaHoraExtra::ESTADO_PENDIENTE) {
-                throw ValidationException::withMessages(['tasa' => 'Ya existe una decisión para esa fecha y tasa. No se puede reemplazar desde la planilla.']);
+            $salarioEnFecha = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
+                ->whereDate('vigencia_desde', '<=', $fecha)
+                ->orderByDesc('vigencia_desde')->orderByDesc('id')->value('salario');
+            $salarioBase = $salarioEnFecha !== null ? (float) $salarioEnFecha : (float) $boleta->sueldo_basico_snapshot;
+            if ($salarioBase <= 0) {
+                throw ValidationException::withMessages(['fecha' => 'No hay una remuneración histórica ni una remuneración en la boleta para calcular este importe.']);
             }
 
-            $antes = $horaExtra?->toArray();
-            if (! $horaExtra) {
-                $horaExtra = new AsistenciaHoraExtra();
-                $horaExtra->resultado_diario_id = $resultado->id;
-                $horaExtra->empresa_id = $empresa->id;
-                $horaExtra->colaborador_id = $colaborador->id;
-                $horaExtra->fecha = $fecha;
-                $horaExtra->tasa = $tasa;
-            }
+            $horaExtra = new AsistenciaHoraExtra();
+            $horaExtra->resultado_diario_id = null;
+            $horaExtra->empresa_id = $empresa->id;
+            $horaExtra->colaborador_id = $colaborador->id;
+            $horaExtra->fecha = $fecha;
+            $horaExtra->tasa = $tasa;
+            $horaExtra->origen = 'planilla';
+
             $horaExtra->fill([
-                'minutos_observados' => max((int) $horaExtra->minutos_observados, $minutos),
+                'minutos_observados' => $minutos,
                 'minutos_solicitados' => $minutos,
                 'minutos_aprobados' => $minutos,
                 'estado' => AsistenciaHoraExtra::ESTADO_APROBADO,
@@ -127,11 +127,12 @@ class BoletaService
             ])->save();
 
             $this->auditoria->registrar($empresa->id, $usuarioId, 'hora_extra_manual_planilla', $horaExtra,
-                $motivo, $antes, $horaExtra->fresh()->toArray());
+                $motivo, null, $horaExtra->toArray());
 
             return $this->calcularBoletaColaborador(
                 $ciclo, $colaborador, $usuarioId,
                 "Horas extra agregadas desde planilla: {$minutos} min al {$tasa}% el {$fecha}.",
+                $salarioBase,
             );
         });
     }
@@ -541,9 +542,9 @@ class BoletaService
         return $ciclo;
     }
 
-    private function calcularBoletaColaborador(CicloRemunerativo $ciclo, Colaborador $colaborador, int $usuarioId, ?string $motivoRecalculo): Boleta
+    private function calcularBoletaColaborador(CicloRemunerativo $ciclo, Colaborador $colaborador, int $usuarioId, ?string $motivoRecalculo, ?float $salarioBaseOverride = null): Boleta
     {
-        return DB::transaction(function () use ($ciclo, $colaborador, $usuarioId, $motivoRecalculo) {
+        return DB::transaction(function () use ($ciclo, $colaborador, $usuarioId, $motivoRecalculo, $salarioBaseOverride) {
             // Único punto de bifurcación entre los dos motores (Sección de
             // Recibos por Honorarios acordada con el usuario): un locador
             // nunca entra a CalcularBoletaColaborador ni a
@@ -558,18 +559,16 @@ class BoletaService
                 || $colaborador->regimen_laboral === 'Locacion de Servicios';
             $calculador = $esHonorarios ? $this->calculadorHonorarios : $this->calculador;
 
-            $resultado = $calculador->calcular(
+            $argumentosBase = [
                 $colaborador,
                 $ciclo->fecha_inicio->toDateString(),
                 $ciclo->fecha_fin->toDateString(),
                 $ciclo->fecha_corte_asistencia->toDateString(),
                 $ciclo->id,
-                // V3 Fase 6F.2.3 — únicamente para resolver la RMA de
-                // AFP_PRIMA_SEGURO (Fase 6F.2.2); CalcularReciboHonorarios
-                // ignora este 6to argumento (su firma no lo declara — PHP
-                // no falla por argumentos posicionales de más).
-                $ciclo->fecha_pago->toDateString(),
-            );
+            ];
+            $resultado = $esHonorarios
+                ? $calculador->calcular(...[...$argumentosBase, $salarioBaseOverride])
+                : $calculador->calcular(...[...$argumentosBase, $ciclo->fecha_pago->toDateString(), $salarioBaseOverride]);
 
             $versionAnterior = Boleta::where('ciclo_id', $ciclo->id)
                 ->where('colaborador_id', $colaborador->id)

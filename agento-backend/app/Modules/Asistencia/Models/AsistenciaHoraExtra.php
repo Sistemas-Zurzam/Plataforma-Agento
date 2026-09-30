@@ -10,7 +10,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[ScopedBy([EmpresaScope::class])]
-#[Fillable(['empresa_id', 'resultado_diario_id', 'colaborador_id', 'fecha', 'minutos_observados', 'minutos_solicitados', 'minutos_aprobados', 'tasa', 'estado', 'motivo', 'resuelto_por', 'resuelto_at'])]
+#[Fillable(['empresa_id', 'resultado_diario_id', 'origen', 'colaborador_id', 'fecha', 'minutos_observados', 'minutos_solicitados', 'minutos_aprobados', 'tasa', 'estado', 'motivo', 'resuelto_por', 'resuelto_at'])]
 class AsistenciaHoraExtra extends Model
 {
     // Estados canónicos (V3 Fase 3) — 'aprobado'/'rechazado' en masculino

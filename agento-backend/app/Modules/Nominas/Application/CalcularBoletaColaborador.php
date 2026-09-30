@@ -55,7 +55,7 @@ class CalcularBoletaColaborador
      *   snapshot_parametros_version: string, snapshot_reglas_version: string, alertas: array<int, string>,
      * }
      */
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?string $fechaPago = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?string $fechaPago = null, ?float $salarioBaseOverride = null): array
     {
         $regimen = $colaborador->regimen_laboral ?: 'General';
         $calculadora = RegimenCalculatorFactory::paraRegimen($regimen);
@@ -67,11 +67,11 @@ class CalcularBoletaColaborador
             ->orderByDesc('id')
             ->first();
 
-        if (! $remuneracion) {
+        if (! $remuneracion && $salarioBaseOverride === null) {
             throw new RuntimeException("El colaborador #{$colaborador->id} no tiene remuneración vigente a {$fechaCorte}.");
         }
 
-        $sueldoBasico = (float) $remuneracion->salario;
+        $sueldoBasico = (float) ($remuneracion?->salario ?? $salarioBaseOverride);
         $alertas = [];
 
         // V3 P3/T1 — la condición de confianza SIEMPRE se resuelve por

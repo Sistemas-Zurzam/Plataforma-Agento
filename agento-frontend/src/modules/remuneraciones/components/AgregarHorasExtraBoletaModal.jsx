@@ -34,7 +34,7 @@ export default function AgregarHorasExtraBoletaModal({ open, onCancel, onSubmit,
       destroyOnHidden
     >
       <p className="mb-4 text-sm text-gray-500">
-        Se recalculará solo esta boleta. La versión anterior quedará en el historial. Ingresa el total de minutos para esta fecha y tasa.
+        Registro manual fuera de Asistencia: no requiere ni crea marcaciones del huellero. Se recalculará solo esta boleta y la versión anterior quedará en el historial. Ingresa el total de minutos para esta fecha y tasa.
         {esHonorarios && ' En RH no hay una tasa de horas extra laboral automática: el factor aplicado debe corresponder al acuerdo por el servicio.'}
       </p>
       <Form form={form} layout="vertical">
