@@ -308,6 +308,18 @@ class CicloRemunerativoController extends Controller
         return new CicloRemunerativoResource($ciclo);
     }
 
+    public function actualizarCorteAsistencia(Request $request, CicloRemunerativo $ciclo): CicloRemunerativoResource
+    {
+        $datos = $request->validate([
+            'fecha_corte_asistencia' => ['required', 'date', 'after_or_equal:'.$ciclo->fecha_inicio->toDateString(), 'before_or_equal:'.$ciclo->fecha_fin->toDateString()],
+        ]);
+
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $ciclo = $this->ciclos->actualizarCorteAsistencia($empresa, $ciclo, $datos['fecha_corte_asistencia']);
+
+        return new CicloRemunerativoResource($ciclo);
+    }
+
     public function eliminar(Request $request, CicloRemunerativo $ciclo): JsonResponse
     {
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);

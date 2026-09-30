@@ -37,6 +37,7 @@ import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
 import AportesPrevisionalesTab from '../../modules/remuneraciones/components/AportesPrevisionalesTab';
 import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCashModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
+import EditarCorteAsistenciaModal from '../../modules/remuneraciones/components/EditarCorteAsistenciaModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
 import ImportarComprobantesRhModal from '../../modules/remuneraciones/components/ImportarComprobantesRhModal';
 import PlanillasComplementariasModal from '../../modules/remuneraciones/components/PlanillasComplementariasModal';
@@ -216,7 +217,7 @@ function DetalleBoleta({ boletaId, verBoleta }) {
 export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const { message, modal } = App.useApp();
   const {
-    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
+    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, actualizarCorteAsistencia, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
     resumen, fetchResumen, fetchResumenContable, fetchReporteEjecutivoDatos,
     verBoleta, imprimirBoletasMasivo, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
@@ -244,6 +245,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [busquedaPrevisualizacion, setBusquedaPrevisualizacion] = useState('');
   const [nuevoCicloOpen, setNuevoCicloOpen] = useState(false);
   const [cicloEditar, setCicloEditar] = useState(null);
+  const [cicloCorteEditar, setCicloCorteEditar] = useState(null);
   const [creandoCiclo, setCreandoCiclo] = useState(false);
   const [calculando, setCalculando] = useState(false);
   const [exportandoPlanilla, setExportandoPlanilla] = useState(false);
@@ -403,6 +405,20 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       fetchCiclos();
     } catch (err) {
       message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo actualizar el ciclo');
+    } finally {
+      setCreandoCiclo(false);
+    }
+  };
+
+  const handleActualizarCorteAsistencia = async (fechaCorte) => {
+    setCreandoCiclo(true);
+    try {
+      await actualizarCorteAsistencia(cicloCorteEditar.id, fechaCorte);
+      message.success('Corte actualizado. La planilla quedó marcada para recálculo.');
+      setCicloCorteEditar(null);
+      await fetchCiclos();
+    } catch (err) {
+      message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo actualizar el corte');
     } finally {
       setCreandoCiclo(false);
     }
@@ -802,6 +818,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           {puedeGestionarCiclos && (ciclo.boletas_count ?? 0) === 0 && (
             <Tooltip title="Editar fechas del ciclo">
               <Button size="small" icon={<EditOutlined />} onClick={() => setCicloEditar(ciclo)} />
+            </Tooltip>
+          )}
+          {puedeGestionarCiclos && ['abierto', 'calculado', 'reabierto'].includes(ciclo.estado) && (
+            <Tooltip title="Cambiar corte de asistencia">
+              <Button size="small" icon={<CalendarOutlined />} onClick={() => setCicloCorteEditar(ciclo)} />
             </Tooltip>
           )}
           {puedeGestionarCiclos && (ciclo.boletas_count ?? 0) === 0 && (
@@ -1304,6 +1325,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => { setNuevoCicloOpen(false); setCicloEditar(null); }}
         onSubmit={cicloEditar ? handleActualizarCiclo : handleCrearCiclo}
         loading={creandoCiclo}
+      />
+      <EditarCorteAsistenciaModal
+        open={!!cicloCorteEditar}
+        ciclo={cicloCorteEditar}
+        loading={creandoCiclo}
+        onCancel={() => setCicloCorteEditar(null)}
+        onSubmit={handleActualizarCorteAsistencia}
       />
 
       <ConfiguracionNominaModal

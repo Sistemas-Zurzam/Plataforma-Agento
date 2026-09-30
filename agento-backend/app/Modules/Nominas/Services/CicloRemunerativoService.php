@@ -113,6 +113,27 @@ class CicloRemunerativoService
         });
     }
 
+    public function actualizarCorteAsistencia(Empresa $empresa, CicloRemunerativo $ciclo, string $fechaCorte): CicloRemunerativo
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+
+        if (! in_array($ciclo->estado, ['abierto', 'calculado', 'reabierto'], true)) {
+            throw ValidationException::withMessages(['estado' => 'Solo se puede cambiar el corte de un ciclo abierto, calculado o reabierto.']);
+        }
+        if ($ciclo->boletas()->where('es_version_vigente', true)->where('estado', 'pagada')->exists()) {
+            throw ValidationException::withMessages(['estado' => 'No se puede cambiar el corte porque el ciclo tiene boletas pagadas.']);
+        }
+
+        $ciclo->update([
+            'fecha_corte_asistencia' => $fechaCorte,
+            'requiere_recalculo' => true,
+            'recalculo_motivo' => 'Se modificó la fecha de corte de asistencia.',
+            'recalculo_detectado_at' => now(),
+        ]);
+
+        return $ciclo->fresh();
+    }
+
     /**
      * Elimina un ciclo que todavía no tiene ninguna boleta — mismo criterio
      * que actualizar(): boletas.ciclo_id tiene cascadeOnDelete a nivel de

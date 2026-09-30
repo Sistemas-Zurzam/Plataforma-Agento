@@ -214,6 +214,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('/ciclos-remunerativos-reporte-ejecutivo/datos', [CicloRemunerativoController::class, 'datosReporteEjecutivo'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos', [CicloRemunerativoController::class, 'store'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'actualizar'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::patch('/ciclos-remunerativos/{ciclo}/corte-asistencia', [CicloRemunerativoController::class, 'actualizarCorteAsistencia'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::delete('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'eliminar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::post('/ciclos-remunerativos/{ciclo}/calcular', [CicloRemunerativoController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/estado-calculo', [CicloRemunerativoController::class, 'estadoCalculo'])->middleware('permiso:nominas.ver');

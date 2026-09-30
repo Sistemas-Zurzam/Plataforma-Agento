@@ -45,6 +45,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const actualizarCorteAsistencia = useCallback(async (cicloId, fecha_corte_asistencia) => {
+    const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/corte-asistencia`, { fecha_corte_asistencia });
+    return data.data;
+  }, []);
+
   const eliminarCiclo = useCallback(async (cicloId) => {
     await api.delete(`/ciclos-remunerativos/${cicloId}`);
   }, []);
@@ -671,7 +676,7 @@ export function useRemuneraciones() {
     ciclosLoading,
     fetchCiclos,
     crearCiclo,
-    actualizarCiclo,
+    actualizarCiclo, actualizarCorteAsistencia,
     eliminarCiclo,
     calcularPlanilla,
     fetchEstadoCalculo,
