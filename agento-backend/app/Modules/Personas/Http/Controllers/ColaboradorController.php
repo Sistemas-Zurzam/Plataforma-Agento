@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Afp;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Configuracion\Models\Role;
 use App\Modules\Personas\Http\Requests\ImportarColaboradoresRequest;
 use App\Modules\Personas\Http\Requests\ImportarFotosPerfilRequest;
 use App\Modules\Personas\Http\Requests\StoreColaboradorRequest;
@@ -197,6 +198,7 @@ class ColaboradorController extends Controller
             // conservarán excepciones humanas/legacy", nunca para elegir
             // qué se invalida ni de qué empresa.
             'confirmar_planificacion_existente' => ['nullable', 'boolean'],
+            'confirmar_reproceso_asistencia' => ['nullable', 'boolean'],
         ]);
 
         $horarioSeleccionado = Horario::find($datos['horario_id']);
@@ -206,9 +208,19 @@ class ColaboradorController extends Controller
             ]);
         }
 
+        if ($request->boolean('confirmar_reproceso_asistencia')) {
+            $rol = $request->user('api')->currentRole();
+            abort_unless(
+                $rol?->clave === Role::ADMINISTRADOR || $rol?->permissions->contains('clave', 'asistencia.procesar'),
+                403,
+                'Necesitas permiso para procesar asistencia y confirmar esta corrección.',
+            );
+        }
+
         $resultado = $this->colaboradores->actualizarHorario(
             $this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos,
             $request->user('api')->id, $request->boolean('confirmar_planificacion_existente'),
+            $request->boolean('confirmar_reproceso_asistencia'),
         );
 
         if (is_array($resultado)) {

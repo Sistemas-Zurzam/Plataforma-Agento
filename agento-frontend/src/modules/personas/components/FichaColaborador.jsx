@@ -422,19 +422,20 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
    */
   const confirmarPlanificacionExistente = (datosHorario, impacto) => {
     const partes = [
+      impacto.resultados_procesados > 0 ? `${impacto.resultados_procesados} día(s) con asistencia ya calculada se reprocesarán con el nuevo horario. Las marcaciones originales se conservarán.` : null,
       impacto.automaticas > 0 ? `${impacto.automaticas} fecha(s) generadas automáticamente por el horario anterior se recalcularán con el horario nuevo.` : null,
       impacto.humanas > 0 ? `${impacto.humanas} fecha(s) planificadas manualmente se conservarán tal cual, sin tocarlas.` : null,
       impacto.legacy > 0 ? `${impacto.legacy} fecha(s) históricas (de antes de este control) se conservarán tal cual, sin tocarlas.` : null,
     ].filter(Boolean);
 
     modal.confirm({
-      title: 'El colaborador tiene planificación futura existente',
+      title: 'Confirmar corrección del horario y la asistencia',
       content: (
         <div>
           <ul className="list-disc pl-4">
             {partes.map((parte, indice) => <li key={indice}>{parte}</li>)}
           </ul>
-          <p className="mt-2">Las decisiones manuales o históricas nunca se eliminan automáticamente. ¿Deseas continuar de todas formas?</p>
+          <p className="mt-2">Las decisiones manuales o históricas se conservan. Si la planilla ya fue calculada, quedará señalada para revisión y recálculo; una planilla pagada no se modifica automáticamente. Revisa también las incidencias y horas extra después del reprocesamiento. ¿Deseas continuar?</p>
         </div>
       ),
       okText: 'Continuar',
@@ -442,7 +443,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
       onOk: async () => {
         setGuardandoHorario(true);
         try {
-          const actualizado = await actualizarHorario(colaborador.id, { ...datosHorario, confirmar_planificacion_existente: true });
+          const actualizado = await actualizarHorario(colaborador.id, { ...datosHorario, confirmar_planificacion_existente: true, confirmar_reproceso_asistencia: true });
           setColaborador(actualizado);
           setHorarioOpen(false);
           message.success('Horario actualizado correctamente');

@@ -4,6 +4,7 @@ namespace App\Modules\Personas\Services;
 
 use App\Models\User;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
+use App\Modules\Asistencia\Application\ProcesarAsistenciaDiaria;
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Banco;
@@ -34,6 +35,7 @@ class ColaboradorService
     public function __construct(
         private readonly AjustarCalendarioPorCambioHorario $ajusteCalendario,
         private readonly LiquidacionCeseService $liquidaciones,
+        private readonly ProcesarAsistenciaDiaria $procesadorAsistencia,
     ) {}
 
     /**
@@ -242,7 +244,7 @@ class ColaboradorService
      * @param  array{horario_id:int, modalidad_trabajo:string, tolerancia_particular_minutos:?int, vigencia_desde:string, vigencia_hasta:?string}  $datos
      * @return Colaborador|array{requiere_confirmacion: true, impacto: array<string, mixed>}
      */
-    public function actualizarHorario(Empresa $empresa, Colaborador $colaborador, array $datos, int $usuarioId, bool $confirmarPlanificacionExistente = false): Colaborador|array
+    public function actualizarHorario(Empresa $empresa, Colaborador $colaborador, array $datos, int $usuarioId, bool $confirmarPlanificacionExistente = false, bool $confirmarReproceso = false): Colaborador|array
     {
         if ($colaborador->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
@@ -275,27 +277,30 @@ class ColaboradorService
 
         $impacto = null;
         if ($requiereNuevaVigencia) {
-            // Fase 4C — antes de tocar nada: ¿ya existen resultados de
-            // asistencia procesados desde esta vigencia? Un cambio
-            // retroactivo sobre historial ya procesado no se invalida
-            // automáticamente (corrección manual especializada, ver
-            // AjustarCalendarioPorCambioHorario::evaluarImpacto()).
+            // Antes de tocar nada, medir el calendario y los resultados
+            // existentes para pedir confirmación y recalcularlos juntos.
             $impacto = $this->ajusteCalendario->evaluarImpacto($colaborador, $vigenciaDesde);
-
-            if ($impacto['bloqueado_por_procesado']) {
-                throw ValidationException::withMessages([
-                    'vigencia_desde' => ['Ya existen resultados de asistencia procesados desde esta fecha — un cambio de horario retroactivo sobre historial ya procesado requiere corrección manual especializada, no se aplica automáticamente.'],
-                ]);
-            }
 
             $this->ajusteCalendario->asegurarSinPeriodoProtegido($empresa->id, $vigenciaDesde);
 
-            if ($impacto['requiere_confirmacion'] && ! $confirmarPlanificacionExistente) {
+            if (($impacto['requiere_confirmacion'] && ! $confirmarPlanificacionExistente)
+                || ($impacto['bloqueado_por_procesado'] && ! $confirmarReproceso)) {
                 return ['requiere_confirmacion' => true, 'impacto' => $impacto];
             }
         }
 
         DB::transaction(function () use ($colaborador, $datos, $empresa, $vigenciaDesde, $vigenciaHasta, $requiereNuevaVigencia, $asignacionActual, $diasDescansoNuevo, $impacto, $usuarioId) {
+            // Conservar exactamente las fechas ya calculadas: el cambio no
+            // debe fabricar resultados nuevos para días aún sin procesar.
+            $fechasProcesadas = $requiereNuevaVigencia && $impacto['bloqueado_por_procesado']
+                ? AsistenciaResultadoDiario::query()
+                    ->where('empresa_id', $empresa->id)
+                    ->where('colaborador_id', $colaborador->id)
+                    ->where('fecha', '>=', $vigenciaDesde)
+                    ->orderBy('fecha')
+                    ->pluck('fecha')
+                : collect();
+
             if ($requiereNuevaVigencia) {
                 // Fase 4C — invalida solo lo automático (selección positiva
                 // exacta), conserva feriados/humano/legacy siempre.
@@ -333,6 +338,10 @@ class ColaboradorService
                 'modalidad_trabajo' => $datos['modalidad_trabajo'],
                 'tolerancia_particular_minutos' => $datos['tolerancia_particular_minutos'] ?? null,
             ]);
+
+            foreach ($fechasProcesadas as $fecha) {
+                $this->procesadorAsistencia->procesar($colaborador, Carbon::parse($fecha));
+            }
         });
 
         return $this->obtenerDetalle($empresa, $colaborador);
