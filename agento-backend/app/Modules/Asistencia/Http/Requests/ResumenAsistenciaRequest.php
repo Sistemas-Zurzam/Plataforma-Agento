@@ -20,6 +20,8 @@ class ResumenAsistenciaRequest extends FormRequest
             'colaborador_id' => ['nullable', 'integer'],
             'colaborador_ids' => ['nullable', 'array'],
             'colaborador_ids.*' => ['integer'],
+            'horas_extra_ids' => ['nullable', 'array'],
+            'horas_extra_ids.*' => ['integer'],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
         ];
     }

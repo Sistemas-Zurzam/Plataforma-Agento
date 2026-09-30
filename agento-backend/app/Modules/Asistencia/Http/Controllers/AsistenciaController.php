@@ -25,6 +25,7 @@ use App\Modules\Asistencia\Http\Resources\AsistenciaResultadoResource;
 use App\Modules\Asistencia\Http\Resources\AsistenciaColaboradorResource;
 use App\Modules\Asistencia\Http\Resources\AsistenciaPermisoResource;
 use App\Modules\Asistencia\Http\Resources\SolicitudAreaResource;
+use App\Modules\Asistencia\Infrastructure\HorasExtraExcelExporter;
 use App\Modules\Asistencia\Infrastructure\ReporteColaboradoresExcelExporter;
 use App\Modules\Asistencia\Services\AsistenciaConsultaService;
 use App\Modules\Asistencia\Services\AsistenciaPermisoService;
@@ -97,6 +98,28 @@ class AsistenciaController extends Controller
         $contenido = ReporteColaboradoresExcelExporter::generar($empresa, $filtros['fecha_desde'], $filtros['fecha_hasta'], $colaboradores);
         $nombre = sprintf('Resumen_asistencia_%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $filtros['fecha_desde']);
 
+        return $this->descargaExcel($contenido, $nombre);
+    }
+
+    public function horasExtraExcel(ResumenAsistenciaRequest $request): Response
+    {
+        $empresa = $request->user('api')->empresa;
+        $filtros = $request->validated();
+
+        $horasExtra = $this->operaciones->horasExtraParaExportar($empresa, $filtros);
+        $contenido = HorasExtraExcelExporter::generar($empresa, $filtros['fecha_desde'], $filtros['fecha_hasta'], $horasExtra);
+
+        $colaboradores = $horasExtra->pluck('colaborador')->filter()->unique('id');
+        $sufijo = $colaboradores->count() === 1
+            ? Str::slug(trim($colaboradores->first()->nombres.' '.$colaboradores->first()->apellidos))
+            : Str::slug($empresa->nombre_comercial);
+        $nombre = sprintf('Horas_extra_%s_%s.xlsx', $sufijo, $filtros['fecha_desde']);
+
+        return $this->descargaExcel($contenido, $nombre);
+    }
+
+    private function descargaExcel(string $contenido, string $nombre): Response
+    {
         return response($contenido, 200, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
