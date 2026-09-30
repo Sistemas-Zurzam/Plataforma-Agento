@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 
 export default function AgregarHorasExtraBoletaModal({ open, onCancel, onSubmit, loading, boleta, ciclo }) {
   const [form] = Form.useForm();
+  const esHonorarios = boleta?.regimen_laboral === 'Locacion de Servicios';
 
   useEffect(() => {
     if (!open) form.resetFields();
@@ -34,6 +35,7 @@ export default function AgregarHorasExtraBoletaModal({ open, onCancel, onSubmit,
     >
       <p className="mb-4 text-sm text-gray-500">
         Se recalculará solo esta boleta. La versión anterior quedará en el historial. Ingresa el total de minutos para esta fecha y tasa.
+        {esHonorarios && ' En RH no hay una tasa de horas extra laboral automática: el factor aplicado debe corresponder al acuerdo por el servicio.'}
       </p>
       <Form form={form} layout="vertical">
         <Form.Item label="Fecha" name="fecha" rules={[{ required: true, message: 'Selecciona la fecha' }]}>
@@ -46,7 +48,7 @@ export default function AgregarHorasExtraBoletaModal({ open, onCancel, onSubmit,
           <Form.Item label="Minutos" name="minutos" rules={[{ required: true, message: 'Ingresa los minutos' }]}>
             <InputNumber className="w-full" min={1} max={1440} precision={0} addonAfter="min" />
           </Form.Item>
-          <Form.Item label="Tasa" name="tasa" rules={[{ required: true, message: 'Selecciona la tasa' }]}>
+          <Form.Item label={esHonorarios ? 'Factor de pago acordado' : 'Tasa'} name="tasa" rules={[{ required: true, message: 'Selecciona la tasa' }]}>
             <Select options={[
               { value: '25', label: '25%' },
               { value: '35', label: '35%' },

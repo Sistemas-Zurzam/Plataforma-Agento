@@ -54,7 +54,22 @@ class BoletaService
             throw ValidationException::withMessages(['estado' => 'Las horas extra se pueden agregar a ciclos calculados que no estén recalculándose.']);
         }
         if ($ciclo->requiere_recalculo) {
-            throw ValidationException::withMessages(['estado' => 'El ciclo tiene cambios pendientes de recalcular. Recalcula la planilla antes de agregar horas extra manuales.']);
+            $ultimaCorridaCubreCambios = $ciclo->calculo_estado === 'completado'
+                && $ciclo->calculo_finalizado_at
+                && (! $ciclo->recalculo_detectado_at || $ciclo->calculo_finalizado_at->greaterThanOrEqualTo($ciclo->recalculo_detectado_at))
+                && empty($ciclo->calculo_resultado['omitidas'] ?? []);
+
+            if (! $ultimaCorridaCubreCambios) {
+                throw ValidationException::withMessages(['estado' => 'El ciclo tiene cambios pendientes de recalcular. Recalcula la planilla antes de agregar horas extra manuales.']);
+            }
+
+            // Compatibilidad con ciclos recalculados antes de que el proceso
+            // limpiara esta marca automáticamente.
+            $ciclo->update([
+                'requiere_recalculo' => false,
+                'recalculo_motivo' => null,
+                'recalculo_detectado_at' => null,
+            ]);
         }
         if ((int) $colaborador->empresa_id !== (int) $empresa->id) {
             throw ValidationException::withMessages(['colaborador_id' => 'El colaborador no pertenece a la empresa del ciclo.']);
@@ -475,7 +490,15 @@ class BoletaService
             }
         }
 
-        $ciclo->update(['estado' => 'calculado']);
+        $actualizacion = ['estado' => 'calculado'];
+        if ($omitidas === []) {
+            $actualizacion += [
+                'requiere_recalculo' => false,
+                'recalculo_motivo' => null,
+                'recalculo_detectado_at' => null,
+            ];
+        }
+        $ciclo->update($actualizacion);
 
         return ['procesadas' => $procesadas, 'omitidas' => $omitidas];
     }
