@@ -419,6 +419,7 @@ class ColaboradorService
             && (float) $datos['salario'] === (float) $vigente->salario
             && ($datos['moneda_salario'] ?? $vigente->moneda_salario ?? 'PEN') === $vigente->moneda_salario
             && ($datos['periodicidad_pago'] ?? $vigente->periodicidad_pago ?? 'mensual') === $vigente->periodicidad_pago
+            && ($datos['modo_calculo_honorarios'] ?? $vigente->modo_calculo_honorarios ?? 'mensual_con_faltas') === ($vigente->modo_calculo_honorarios ?? 'mensual_con_faltas')
             && (float) ($datos['asignacion_familiar'] ?? 0) === (float) $vigente->asignacion_familiar;
 
         // Si solo se corrige la fecha, se ajusta la fila vigente en lugar de
@@ -461,6 +462,7 @@ class ColaboradorService
             'salario' => $datos['salario'],
             'moneda_salario' => $datos['moneda_salario'] ?? $vigente?->moneda_salario ?? 'PEN',
             'periodicidad_pago' => $datos['periodicidad_pago'] ?? $vigente?->periodicidad_pago ?? 'mensual',
+            'modo_calculo_honorarios' => $datos['modo_calculo_honorarios'] ?? $vigente?->modo_calculo_honorarios ?? 'mensual_con_faltas',
             'asignacion_familiar' => $datos['asignacion_familiar'] ?? 0,
             'vigencia_desde' => $datos['vigencia_desde'],
         ]);
@@ -912,7 +914,7 @@ class ColaboradorService
         return DB::transaction(function () use ($empresa, $datos) {
             $colaborador = Colaborador::create([
                 ...collect($datos)
-                    ->except(['salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'calendario'])
+                    ->except(['salario', 'moneda_salario', 'periodicidad_pago', 'modo_calculo_honorarios', 'asignacion_familiar', 'calendario'])
                     ->all(),
                 'empresa_id' => $empresa->id,
                 'legajo' => $this->siguienteLegajo($empresa),
@@ -931,6 +933,7 @@ class ColaboradorService
                 'salario' => $datos['salario'],
                 'moneda_salario' => $datos['moneda_salario'],
                 'periodicidad_pago' => $datos['periodicidad_pago'],
+                'modo_calculo_honorarios' => $datos['modo_calculo_honorarios'] ?? 'mensual_con_faltas',
                 'asignacion_familiar' => $datos['asignacion_familiar'] ?? 0,
                 'vigencia_desde' => $datos['fecha_ingreso'],
             ]);

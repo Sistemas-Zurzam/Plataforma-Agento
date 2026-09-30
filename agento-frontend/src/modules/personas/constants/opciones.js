@@ -38,6 +38,11 @@ export const PERIODICIDAD_OPTIONS = [
   { value: 'semanal', label: 'Semanal' },
 ];
 
+export const MODO_CALCULO_HONORARIOS_OPTIONS = [
+  { value: 'mensual_con_faltas', label: 'Mensual con descuento por faltas' },
+  { value: 'por_dias_presentes', label: 'Pago por días presentes' },
+];
+
 export const MODALIDAD_TRABAJO_OPTIONS = [
   { value: 'presencial', label: 'Presencial' },
   { value: 'remoto', label: 'Remoto' },

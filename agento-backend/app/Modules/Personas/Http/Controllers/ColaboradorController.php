@@ -236,6 +236,7 @@ class ColaboradorController extends Controller
             'salario' => ['required', 'numeric', 'min:0'],
             'moneda_salario' => ['nullable', Rule::in(['PEN', 'USD'])],
             'periodicidad_pago' => ['nullable', Rule::in(['mensual', 'quincenal', 'semanal'])],
+            'modo_calculo_honorarios' => ['nullable', Rule::in(['mensual_con_faltas', 'por_dias_presentes'])],
             'asignacion_familiar' => ['nullable', 'numeric', 'min:0'],
             'vigencia_desde' => ['required', 'date'],
         ]);
