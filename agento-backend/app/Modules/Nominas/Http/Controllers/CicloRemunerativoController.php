@@ -140,7 +140,12 @@ class CicloRemunerativoController extends Controller
         [$datos, $boletas, $periodoLabel, $reintegrosPorBoleta] = $this->resolverReporteEjecutivo($request);
 
         $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas, $reintegrosPorBoleta);
-        $nombre = sprintf('reporte_ejecutivo_remuneraciones_%s.xlsx', $datos['periodo']);
+        $sufijo = match ($datos['categoria'] ?? null) {
+            'planilla' => '_planilla',
+            'honorarios' => '_rh',
+            default => '',
+        };
+        $nombre = sprintf('reporte_ejecutivo_remuneraciones_%s%s.xlsx', $datos['periodo'], $sufijo);
 
         Log::info('reporte_ejecutivo_remuneraciones.excel_exportado', [
             'usuario_id' => $request->user('api')->id,
@@ -183,7 +188,7 @@ class CicloRemunerativoController extends Controller
     }
 
     /**
-     * Valida periodo/estado/categoria, resuelve las boletas pagadas de todas
+     * Valida periodo/estado/categoria, resuelve las boletas vigentes de todas
      * las empresas autorizadas que caen en ese período, y arma la etiqueta
      * legible del período — compartido entre el Excel y el JSON del PDF
      * para no duplicar la consulta ni el criterio de elegibilidad.
@@ -207,9 +212,11 @@ class CicloRemunerativoController extends Controller
             ->when($datos['estado'] ?? null, fn ($query, $estado) => $query->where('estado', $estado))
             ->pluck('id');
 
+        // Mismas boletas que la tabla del Resumen contable (vigentes, en
+        // cualquier estado): un ciclo solo "calculado" también debe poder
+        // exportarse. Cada fila ya indica su estado (Pagado/Calculada/…).
         $boletas = Boleta::whereIn('ciclo_id', $cicloIds)
             ->where('es_version_vigente', true)
-            ->where('estado', 'pagada')
             ->when(($datos['categoria'] ?? null) === 'honorarios', fn ($query) => $query->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
             ->when(($datos['categoria'] ?? null) === 'planilla', fn ($query) => $query->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
             ->with(['colaborador:id,nombres,apellidos,numero_documento', 'conceptos.concepto:id,codigo', 'empresa:id,nombre_comercial'])
@@ -223,7 +230,7 @@ class CicloRemunerativoController extends Controller
             ->sortBy(fn ($boleta) => mb_strtolower($boleta->empresa?->nombre_comercial ?? ''))
             ->values();
 
-        abort_if($boletas->isEmpty(), 422, 'No hay boletas pagadas para el período y filtros seleccionados.');
+        abort_if($boletas->isEmpty(), 422, 'No hay boletas calculadas para el período y filtros seleccionados.');
 
         $fechaPeriodo = Carbon::createFromFormat('Y-m', $datos['periodo']);
         $periodoLabel = ucfirst(mb_strtolower($fechaPeriodo->translatedFormat('F'), 'UTF-8')).' '.$fechaPeriodo->format('Y');

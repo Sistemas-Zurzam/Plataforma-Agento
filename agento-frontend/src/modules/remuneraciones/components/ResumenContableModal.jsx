@@ -104,8 +104,12 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
         categoria: categoria || undefined,
       });
       message.success('Reporte ejecutivo de remuneraciones generado');
-    } catch {
-      message.error('No se pudo generar el reporte ejecutivo de remuneraciones');
+    } catch (error) {
+      // responseType blob: el mensaje de error del backend llega como Blob.
+      const texto = error.response?.data instanceof Blob ? await error.response.data.text().catch(() => '') : '';
+      let detalle = null;
+      try { detalle = JSON.parse(texto)?.message; } catch { /* respuesta sin JSON */ }
+      message.error(detalle ?? 'No se pudo generar el reporte ejecutivo de remuneraciones');
     } finally {
       setExportando(false);
     }
@@ -144,16 +148,16 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
             value={categoria ?? 'todos'}
             onChange={(valor) => setCategoria(valor === 'todos' ? null : valor)}
             options={[
-              { value: 'todos', label: '4ta y 5ta categoría' },
-              { value: 'planilla', label: '5ta categoría' },
-              { value: 'honorarios', label: '4ta categoría' },
+              { value: 'todos', label: 'Planilla y RH' },
+              { value: 'planilla', label: 'Solo planilla (5ta)' },
+              { value: 'honorarios', label: 'Solo RH (4ta)' },
             ]}
           />
           <div className="ml-auto flex gap-2">
-            <Tooltip title="Reporte ejecutivo de remuneraciones: desglose de AFP/ONP y ESSALUD por colaborador, agrupado por empresa">
+            <Tooltip title="Reporte ejecutivo de remuneraciones: desglose de AFP/ONP y ESSALUD por colaborador, agrupado por empresa. Respeta los filtros de estado y de Planilla/RH.">
               <Button icon={<FileExcelOutlined />} loading={exportando} onClick={handleExportarExcel}>Excel</Button>
             </Tooltip>
-            <Tooltip title="Reporte ejecutivo de remuneraciones, listo para guardar como PDF desde el navegador">
+            <Tooltip title="Reporte ejecutivo de remuneraciones, listo para guardar como PDF desde el navegador. Respeta los filtros de estado y de Planilla/RH.">
               <Button icon={<FilePdfOutlined />} onClick={() => setPdfModalOpen(true)}>PDF</Button>
             </Tooltip>
           </div>

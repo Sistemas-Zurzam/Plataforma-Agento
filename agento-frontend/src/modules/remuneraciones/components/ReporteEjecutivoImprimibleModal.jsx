@@ -60,7 +60,7 @@ export default function ReporteEjecutivoImprimibleModal({ open, onCancel, period
     setError(null);
     fetchReporteEjecutivoDatos({ periodo, estado, categoria })
       .then((data) => { if (activo) setDatos(data); })
-      .catch(() => { if (activo) setError('No hay boletas pagadas para el período y filtros seleccionados.'); })
+      .catch((err) => { if (activo) setError(err.response?.data?.message ?? 'No hay boletas calculadas para el período y filtros seleccionados.'); })
       .finally(() => { if (activo) setLoading(false); });
     return () => { activo = false; };
   }, [open, periodo, estado, categoria, fetchReporteEjecutivoDatos]);
