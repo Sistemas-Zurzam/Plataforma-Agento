@@ -11,6 +11,7 @@ use App\Modules\Nominas\Models\BoletaComprobanteRh;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Services\AportesPrevisionalesService;
 use App\Modules\Nominas\Services\BoletaService;
+use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
@@ -115,6 +116,31 @@ class BoletaController extends Controller
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
 
         return response()->json($this->boletas->resumen($empresa, $ciclo, $request->input('tipo'), $request->input('busqueda')));
+    }
+
+    public function registrarHorasExtraManual(Request $request, CicloRemunerativo $ciclo, int $colaborador): BoletaResource
+    {
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $datos = $request->validate([
+            'fecha' => ['required', 'date_format:Y-m-d', 'after_or_equal:'.$ciclo->fecha_inicio->toDateString(), 'before_or_equal:'.$ciclo->fecha_fin->toDateString()],
+            'minutos' => ['required', 'integer', 'min:1', 'max:1440'],
+            'tasa' => ['required', Rule::in(['25', '35', '100'])],
+            'motivo' => ['required', 'string', 'min:5', 'max:1000'],
+        ]);
+        $colaborador = Colaborador::withoutGlobalScopes()->findOrFail($colaborador);
+
+        $boleta = $this->boletas->registrarHorasExtraEnBoleta(
+            $empresa,
+            $ciclo,
+            $colaborador,
+            $datos['fecha'],
+            (int) $datos['minutos'],
+            (string) $datos['tasa'],
+            $datos['motivo'],
+            (int) $request->user('api')->id,
+        );
+
+        return new BoletaResource($this->boletas->ver($empresa, $boleta));
     }
 
     public function aportesPrevisionales(Request $request, CicloRemunerativo $ciclo): JsonResponse

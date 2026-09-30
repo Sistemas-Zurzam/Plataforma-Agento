@@ -394,6 +394,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const registrarHorasExtraEnBoleta = useCallback(async (cicloId, colaboradorId, values) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/horas-extra-manuales`, values);
+    return data.data;
+  }, []);
+
   const actualizarConceptoPeriodo = useCallback(async (cicloId, colaboradorId, conceptoPeriodoId, values) => {
     const { data } = await api.put(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/conceptos/${conceptoPeriodoId}`, values);
     return data.data;
@@ -742,6 +747,7 @@ export function useRemuneraciones() {
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo,
     registrarConceptoPeriodo,
+    registrarHorasExtraEnBoleta,
     actualizarConceptoPeriodo,
     eliminarConceptoPeriodo,
     previsualizacion,

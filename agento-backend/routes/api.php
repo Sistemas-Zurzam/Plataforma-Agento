@@ -239,6 +239,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/ciclos-remunerativos/{ciclo}/bbva-netcash/exportar', [CicloRemunerativoController::class, 'exportarBbvaNetCash'])->middleware('permiso:nominas.bbva_netcash_exportar');
     Route::get('/planilla/previsualizar', [BoletaController::class, 'previsualizar'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas', [BoletaController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/horas-extra-manuales', [BoletaController::class, 'registrarHorasExtraManual'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas-exportables/ids', [BoletaController::class, 'idsExportables'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/boletas/imprimir-masivo', [BoletaController::class, 'imprimirMasivo'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/resumen', [BoletaController::class, 'resumen'])->middleware('permiso:nominas.ver');

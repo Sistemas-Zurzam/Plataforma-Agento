@@ -3,6 +3,9 @@
 namespace App\Modules\Nominas\Services;
 
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
+use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
+use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
@@ -17,6 +20,8 @@ use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Jobs\CalcularPlanillaJob;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
+use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -31,7 +36,90 @@ class BoletaService
         private readonly CalcularReciboHonorarios $calculadorHonorarios,
         private readonly IncidenciasPendientesNominaService $incidenciasPendientes,
         private readonly VerificarConsistenciaAsistenciaCiclo $consistenciaAsistencia,
+        private readonly AsistenciaAuditoriaService $auditoria,
     ) {}
+
+    public function registrarHorasExtraEnBoleta(
+        Empresa $empresa,
+        CicloRemunerativo $ciclo,
+        Colaborador $colaborador,
+        string $fecha,
+        int $minutos,
+        string $tasa,
+        string $motivo,
+        int $usuarioId,
+    ): Boleta {
+        $this->verificarPertenencia($empresa, $ciclo);
+        if ($ciclo->estado !== 'calculado' || $ciclo->calculo_estado === 'en_proceso') {
+            throw ValidationException::withMessages(['estado' => 'Las horas extra se pueden agregar a ciclos calculados que no estén recalculándose.']);
+        }
+        if ($ciclo->requiere_recalculo) {
+            throw ValidationException::withMessages(['estado' => 'El ciclo tiene cambios pendientes de recalcular. Recalcula la planilla antes de agregar horas extra manuales.']);
+        }
+        if ((int) $colaborador->empresa_id !== (int) $empresa->id) {
+            throw ValidationException::withMessages(['colaborador_id' => 'El colaborador no pertenece a la empresa del ciclo.']);
+        }
+        if ($fecha < $ciclo->fecha_inicio->toDateString() || $fecha > $ciclo->fecha_fin->toDateString()) {
+            throw ValidationException::withMessages(['fecha' => 'La fecha debe estar dentro del período de la planilla.']);
+        }
+        $condicion = ColaboradorCondicionLaboral::vigenteEn($colaborador->id, $fecha);
+        if ($condicion?->es_trabajador_confianza || ! ($condicion?->contabilizar_horas_extra ?? $colaborador->contabilizar_horas_extra ?? true)) {
+            throw ValidationException::withMessages(['colaborador_id' => 'El colaborador no tiene habilitado el pago de horas extra en la fecha indicada.']);
+        }
+        if (! ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)->whereDate('vigencia_desde', '<=', $fecha)->exists()) {
+            throw ValidationException::withMessages(['fecha' => 'No existe remuneración histórica vigente para calcular las horas extra en esa fecha.']);
+        }
+
+        return DB::transaction(function () use ($empresa, $ciclo, $colaborador, $fecha, $minutos, $tasa, $motivo, $usuarioId) {
+            $boleta = Boleta::query()->where('ciclo_id', $ciclo->id)
+                ->where('colaborador_id', $colaborador->id)
+                ->where('es_version_vigente', true)
+                ->lockForUpdate()->first();
+            if (! $boleta || $boleta->estado !== 'calculada') {
+                throw ValidationException::withMessages(['boleta' => 'La boleta debe estar calculada y aún no aprobada para agregar horas extra.']);
+            }
+
+            $resultado = AsistenciaResultadoDiario::withoutGlobalScopes()
+                ->where('empresa_id', $empresa->id)->where('colaborador_id', $colaborador->id)
+                ->whereDate('fecha', $fecha)->first();
+            if (! $resultado) {
+                throw ValidationException::withMessages(['fecha' => 'No existe un registro de asistencia para esa fecha. Reprocesa la asistencia antes de agregar horas extra.']);
+            }
+
+            $horaExtra = AsistenciaHoraExtra::withoutGlobalScopes()->where('resultado_diario_id', $resultado->id)
+                ->where('tasa', $tasa)->lockForUpdate()->first();
+            if ($horaExtra && $horaExtra->estado !== AsistenciaHoraExtra::ESTADO_PENDIENTE) {
+                throw ValidationException::withMessages(['tasa' => 'Ya existe una decisión para esa fecha y tasa. No se puede reemplazar desde la planilla.']);
+            }
+
+            $antes = $horaExtra?->toArray();
+            if (! $horaExtra) {
+                $horaExtra = new AsistenciaHoraExtra();
+                $horaExtra->resultado_diario_id = $resultado->id;
+                $horaExtra->empresa_id = $empresa->id;
+                $horaExtra->colaborador_id = $colaborador->id;
+                $horaExtra->fecha = $fecha;
+                $horaExtra->tasa = $tasa;
+            }
+            $horaExtra->fill([
+                'minutos_observados' => max((int) $horaExtra->minutos_observados, $minutos),
+                'minutos_solicitados' => $minutos,
+                'minutos_aprobados' => $minutos,
+                'estado' => AsistenciaHoraExtra::ESTADO_APROBADO,
+                'motivo' => $motivo,
+                'resuelto_por' => $usuarioId,
+                'resuelto_at' => now(),
+            ])->save();
+
+            $this->auditoria->registrar($empresa->id, $usuarioId, 'hora_extra_manual_planilla', $horaExtra,
+                $motivo, $antes, $horaExtra->fresh()->toArray());
+
+            return $this->calcularBoletaColaborador(
+                $ciclo, $colaborador, $usuarioId,
+                "Horas extra agregadas desde planilla: {$minutos} min al {$tasa}% el {$fecha}.",
+            );
+        });
+    }
 
     /**
      * @param  string|null  $tipo  'planilla' | 'honorarios' | null (ambos) —
