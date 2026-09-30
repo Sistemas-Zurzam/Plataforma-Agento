@@ -768,6 +768,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       width: 200,
       render: (_, c) => `${c.fecha_inicio} — ${c.fecha_fin}`,
     },
+    {
+      title: 'Corte de asistencia',
+      dataIndex: 'fecha_corte_asistencia',
+      width: 170,
+      render: (fecha) => fecha ?? '—',
+    },
     { title: 'Fecha de pago', dataIndex: 'fecha_pago', width: 130 },
     {
       title: 'Estado',
