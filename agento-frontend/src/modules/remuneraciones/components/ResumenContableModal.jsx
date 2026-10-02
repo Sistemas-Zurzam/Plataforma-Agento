@@ -159,10 +159,10 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
       <div className="space-y-4">
         <p className="text-sm text-gray-500">Consolidado transversal de todas las empresas a las que tienes acceso. No modifica el ciclo seleccionado.</p>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <DatePicker picker="month" value={periodo} onChange={setPeriodo} format="MMMM YYYY" allowClear={false} />
+        <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
+          <DatePicker className="w-36 shrink-0" picker="month" value={periodo} onChange={setPeriodo} format="MMM YYYY" allowClear={false} />
           <Select
-            className="w-40"
+            className="w-36 shrink-0"
             value={estado ?? 'todos'}
             onChange={(valor) => setEstado(valor === 'todos' ? null : valor)}
             options={[
@@ -176,7 +176,7 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
             ]}
           />
           <Select
-            className="w-48"
+            className="w-40 shrink-0"
             value={categoria ?? 'todos'}
             onChange={(valor) => setCategoria(valor === 'todos' ? null : valor)}
             options={[
@@ -185,37 +185,35 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
               { value: 'honorarios', label: 'Solo RH (4ta)' },
             ]}
           />
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <Select
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              className="w-44"
-              placeholder="Empresa: todas"
-              value={empresaExport}
-              onChange={(valor) => setEmpresaExport(valor ?? null)}
-              options={opcionesEmpresa}
-            />
-            <Select
-              mode="multiple"
-              allowClear
-              showSearch
-              optionFilterProp="label"
-              maxTagCount="responsive"
-              className="w-56"
-              placeholder="Cargo: todos"
-              value={cargosExport}
-              onChange={setCargosExport}
-              options={opcionesCargo}
-              notFoundContent="Sin cargos en este período"
-            />
-            <Tooltip title="Reporte ejecutivo de remuneraciones: desglose de AFP/ONP y ESSALUD por colaborador, agrupado por empresa. Respeta estado, Planilla/RH, empresa y cargo.">
-              <Button icon={<FileExcelOutlined />} loading={exportando} onClick={handleExportarExcel}>Excel</Button>
-            </Tooltip>
-            <Tooltip title="Reporte ejecutivo de remuneraciones, listo para guardar como PDF desde el navegador. Respeta estado, Planilla/RH, empresa y cargo.">
-              <Button icon={<FilePdfOutlined />} onClick={() => setPdfModalOpen(true)}>PDF</Button>
-            </Tooltip>
-          </div>
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            className="w-40 shrink-0"
+            placeholder="Empresa: todas"
+            value={empresaExport}
+            onChange={(valor) => setEmpresaExport(valor ?? null)}
+            options={opcionesEmpresa}
+          />
+          <Select
+            mode="multiple"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            maxTagCount="responsive"
+            className="min-w-48 flex-1"
+            placeholder="Cargos: todos (puedes elegir varios)"
+            value={cargosExport}
+            onChange={setCargosExport}
+            options={opcionesCargo}
+            notFoundContent="Sin cargos en este período"
+          />
+          <Tooltip title="Reporte ejecutivo de remuneraciones: desglose de AFP/ONP y ESSALUD por colaborador, agrupado por empresa. Respeta estado, Planilla/RH, empresa y cargos.">
+            <Button className="shrink-0" icon={<FileExcelOutlined />} loading={exportando} onClick={handleExportarExcel}>Excel</Button>
+          </Tooltip>
+          <Tooltip title="Reporte ejecutivo de remuneraciones, listo para guardar como PDF desde el navegador. Respeta estado, Planilla/RH, empresa y cargos.">
+            <Button className="shrink-0" icon={<FilePdfOutlined />} onClick={() => setPdfModalOpen(true)}>PDF</Button>
+          </Tooltip>
         </div>
 
         <Table
