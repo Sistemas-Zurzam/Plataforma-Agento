@@ -82,12 +82,14 @@ class CicloRemunerativoController extends Controller
             'categoria' => ['nullable', Rule::in(['planilla', 'honorarios'])],
         ]);
 
-        return response()->json($this->resumenContable->consolidar(
-            $this->empresaIdsAutorizadas($request),
-            $datos['periodo'],
-            $datos['estado'] ?? null,
-            $datos['categoria'] ?? null,
-        ));
+        $empresaIds = $this->empresaIdsAutorizadas($request);
+        $estado = $datos['estado'] ?? null;
+        $categoria = $datos['categoria'] ?? null;
+
+        return response()->json([
+            ...$this->resumenContable->consolidar($empresaIds, $datos['periodo'], $estado, $categoria),
+            'cargos' => $this->resumenContable->cargos($empresaIds, $datos['periodo'], $estado, $categoria),
+        ]);
     }
 
     public function exportarPlanillaPagadaExcel(Request $request, CicloRemunerativo $ciclo): Response
@@ -145,6 +147,9 @@ class CicloRemunerativoController extends Controller
             'honorarios' => '_rh',
             default => '',
         };
+        if (! empty($datos['empresa_id'])) {
+            $sufijo .= '_'.Str::slug($boletas->first()?->empresa?->nombre_comercial ?? '');
+        }
         $nombre = sprintf('reporte_ejecutivo_remuneraciones_%s%s.xlsx', $datos['periodo'], $sufijo);
 
         Log::info('reporte_ejecutivo_remuneraciones.excel_exportado', [
@@ -201,12 +206,23 @@ class CicloRemunerativoController extends Controller
             'periodo' => ['required', 'date_format:Y-m'],
             'estado' => ['nullable', Rule::in(['borrador', 'abierto', 'calculado', 'cerrado', 'reabierto', 'pagado'])],
             'categoria' => ['nullable', Rule::in(['planilla', 'honorarios'])],
+            'empresa_id' => ['nullable', 'integer'],
+            'cargos' => ['nullable', 'array'],
+            'cargos.*' => ['string', 'max:255'],
         ]);
 
         $inicio = Carbon::createFromFormat('Y-m', $datos['periodo'])->startOfMonth()->toDateString();
         $fin = Carbon::createFromFormat('Y-m', $datos['periodo'])->endOfMonth()->toDateString();
 
-        $cicloIds = CicloRemunerativo::whereIn('empresa_id', $this->empresaIdsAutorizadas($request))
+        $empresaIds = $this->empresaIdsAutorizadas($request);
+        if (! empty($datos['empresa_id'])) {
+            // empresa_id del request nunca autoriza por sí solo: solo acota
+            // dentro de las empresas que el usuario ya administra.
+            abort_unless(in_array((int) $datos['empresa_id'], $empresaIds, true), 403, 'No tienes acceso a esa empresa.');
+            $empresaIds = [(int) $datos['empresa_id']];
+        }
+
+        $cicloIds = CicloRemunerativo::whereIn('empresa_id', $empresaIds)
             ->whereDate('fecha_inicio', '<=', $fin)
             ->whereDate('fecha_fin', '>=', $inicio)
             ->when($datos['estado'] ?? null, fn ($query, $estado) => $query->where('estado', $estado))
@@ -219,6 +235,7 @@ class CicloRemunerativoController extends Controller
             ->where('es_version_vigente', true)
             ->when(($datos['categoria'] ?? null) === 'honorarios', fn ($query) => $query->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
             ->when(($datos['categoria'] ?? null) === 'planilla', fn ($query) => $query->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
+            ->when($datos['cargos'] ?? null, fn ($query, $cargos) => $query->whereHas('colaborador', fn ($colaborador) => $colaborador->whereIn('cargo', $cargos)))
             ->with(['colaborador:id,nombres,apellidos,numero_documento', 'conceptos.concepto:id,codigo', 'empresa:id,nombre_comercial'])
             ->get()
             // Orden estable en dos pasadas: por colaborador primero y luego por

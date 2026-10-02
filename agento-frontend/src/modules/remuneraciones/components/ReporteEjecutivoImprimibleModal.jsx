@@ -48,7 +48,7 @@ function soles(valor) {
  * que el usuario elija "Guardar como PDF" desde el diálogo del navegador —
  * mismo mecanismo que la boleta, sin agregar una librería de PDF al backend.
  */
-export default function ReporteEjecutivoImprimibleModal({ open, onCancel, periodo, estado, categoria, fetchReporteEjecutivoDatos }) {
+export default function ReporteEjecutivoImprimibleModal({ open, onCancel, periodo, estado, categoria, empresaId, cargos, fetchReporteEjecutivoDatos }) {
   const [datos, setDatos] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -58,12 +58,18 @@ export default function ReporteEjecutivoImprimibleModal({ open, onCancel, period
     let activo = true;
     setLoading(true);
     setError(null);
-    fetchReporteEjecutivoDatos({ periodo, estado, categoria })
+    fetchReporteEjecutivoDatos({
+      periodo,
+      estado,
+      categoria,
+      empresa_id: empresaId || undefined,
+      cargos: cargos?.length ? cargos : undefined,
+    })
       .then((data) => { if (activo) setDatos(data); })
       .catch((err) => { if (activo) setError(err.response?.data?.message ?? 'No hay boletas calculadas para el período y filtros seleccionados.'); })
       .finally(() => { if (activo) setLoading(false); });
     return () => { activo = false; };
-  }, [open, periodo, estado, categoria, fetchReporteEjecutivoDatos]);
+  }, [open, periodo, estado, categoria, empresaId, cargos, fetchReporteEjecutivoDatos]);
 
   return (
     <Modal

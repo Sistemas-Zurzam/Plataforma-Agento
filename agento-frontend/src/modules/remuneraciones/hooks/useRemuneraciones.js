@@ -541,9 +541,15 @@ export function useRemuneraciones() {
     window.URL.revokeObjectURL(url);
   }, []);
 
-  const exportarReporteEjecutivoExcel = useCallback(async ({ periodo, estado, categoria }) => {
+  const exportarReporteEjecutivoExcel = useCallback(async ({ periodo, estado, categoria, empresaId, cargos }) => {
     const response = await api.get('/ciclos-remunerativos-reporte-ejecutivo/excel', {
-      params: { periodo, estado: estado || undefined, categoria: categoria || undefined },
+      params: {
+        periodo,
+        estado: estado || undefined,
+        categoria: categoria || undefined,
+        empresa_id: empresaId || undefined,
+        cargos: cargos?.length ? cargos : undefined,
+      },
       responseType: 'blob',
     });
     const disposicion = response.headers?.['content-disposition'] ?? '';
