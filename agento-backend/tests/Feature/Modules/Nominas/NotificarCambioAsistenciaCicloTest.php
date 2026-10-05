@@ -120,7 +120,7 @@ class NotificarCambioAsistenciaCicloTest extends TestCase
         $this->assertTrue($ciclo->requiere_recalculo);
     }
 
-    public function test_ciclo_cerrado_se_marca_y_bloquea_el_pago(): void
+    public function test_ciclo_cerrado_puede_pagarse_aunque_asistencia_requiera_recalculo(): void
     {
         $empresa = Empresa::factory()->create();
         $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
@@ -132,8 +132,10 @@ class NotificarCambioAsistenciaCicloTest extends TestCase
         $ciclo->refresh();
         $this->assertTrue($ciclo->requiere_recalculo);
 
-        $this->expectException(ValidationException::class);
-        app(CicloRemunerativoService::class)->marcarPagado($empresa, $ciclo);
+        $pagado = app(CicloRemunerativoService::class)->marcarPagado($empresa, $ciclo);
+
+        $this->assertSame('pagado', $pagado->estado);
+        $this->assertTrue($pagado->requiere_recalculo);
     }
 
     public function test_ciclo_cerrado_puede_pagarse_aunque_asistencia_no_tenga_cobertura(): void

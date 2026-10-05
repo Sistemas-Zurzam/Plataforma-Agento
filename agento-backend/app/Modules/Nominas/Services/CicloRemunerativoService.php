@@ -322,12 +322,6 @@ class CicloRemunerativoService
         return DB::transaction(function () use ($ciclo) {
             $ciclo = CicloRemunerativo::query()->lockForUpdate()->findOrFail($ciclo->id);
 
-            if ($ciclo->requiere_recalculo) {
-                throw ValidationException::withMessages([
-                    'estado' => 'La asistencia cambió después del último cálculo de este ciclo. Vuelve a calcular antes de pagar.',
-                ]);
-            }
-
             if ($ciclo->estado !== 'cerrado') {
                 throw ValidationException::withMessages([
                     'estado' => 'Solo se puede marcar como pagado un período cerrado.',
