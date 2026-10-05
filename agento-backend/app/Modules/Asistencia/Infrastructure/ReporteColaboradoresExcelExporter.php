@@ -34,10 +34,12 @@ final class ReporteColaboradoresExcelExporter
             'Empresa', $empresa->nombre_comercial,
             'Período', "{$fechaDesde} a {$fechaHasta}",
         ], null, 'A1');
+        $hoja->setCellValue('A2', 'Días registrados = Trabajados + Faltas + Permisos/F. justificadas + Descansos/Feriados + Trabajo remoto + Sin clasificar. "Días con tardanza" ya está incluido dentro de Días trabajados: no se suma.');
 
         $encabezados = [
             'DNI', 'Nombre y apellidos', 'Sede', 'Área', 'Cargo',
-            'Días trabajados', 'Faltas', 'Tardanzas', 'Descansos/Feriados', 'Trabajo remoto',
+            'Días registrados', 'Días trabajados', 'Días con tardanza (incl. en trabajados)', 'Faltas',
+            'Permisos / F. justificadas', 'Descansos/Feriados', 'Trabajo remoto', 'Sin clasificar',
             'Incidencias pendientes', 'Horas extra aprobadas', 'Horas extra pendientes de aprobación',
         ];
         $hoja->fromArray($encabezados, null, 'A3');
@@ -45,8 +47,17 @@ final class ReporteColaboradoresExcelExporter
         foreach ($colaboradores as $indice => $colaborador) {
             $fila = $indice + 4;
             $resultados = $colaborador->resultadosAsistencia;
-            $trabajados = $resultados->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA);
             $horasExtra = $colaborador->horasExtraAsistencia;
+
+            // Cada día cae en una sola columna, según su estado real (no el
+            // tipo de día planificado): trabajar en un descanso cuenta como
+            // trabajado, nunca también como descanso.
+            $trabajados = $resultados->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA);
+            $faltas = $resultados->where('estado', 'falta')->count();
+            $justificados = $resultados->whereIn('estado', ['permiso', 'falta_justificada'])->count();
+            $descansos = $resultados->whereIn('estado', ['descanso', 'feriado'])->count();
+            $remoto = $resultados->where('estado', 'home_office')->count();
+            $sinClasificar = $resultados->count() - $trabajados->count() - $faltas - $justificados - $descansos - $remoto;
 
             $minutosAprobados = $horasExtra->where('estado', 'aprobado')->sum('minutos_aprobados');
             $minutosPendientes = $horasExtra->where('estado', 'pendiente')->sum('minutos_observados');
@@ -56,37 +67,46 @@ final class ReporteColaboradoresExcelExporter
             $hoja->setCellValue("C{$fila}", $colaborador->sede?->nombre ?? '');
             $hoja->setCellValue("D{$fila}", $colaborador->area?->nombre ?? '');
             $hoja->setCellValue("E{$fila}", $colaborador->cargo ?? '');
-            $hoja->setCellValue("F{$fila}", $trabajados->count());
-            $hoja->setCellValue("G{$fila}", $resultados->where('estado', 'falta')->count());
+            $hoja->setCellValue("F{$fila}", $resultados->count());
+            $hoja->setCellValue("G{$fila}", $trabajados->count());
             $hoja->setCellValue("H{$fila}", $trabajados->where('minutos_tardanza', '>', 0)->count());
-            $hoja->setCellValue("I{$fila}", $resultados->whereIn('tipo_dia', ['descanso', 'feriado'])->count());
-            $hoja->setCellValue("J{$fila}", $resultados->where('estado', 'home_office')->count());
-            $hoja->setCellValue("K{$fila}", $colaborador->incidenciasAsistencia->count());
-            $hoja->setCellValue("L{$fila}", self::formatearDuracion($minutosAprobados));
-            $hoja->setCellValue("M{$fila}", self::formatearDuracion($minutosPendientes));
+            $hoja->setCellValue("I{$fila}", $faltas);
+            $hoja->setCellValue("J{$fila}", $justificados);
+            $hoja->setCellValue("K{$fila}", $descansos);
+            $hoja->setCellValue("L{$fila}", $remoto);
+            $hoja->setCellValue("M{$fila}", $sinClasificar);
+            $hoja->setCellValue("N{$fila}", $colaborador->incidenciasAsistencia->count());
+            $hoja->setCellValue("O{$fila}", self::formatearDuracion($minutosAprobados));
+            $hoja->setCellValue("P{$fila}", self::formatearDuracion($minutosPendientes));
         }
 
         $azul = '0B4F94';
-        $hoja->getStyle('A1:B2')->applyFromArray([
+        $hoja->getStyle('A1:B1')->applyFromArray([
             'font' => ['bold' => true],
         ]);
-        $hoja->getStyle('A3:M3')->applyFromArray([
+        $hoja->getStyle('A2')->getFont()->setItalic(true)->getColor()->setARGB('FF555555');
+        $hoja->getStyle('A3:P3')->applyFromArray([
             'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF'.$azul]],
-            'alignment' => ['vertical' => Alignment::VERTICAL_CENTER],
+            'alignment' => ['vertical' => Alignment::VERTICAL_CENTER, 'wrapText' => true],
         ]);
+        // "Días con tardanza" es un subconjunto de trabajados: se distingue
+        // visualmente para que no se lea como otra categoría a sumar.
+        $hoja->getStyle('H3')->getFill()->getStartColor()->setARGB('FF5B7FB0');
 
         $ultimaFila = max(4, $colaboradores->count() + 3);
         $hoja->getStyle("A4:A{$ultimaFila}")->getNumberFormat()->setFormatCode('@');
+        $hoja->getStyle("H4:H{$ultimaFila}")->getFont()->setItalic(true);
         $hoja->freezePane('A4');
-        $hoja->setAutoFilter("A3:M{$ultimaFila}");
+        $hoja->setAutoFilter("A3:P{$ultimaFila}");
         $hoja->getRowDimension(1)->setRowHeight(20);
         $hoja->getRowDimension(2)->setRowHeight(20);
+        $hoja->getRowDimension(3)->setRowHeight(32);
 
         foreach ([
             'A' => 14, 'B' => 34, 'C' => 18, 'D' => 20, 'E' => 22,
-            'F' => 15, 'G' => 10, 'H' => 12, 'I' => 18, 'J' => 15,
-            'K' => 20, 'L' => 20, 'M' => 26,
+            'F' => 12, 'G' => 12, 'H' => 16, 'I' => 9, 'J' => 14,
+            'K' => 13, 'L' => 11, 'M' => 12, 'N' => 13, 'O' => 15, 'P' => 18,
         ] as $columna => $ancho) {
             $hoja->getColumnDimension($columna)->setWidth($ancho);
         }

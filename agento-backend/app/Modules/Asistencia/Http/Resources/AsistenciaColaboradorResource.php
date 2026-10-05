@@ -18,7 +18,9 @@ class AsistenciaColaboradorResource extends JsonResource
             'faltas' => $this->resultadosAsistencia->where('estado', 'falta')->count(),
             'tardanzas' => $trabajados->where('minutos_tardanza', '>', 0)->count(),
             'minutos_extra' => $this->resultadosAsistencia->sum('minutos_extra_observados'),
-            'descansos_feriados' => $this->resultadosAsistencia->whereIn('tipo_dia', ['descanso', 'feriado'])->count(),
+            // Por estado real, no por tipo de día: un descanso trabajado ya
+            // cuenta en dias_trabajados y no debe contarse dos veces.
+            'descansos_feriados' => $this->resultadosAsistencia->whereIn('estado', ['descanso', 'feriado'])->count(),
             'home_office' => $this->resultadosAsistencia->where('estado', 'home_office')->count(),
         ];
 
