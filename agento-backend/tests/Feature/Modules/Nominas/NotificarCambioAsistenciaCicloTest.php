@@ -136,7 +136,7 @@ class NotificarCambioAsistenciaCicloTest extends TestCase
         app(CicloRemunerativoService::class)->marcarPagado($empresa, $ciclo);
     }
 
-    public function test_ciclo_cerrado_puede_pagarse_con_periodo_asistencia_abierto_si_tiene_cobertura(): void
+    public function test_ciclo_cerrado_puede_pagarse_aunque_asistencia_no_tenga_cobertura(): void
     {
         $this->seed(\Database\Seeders\DatabaseSeeder::class);
         $empresa = Empresa::factory()->create();
@@ -150,17 +150,6 @@ class NotificarCambioAsistenciaCicloTest extends TestCase
             'fecha_fin' => '2026-07-31',
             'estado' => 'abierto',
         ]);
-        foreach (range(1, 31) as $dia) {
-            \App\Modules\Asistencia\Models\AsistenciaResultadoDiario::create([
-                'empresa_id' => $empresa->id,
-                'colaborador_id' => $colaborador->id,
-                'fecha' => sprintf('2026-07-%02d', $dia),
-                'tipo_dia' => 'laborable_presencial',
-                'estado' => 'presente',
-                'procesado_at' => now(),
-            ]);
-        }
-
         $pagado = app(CicloRemunerativoService::class)->marcarPagado($empresa, $ciclo);
 
         $this->assertSame('pagado', $pagado->estado);
