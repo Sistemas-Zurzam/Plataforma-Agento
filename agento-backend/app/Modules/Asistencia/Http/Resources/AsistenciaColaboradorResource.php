@@ -15,7 +15,7 @@ class AsistenciaColaboradorResource extends JsonResource
         $trabajados = $this->resultadosAsistencia->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA);
         $resumen = [
             'dias_trabajados' => $trabajados->count(),
-            'faltas' => $this->resultadosAsistencia->where('estado', 'falta')->count(),
+            'faltas' => $this->resultadosAsistencia->filter(fn ($r) => $r->estado === 'falta' && ! $r->esFaltaEnRevision())->count(),
             'tardanzas' => $trabajados->where('minutos_tardanza', '>', 0)->count(),
             'minutos_extra' => $this->resultadosAsistencia->sum('minutos_extra_observados'),
             // Por estado real, no por tipo de día: un descanso trabajado ya

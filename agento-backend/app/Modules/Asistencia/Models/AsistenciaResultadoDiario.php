@@ -30,6 +30,19 @@ class AsistenciaResultadoDiario extends Model
      */
     public const ESTADOS_CON_ASISTENCIA = ['presente', 'horario_desplazado', 'horas_incompletas', 'marcacion_incompleta'];
 
+    /**
+     * Del día 27 al cierre la asistencia sigue en revisión de RR.HH. (las
+     * marcaciones definitivas llegan después): una falta en esos días no se
+     * considera falta. Misma regla que ya aplica Nómina al calcular la
+     * boleta (CalcularBoletaColaborador / CalcularReciboHonorarios).
+     */
+    public const DIA_INICIO_REVISION = 27;
+
+    public function esFaltaEnRevision(): bool
+    {
+        return $this->estado === 'falta' && $this->fecha->day >= self::DIA_INICIO_REVISION;
+    }
+
     protected $table = 'asistencia_resultados_diarios';
 
     protected function casts(): array
