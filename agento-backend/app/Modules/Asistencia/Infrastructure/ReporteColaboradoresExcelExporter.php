@@ -2,6 +2,7 @@
 
 namespace App\Modules\Asistencia\Infrastructure;
 
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Support\Collection;
@@ -44,6 +45,7 @@ final class ReporteColaboradoresExcelExporter
         foreach ($colaboradores as $indice => $colaborador) {
             $fila = $indice + 4;
             $resultados = $colaborador->resultadosAsistencia;
+            $trabajados = $resultados->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA);
             $horasExtra = $colaborador->horasExtraAsistencia;
 
             $minutosAprobados = $horasExtra->where('estado', 'aprobado')->sum('minutos_aprobados');
@@ -54,9 +56,9 @@ final class ReporteColaboradoresExcelExporter
             $hoja->setCellValue("C{$fila}", $colaborador->sede?->nombre ?? '');
             $hoja->setCellValue("D{$fila}", $colaborador->area?->nombre ?? '');
             $hoja->setCellValue("E{$fila}", $colaborador->cargo ?? '');
-            $hoja->setCellValue("F{$fila}", $resultados->where('estado', 'presente')->count());
+            $hoja->setCellValue("F{$fila}", $trabajados->count());
             $hoja->setCellValue("G{$fila}", $resultados->where('estado', 'falta')->count());
-            $hoja->setCellValue("H{$fila}", $resultados->where('minutos_tardanza', '>', 0)->count());
+            $hoja->setCellValue("H{$fila}", $trabajados->where('minutos_tardanza', '>', 0)->count());
             $hoja->setCellValue("I{$fila}", $resultados->whereIn('tipo_dia', ['descanso', 'feriado'])->count());
             $hoja->setCellValue("J{$fila}", $resultados->where('estado', 'home_office')->count());
             $hoja->setCellValue("K{$fila}", $colaborador->incidenciasAsistencia->count());

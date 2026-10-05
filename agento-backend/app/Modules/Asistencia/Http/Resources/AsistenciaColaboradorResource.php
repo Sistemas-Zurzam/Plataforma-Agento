@@ -2,6 +2,7 @@
 
 namespace App\Modules\Asistencia\Http\Resources;
 
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -11,10 +12,11 @@ class AsistenciaColaboradorResource extends JsonResource
     {
         $asignacion = $this->asignacionesHorario->first();
         $resultados = $this->resultadosAsistencia->keyBy(fn ($resultado) => $resultado->fecha->toDateString());
+        $trabajados = $this->resultadosAsistencia->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA);
         $resumen = [
-            'dias_trabajados' => $this->resultadosAsistencia->where('estado', 'presente')->count(),
+            'dias_trabajados' => $trabajados->count(),
             'faltas' => $this->resultadosAsistencia->where('estado', 'falta')->count(),
-            'tardanzas' => $this->resultadosAsistencia->where('minutos_tardanza', '>', 0)->count(),
+            'tardanzas' => $trabajados->where('minutos_tardanza', '>', 0)->count(),
             'minutos_extra' => $this->resultadosAsistencia->sum('minutos_extra_observados'),
             'descansos_feriados' => $this->resultadosAsistencia->whereIn('tipo_dia', ['descanso', 'feriado'])->count(),
             'home_office' => $this->resultadosAsistencia->where('estado', 'home_office')->count(),

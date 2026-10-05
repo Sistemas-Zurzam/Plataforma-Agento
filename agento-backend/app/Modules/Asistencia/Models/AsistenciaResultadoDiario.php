@@ -23,6 +23,13 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 ])]
 class AsistenciaResultadoDiario extends Model
 {
+    /**
+     * Estados en los que el colaborador sí asistió. "presente" solo es el
+     * día limpio: un día con tardanza que cumplió jornada queda como
+     * horario_desplazado y uno con salida anticipada como horas_incompletas.
+     */
+    public const ESTADOS_CON_ASISTENCIA = ['presente', 'horario_desplazado', 'horas_incompletas', 'marcacion_incompleta'];
+
     protected $table = 'asistencia_resultados_diarios';
 
     protected function casts(): array
