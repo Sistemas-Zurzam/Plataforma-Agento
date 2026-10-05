@@ -313,7 +313,15 @@ class CicloRemunerativoService
     {
         $this->verificarPertenencia($empresa, $ciclo);
         $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
-        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin']);
+        // El cierre formal del período de asistencia no bloquea formalizar
+        // el ciclo como pagado. Se conserva la validación de cobertura diaria;
+        // solo se omite exigir que RR.HH. haya cerrado el período.
+        $this->consistenciaAsistencia->verificar(
+            $empresa,
+            $periodoAsistencia['inicio'],
+            $periodoAsistencia['fin'],
+            exigirPeriodoCerrado: false,
+        );
 
         // Incremento 3 (A.4, "evitar carreras") -- entre este chequeo previo
         // y el guardado real puede colarse una notificarCambioAsistencia()
