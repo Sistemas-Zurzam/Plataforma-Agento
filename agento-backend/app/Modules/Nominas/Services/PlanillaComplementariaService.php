@@ -100,9 +100,9 @@ class PlanillaComplementariaService
     }
 
     /** @param array<int, int> $boletaIds */
-    public function agregarColaboradores(Empresa $empresa, PlanillaComplementaria $item, array $boletaIds): PlanillaComplementaria
+    public function agregarColaboradores(Empresa $empresa, PlanillaComplementaria $item, array $boletaIds, bool $permitirConcurrente = false): PlanillaComplementaria
     {
-        return DB::transaction(function () use ($empresa, $item, $boletaIds) {
+        return DB::transaction(function () use ($empresa, $item, $boletaIds, $permitirConcurrente) {
             $item = PlanillaComplementaria::whereKey($item->id)->lockForUpdate()->firstOrFail();
             $this->verificarItem($empresa, $item);
 
@@ -123,7 +123,7 @@ class PlanillaComplementariaService
                 throw ValidationException::withMessages(['boleta_ids' => 'Selecciona boletas vigentes y pagadas del ciclo original.']);
             }
 
-            $ocupados = PlanillaComplementariaDetalle::whereIn('colaborador_id', $boletas->pluck('colaborador_id'))
+            $ocupados = ! $permitirConcurrente && PlanillaComplementariaDetalle::whereIn('colaborador_id', $boletas->pluck('colaborador_id'))
                 ->whereHas('complementaria', fn ($q) => $q
                     ->where('ciclo_id', $item->ciclo_id)
                     ->where('estado', 'calculada'))
@@ -225,16 +225,6 @@ class PlanillaComplementariaService
             ->with('colaborador')
             ->get();
 
-        // Mismo criterio "ocupados" que ya usan agregarColaboradores() /
-        // colaboradoresDisponibles(): un colaborador con un borrador de
-        // complementaria sin aprobar en este ciclo no puede recibir otro
-        // bono hasta que ese borrador se apruebe o se elimine.
-        $ocupados = PlanillaComplementariaDetalle::whereIn('colaborador_id', $boletas->pluck('colaborador_id'))
-            ->whereHas('complementaria', fn ($q) => $q
-                ->where('ciclo_id', $ciclo->id)
-                ->whereIn('estado', ['calculada', 'aprobada']))
-            ->pluck('colaborador_id');
-
         $criterio = $this->criterioAsistencia($ciclo->id, $operador, $dias, $conceptoId);
         $yaRecibieron = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
             ->whereHas('complementaria', fn ($q) => $q->whereIn('estado', ['calculada', 'aprobada', 'pagada']))
@@ -242,9 +232,8 @@ class PlanillaComplementariaService
             ->filter(fn ($d) => collect($d->calculo_snapshot['bonos_masivos'] ?? [])->contains('criterio', $criterio))
             ->pluck('boleta_original_id');
 
-        $colaboradores = $boletas->map(function (Boleta $boleta) use ($conteos, $ocupados, $yaRecibieron) {
+        $colaboradores = $boletas->map(function (Boleta $boleta) use ($conteos, $yaRecibieron) {
             $motivo = match (true) {
-                $ocupados->contains($boleta->colaborador_id) => 'Ya tiene una complementaria pendiente.',
                 $yaRecibieron->contains($boleta->id) => 'Ya recibió este bono.',
                 default => null,
             };
@@ -325,7 +314,10 @@ class PlanillaComplementariaService
                 'creado_por' => $usuarioId,
             ]);
 
-            $this->agregarColaboradores($empresa, $item, $ids);
+            // El bono puede coexistir con una complementaria de comisiones,
+            // horas extra u otro concepto. La duplicidad se controla por el
+            // criterio del mismo bono, no bloqueando al colaborador entero.
+            $this->agregarColaboradores($empresa, $item, $ids, permitirConcurrente: true);
 
             $criterio = $this->criterioAsistencia($ciclo->id, $operador, $dias, $conceptoId);
             $bloque = $concepto->tipo === 'ingreso' ? 'ingresos' : 'egresos';
