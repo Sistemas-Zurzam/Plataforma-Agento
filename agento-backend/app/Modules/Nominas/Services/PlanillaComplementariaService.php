@@ -19,6 +19,7 @@ use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\PlanillaComplementaria;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use App\Modules\Personas\Support\FeriadosPeru;
@@ -355,11 +356,22 @@ class PlanillaComplementariaService
             throw ValidationException::withMessages(['estado' => 'Las horas extra pendientes solo se regularizan sobre un ciclo pagado.']);
         }
 
+        // La boleta no siempre usa el mes calendario para asistencia. Cuando
+        // tiene corte diferido, por ejemplo la planilla de septiembre con
+        // corte el 27, sus HE corresponden al 28/08–27/09. Consultar 01–30
+        // aquí omitía HE ya pagadas de agosto y hacía que ese crédito se
+        // descontara indebidamente de HE posteriores de septiembre.
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver(
+            $ciclo->fecha_inicio->toDateString(),
+            $ciclo->fecha_fin->toDateString(),
+            $ciclo->fecha_corte_asistencia->toDateString(),
+        );
+
         $boletas = Boleta::where('ciclo_id', $ciclo->id)->where('estado', 'pagada')->where('es_version_vigente', true)
             ->when($boletaIds !== [], fn ($query) => $query->whereIn('id', $boletaIds))
             ->with(['colaborador', 'conceptos.concepto'])->get()->keyBy('colaborador_id');
         $horas = AsistenciaHoraExtra::withoutGlobalScopes()->where('empresa_id', $empresa->id)
-            ->whereBetween('fecha', [$ciclo->fecha_inicio, $ciclo->fecha_fin])->where('estado', 'aprobado')
+            ->whereBetween('fecha', [$periodoAsistencia['inicio'], $periodoAsistencia['fin']])->where('estado', 'aprobado')
             ->whereIn('colaborador_id', $boletas->keys())->orderBy('fecha')->orderBy('id')->get();
 
         $detallesActivos = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
@@ -389,9 +401,28 @@ class PlanillaComplementariaService
             }
         }
 
-        $resultado = [];
-        foreach ($horas as $hora) {
-            $boleta = $boletas[$hora->colaborador_id];
+        // El total "ya pagado" en $pagadoOriginal es un agregado por tasa —
+        // la boleta no guarda a qué días específicos corresponde. Para
+        // decidir qué HE ya está cubierta, no se puede asumir que siempre
+        // son las de fecha más antigua: una HE de un día temprano puede
+        // haberse aprobado DESPUÉS de que la boleta ya se calculó (ej. una
+        // corrección de asistencia tardía), mientras que una de fecha
+        // posterior ya estaba aprobada y fue la que realmente se pagó. Se
+        // consume el saldo priorizando quién se aprobó primero en el tiempo
+        // (resuelto_at) — eso sí refleja qué HE existía cuando se calculó la
+        // boleta. Las HE sin resuelto_at (datos legados) se ordenan primero
+        // entre sí por fecha, igual que el comportamiento histórico.
+        $ordenConsumo = $horas->sort(function ($a, $b) {
+            $resueltoA = $a->resuelto_at?->timestamp ?? -1;
+            $resueltoB = $b->resuelto_at?->timestamp ?? -1;
+            if ($resueltoA !== $resueltoB) return $resueltoA <=> $resueltoB;
+            if (! $a->fecha->equalTo($b->fecha)) return $a->fecha <=> $b->fecha;
+
+            return $a->id <=> $b->id;
+        })->values();
+
+        $pendientesPorHora = [];
+        foreach ($ordenConsumo as $hora) {
             if ((string) $hora->tasa === '100') {
                 $fecha = $hora->fecha->toDateString();
                 $enSemanaReservada = ($semanasReservadasPorColaborador[$hora->colaborador_id] ?? collect())
@@ -401,8 +432,14 @@ class PlanillaComplementariaService
             }
             $cubiertos = min((int) $hora->minutos_aprobados, $pagadoOriginal[$hora->colaborador_id][(string) $hora->tasa] ?? 0);
             $pagadoOriginal[$hora->colaborador_id][(string) $hora->tasa] = max(0, ($pagadoOriginal[$hora->colaborador_id][(string) $hora->tasa] ?? 0) - $cubiertos);
-            $pendientes = max(0, (int) $hora->minutos_aprobados - $cubiertos - (int) ($reservas[$hora->id] ?? 0));
-            if ($pendientes === 0) continue;
+            $pendientesPorHora[$hora->id] = max(0, (int) $hora->minutos_aprobados - $cubiertos - (int) ($reservas[$hora->id] ?? 0));
+        }
+
+        $resultado = [];
+        foreach ($horas as $hora) {
+            $pendientes = $pendientesPorHora[$hora->id] ?? null;
+            if ($pendientes === null || $pendientes === 0) continue;
+            $boleta = $boletas[$hora->colaborador_id];
             $resultado[] = [
                 'id' => $hora->id, 'boleta_id' => $boleta->id, 'colaborador_id' => $hora->colaborador_id,
                 'colaborador' => trim($boleta->colaborador->nombres.' '.$boleta->colaborador->apellidos),
@@ -430,6 +467,11 @@ class PlanillaComplementariaService
 
             $ciclo = $item->ciclo;
             $pendientes = collect($this->horasExtraPendientes($empresa, $ciclo)['horas'])->keyBy('id');
+            $periodoAsistencia = PeriodoAsistenciaCiclo::resolver(
+                $ciclo->fecha_inicio->toDateString(),
+                $ciclo->fecha_fin->toDateString(),
+                $ciclo->fecha_corte_asistencia->toDateString(),
+            );
             $entradas = collect();
             foreach ($detectadas as $seleccion) {
                 $hora = $pendientes->get((int) $seleccion['hora_extra_id']);
@@ -439,8 +481,8 @@ class PlanillaComplementariaService
                 $entradas->push([...$hora, 'origen' => 'huellero', 'minutos' => (int) $seleccion['minutos'], 'asistencia_hora_extra_id' => (int) $seleccion['hora_extra_id']]);
             }
             foreach ($manuales as $manual) {
-                if ($manual['fecha'] < $ciclo->fecha_inicio->toDateString() || $manual['fecha'] > $ciclo->fecha_fin->toDateString()) {
-                    throw ValidationException::withMessages(['horas_manuales' => 'La fecha manual debe pertenecer al período del ciclo pagado.']);
+                if ($manual['fecha'] < $periodoAsistencia['inicio'] || $manual['fecha'] > $periodoAsistencia['fin']) {
+                    throw ValidationException::withMessages(['horas_manuales' => 'La fecha manual debe pertenecer al período de asistencia cubierto por el ciclo pagado.']);
                 }
                 $entradas->push([...$manual, 'origen' => 'manual', 'asistencia_hora_extra_id' => null]);
             }
