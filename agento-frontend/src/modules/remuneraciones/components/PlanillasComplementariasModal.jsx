@@ -96,7 +96,6 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       setBusquedaDescuentos('');
       setFiltroDescuento(null);
       setTipoRegularizacion('reintegro_descuentos');
-      setMontoComision(null);
       setMontosComision(Object.fromEntries(boletasSeleccionadas.map((b) => [b.id, null])));
       setSemanasDescanso([]);
       setSemanasSeleccionadas([]);
