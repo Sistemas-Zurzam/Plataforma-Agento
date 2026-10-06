@@ -505,6 +505,28 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
 
   useEffect(() => { cargar(); }, [cargar, user?.empresa?.id]);
 
+  // La tabla principal recibe como máximo 100 horas extra de toda la empresa.
+  // Filtrar después en el navegador ocultaba registros antiguos de un
+  // colaborador cuando la empresa tenía más de 100 filas. Al elegirlo,
+  // consultamos al servidor con colaborador_id para obtener todo su rango.
+  useEffect(() => {
+    if (!colaboradorFiltroHorasExtra) return;
+    let vigente = true;
+    api.get('/asistencia/horas-extra', {
+      params: { ...parametros, colaborador_id: colaboradorFiltroHorasExtra },
+    })
+      .then(({ data }) => {
+        if (vigente) {
+          setHorasExtra(data.data ?? []);
+          setHorasExtraSeleccionadas([]);
+        }
+      })
+      .catch((error) => {
+        if (vigente) message.error(error.response?.data?.message ?? 'No se pudieron cargar las horas extra del colaborador.');
+      });
+    return () => { vigente = false; };
+  }, [colaboradorFiltroHorasExtra, message, parametros]);
+
   /**
    * Separado del Promise.all de cargar(): Incidencias necesita su propio
    * filtro de estado y, opcionalmente, quedar preseleccionado a un
