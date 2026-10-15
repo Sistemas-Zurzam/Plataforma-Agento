@@ -4,6 +4,7 @@ import Header from '../components/layout/Header';
 import Sidebar from '../components/layout/Sidebar';
 import GestionEmpresas from '../pages/configuraciones/GestionEmpresas';
 import GestionPersonas from '../pages/nominas/GestionPersonas';
+import GestionLiquidaciones from '../pages/nominas/GestionLiquidaciones';
 import GestionRemuneraciones from '../pages/nominas/GestionRemuneraciones';
 import GestionAsistencias from '../modules/asistencia/pages/GestionAsistencias';
 import GestionTickets from '../pages/soporte/GestionTickets';
@@ -15,6 +16,7 @@ const SECCIONES = {
   'nominas-personas': { title: 'Nóminas', subtitle: 'Gestión de personas' },
   'nominas-remuneraciones': { title: 'Nóminas', subtitle: 'Gestión de remuneraciones' },
   'nominas-asistencias': { title: 'Nóminas', subtitle: 'Gestión de asistencias' },
+  'nominas-liquidaciones': { title: 'Nóminas', subtitle: 'Liquidaciones' },
   'soporte-tickets': { title: 'Soporte', subtitle: 'Gestión de tickets' },
 };
 
@@ -36,6 +38,10 @@ function routeFromPath(pathname) {
 
   if (normalizedPath === '/nominas/remuneraciones') {
     return { section: 'nominas-remuneraciones', tab: null, colaboradorId: null };
+  }
+
+  if (normalizedPath === '/nominas/liquidaciones') {
+    return { section: 'nominas-liquidaciones', tab: null, colaboradorId: null };
   }
 
   if (normalizedPath === '/nominas/asistencias') {
@@ -98,6 +104,7 @@ export default function AppLayout({
       'nominas-personas': '/nominas/personas',
       'nominas-remuneraciones': '/nominas/remuneraciones',
       'nominas-asistencias': '/nominas/asistencias',
+      'nominas-liquidaciones': '/nominas/liquidaciones',
       'soporte-tickets': '/soporte/tickets',
     };
     navigate(paths[key] ?? '/mi-perfil');
@@ -156,6 +163,7 @@ export default function AppLayout({
               onVolver={() => navigate('/nominas/asistencias')}
             />
           )}
+          {route.section === 'nominas-liquidaciones' && <GestionLiquidaciones user={user} />}
           {route.section === 'soporte-tickets' && <GestionTickets />}
         </Content>
       </Layout>

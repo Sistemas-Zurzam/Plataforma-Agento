@@ -44,17 +44,26 @@ class AsignarDescansoFlexibleSemanal
     ) {}
 
     /**
-     * Punto de entrada desde el cierre de periodo (AsistenciaPeriodoService::prepararCierre()).
+     * Punto de entrada desde el cierre de periodo (AsistenciaPeriodoService::prepararCierre())
+     * y desde el reprocesamiento manual de un rango (ReprocesarAsistenciaRango::ejecutar()).
      * Recorre los colaboradores rotativos elegibles y, para cada semana con
      * algún día todavía sin planificar dentro del rango de $periodo,
-     * calcula y persiste el segmento correspondiente.
+     * calcula y persiste el segmento correspondiente. $periodo solo se usa
+     * por sus fechas — no necesita ser una fila real de AsistenciaPeriodo
+     * (ReprocesarAsistenciaRango le pasa una instancia sin guardar con el
+     * rango solicitado), y $colaboradorIds es opcional: null procesa todos
+     * los rotativos elegibles de la empresa (uso original, cierre de
+     * periodo); con un arreglo, solo esos (reprocesamiento acotado).
+     *
+     * @param  array<int, int>|null  $colaboradorIds
      */
-    public function procesarPeriodo(Empresa $empresa, AsistenciaPeriodo $periodo, ?int $usuarioId): void
+    public function procesarPeriodo(Empresa $empresa, AsistenciaPeriodo $periodo, ?int $usuarioId, ?array $colaboradorIds = null): void
     {
         $colaboradores = Colaborador::query()
             ->where('empresa_id', $empresa->id)
             ->where('activo', true)
             ->where('es_trabajador_confianza', false)
+            ->when($colaboradorIds, fn ($query, $ids) => $query->whereIn('id', $ids))
             ->whereDate('fecha_ingreso', '<=', $periodo->fecha_fin->toDateString())
             ->where(fn ($query) => $query->whereNull('fecha_cese')->orWhereDate('fecha_cese', '>=', $periodo->fecha_inicio->toDateString()))
             ->whereHas('asignacionesHorario', fn ($query) => $query->whereNull('vigencia_hasta')

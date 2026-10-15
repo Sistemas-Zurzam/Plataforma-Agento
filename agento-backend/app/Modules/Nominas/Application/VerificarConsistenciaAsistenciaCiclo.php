@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Application;
 
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
+use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Support\Carbon;
@@ -17,12 +18,16 @@ use Illuminate\Validation\ValidationException;
  * inexistente. Esta clase es el primer punto donde Nómina realmente verifica
  * ese terreno antes de avanzar.
  *
- * Este incremento cubre solo 3 de los 5 chequeos de A.1 (cobertura de
- * asistencia, período asociado, período abierto). Incidencias bloqueantes y
- * horas extra pendientes se incorporan en el incremento 4; `requiere_recalculo`
- * ya lo verifica directamente CicloRemunerativoService::marcarPagado() desde
- * el incremento 3 — a propósito, para poder probar cada pieza por separado
- * antes de combinarlas.
+ * Ya no exige que exista un `AsistenciaPeriodo` cubriendo el rango -- ese
+ * chequeo (`fechasSinPeriodoAsociado`) nació atado al flujo de reconciliación
+ * de descanso flexible/rotativos, pero para una empresa sin esa complejidad
+ * era pura burocracia sin proteger nada real: `tieneColaboradoresSinCobertura()`
+ * ya verifica lo que de verdad importa (que exista asistencia procesada), sin
+ * importar si esa asistencia se generó dentro de un período formal o solo vía
+ * Reprocesar. Incidencias bloqueantes y horas extra pendientes quedan fuera
+ * de esta clase a propósito -- eso solo se exige al cerrar el período de
+ * asistencia (AsistenciaPeriodoService), no al calcular/cerrar el ciclo de
+ * Nómina.
  *
  * Todas las comparaciones de fecha usan `>=`/`<` directos sobre la columna,
  * nunca `whereBetween()` ni `whereDate()` con un límite superior inclusivo:
@@ -36,32 +41,45 @@ use Illuminate\Validation\ValidationException;
  */
 class VerificarConsistenciaAsistenciaCiclo
 {
+    public function __construct(
+        private readonly FechaOperativa $fechaOperativa,
+    ) {}
+
     /**
+     * $exigirPeriodoCerrado distingue dos momentos muy distintos:
+     *  - true  (default, usado por CicloRemunerativoService::cerrar()/
+     *          marcarPagado()): el compromiso final -- ahí sí debe exigirse
+     *          que el período de asistencia esté cerrado/enviado a Nómina
+     *          (RR.HH. ya resolvió pendientes), porque después de esto se
+     *          paga de verdad.
+     *  - false (usado por BoletaService::calcularPlanilla()/
+     *          iniciarCalculoAsync()): un "pre-cálculo" recalculable las
+     *          veces que haga falta mientras RR.HH. todavía está
+     *          verificando/corrigiendo asistencia -- exigir el período
+     *          cerrado ahí bloquearía justo el flujo de "calculo, reviso,
+     *          corrijo, vuelvo a calcular" que se necesita ANTES de cerrar
+     *          de verdad. La cobertura diaria (¿hay algo que calcular?) sí
+     *          se sigue exigiendo en ambos casos -- lo que se relaja es
+     *          únicamente "¿ya está resuelto/cerrado?".
+     *
      * @throws ValidationException
      */
-    public function verificar(Empresa $empresa, string $fechaInicio, string $fechaFin): void
+    public function verificar(Empresa $empresa, string $fechaInicio, string $fechaFin, bool $exigirPeriodoCerrado = true): void
     {
-        $fechasSinPeriodo = $this->fechasSinPeriodoAsociado($empresa, $fechaInicio, $fechaFin);
-        if ($fechasSinPeriodo !== []) {
-            $listado = implode(', ', array_slice($fechasSinPeriodo, 0, 5));
-            $extra = count($fechasSinPeriodo) > 5 ? ' y '.(count($fechasSinPeriodo) - 5).' fecha(s) más' : '';
-            throw ValidationException::withMessages([
-                'asistencia' => ["Las fechas {$listado}{$extra} no pertenecen a ningún período de asistencia. Crea y cierra el período correspondiente antes de calcular."],
-            ]);
-        }
+        if ($exigirPeriodoCerrado) {
+            $finExclusivo = $this->finExclusivo($fechaFin);
 
-        $finExclusivo = $this->finExclusivo($fechaFin);
-
-        $periodoAbierto = AsistenciaPeriodo::query()
-            ->where('empresa_id', $empresa->id)
-            ->where('estado', 'abierto')
-            ->where('fecha_inicio', '<', $finExclusivo)
-            ->where('fecha_fin', '>=', $fechaInicio)
-            ->first();
-        if ($periodoAbierto) {
-            throw ValidationException::withMessages([
-                'asistencia' => ["El período de asistencia {$periodoAbierto->fecha_inicio->toDateString()} – {$periodoAbierto->fecha_fin->toDateString()} sigue abierto. Ciérralo o envíalo a Nómina antes de calcular este ciclo."],
-            ]);
+            $periodoAbierto = AsistenciaPeriodo::query()
+                ->where('empresa_id', $empresa->id)
+                ->where('estado', 'abierto')
+                ->where('fecha_inicio', '<', $finExclusivo)
+                ->where('fecha_fin', '>=', $fechaInicio)
+                ->first();
+            if ($periodoAbierto) {
+                throw ValidationException::withMessages([
+                    'asistencia' => ["El período de asistencia {$periodoAbierto->fecha_inicio->toDateString()} – {$periodoAbierto->fecha_fin->toDateString()} sigue abierto. Ciérralo o envíalo a Nómina antes de calcular este ciclo."],
+                ]);
+            }
         }
 
         if ($this->tieneColaboradoresSinCobertura($empresa, $fechaInicio, $fechaFin)) {
@@ -77,32 +95,22 @@ class VerificarConsistenciaAsistenciaCiclo
         return Carbon::parse($fecha)->addDay()->toDateString();
     }
 
-    /** @return array<int, string> */
-    private function fechasSinPeriodoAsociado(Empresa $empresa, string $fechaInicio, string $fechaFin): array
-    {
-        $periodos = AsistenciaPeriodo::query()
-            ->where('empresa_id', $empresa->id)
-            ->where('fecha_inicio', '<', $this->finExclusivo($fechaFin))
-            ->where('fecha_fin', '>=', $fechaInicio)
-            ->get(['fecha_inicio', 'fecha_fin']);
-
-        $faltantes = [];
-        for ($fecha = Carbon::parse($fechaInicio); $fecha->lte(Carbon::parse($fechaFin)); $fecha->addDay()) {
-            $cubierta = $periodos->contains(fn (AsistenciaPeriodo $periodo) => $fecha->gte($periodo->fecha_inicio) && $fecha->lte($periodo->fecha_fin));
-            if (! $cubierta) {
-                $faltantes[] = $fecha->toDateString();
-            }
-        }
-
-        return $faltantes;
-    }
-
     /**
      * Mismo criterio de elegibilidad que AsegurarCoberturaAsistenciaPeriodo::
      * detectarFaltantes() (sin where('activo', true) a propósito -- un
      * colaborador cesado igual necesita cobertura para las fechas anteriores
      * a su cese), pero simplificado a un booleano con corte temprano: acá
      * solo hace falta saber SI falta algo, no enumerar cada combinación.
+     *
+     * Las fechas posteriores a hoy quedan explícitamente exentas -- por
+     * decisión de negocio (RR.HH. cierra el ciclo antes de que termine el
+     * mes y los días restantes se cuentan como presente; si el mes
+     * siguiente aparece una falta real ahí, se ajusta vía planilla
+     * complementaria). AsistenciaResultadoDiario nunca tiene filas para
+     * fechas futuras (ProcesarAsistenciaDiaria las marcaría como "falta"
+     * por no tener marcaciones, lo cual sería incorrecto para un día que
+     * todavía no ocurrió), así que exigir cobertura ahí bloquearía el
+     * cálculo para siempre sin aportar ninguna protección real.
      */
     private function tieneColaboradoresSinCobertura(Empresa $empresa, string $fechaInicio, string $fechaFin): bool
     {
@@ -119,7 +127,7 @@ class VerificarConsistenciaAsistenciaCiclo
         }
 
         $inicioRango = Carbon::parse($fechaInicio);
-        $finRango = Carbon::parse($fechaFin);
+        $finRango = Carbon::parse($fechaFin)->min($this->fechaOperativa->hoy());
 
         $cubiertasPorColaborador = AsistenciaResultadoDiario::query()
             ->where('empresa_id', $empresa->id)

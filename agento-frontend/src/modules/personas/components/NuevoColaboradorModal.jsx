@@ -20,6 +20,7 @@ import { useColaboradores } from '../hooks/useColaboradores';
 import {
   BANCO_OPTIONS,
   CATEGORIA_TRABAJADOR_OPTIONS,
+  MODO_CALCULO_HONORARIOS_OPTIONS,
   MODALIDAD_TRABAJO_OPTIONS,
   MONEDA_OPTIONS,
   PERIODICIDAD_OPTIONS,
@@ -58,7 +59,7 @@ const CAMPOS_POR_TAB = {
   ],
   contrato: [
     'sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador', 'categoria_trabajador',
-    'fecha_ingreso', 'fecha_fin_contrato', 'periodicidad_pago', 'moneda_salario', 'salario',
+    'fecha_ingreso', 'fecha_fin_contrato', 'periodicidad_pago', 'modo_calculo_honorarios', 'moneda_salario', 'salario',
     'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'es_trabajador_confianza',
   ],
   remunerativa: ['cts_cuenta', 'asignacion_familiar', 'sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_suspension_renta_4ta', 'banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
@@ -178,6 +179,7 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
         moneda_salario: 'PEN',
         moneda_cuenta: 'PEN',
         periodicidad_pago: 'mensual',
+        modo_calculo_honorarios: 'mensual_con_faltas',
         fecha_ingreso: dayjs(),
       });
       fetchHorarios(1, 100, '', 'activo');
@@ -587,6 +589,15 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
                       >
                         <Select placeholder="Selecciona" options={periodicidadOptions} />
                       </Form.Item>
+                      {esHonorarios && (
+                        <Form.Item
+                          label={campoLabel('Cálculo del honorario')}
+                          name="modo_calculo_honorarios"
+                          extra="Pago por días presentes usa Honorario/30 por cada día con asistencia presente."
+                        >
+                          <Select options={MODO_CALCULO_HONORARIOS_OPTIONS} />
+                        </Form.Item>
+                      )}
                     </div>
                     <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2 lg:grid-cols-3">
                       <Form.Item label={campoLabel('Salario')} required>

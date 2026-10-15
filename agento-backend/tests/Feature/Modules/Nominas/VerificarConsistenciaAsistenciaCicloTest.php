@@ -8,13 +8,16 @@ use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Tests\Concerns\CreaColaboradorDePrueba;
 use Tests\TestCase;
 
 /**
- * Incremento 2 del endurecimiento Asistencia-Nómina (A.1, primeros 3
- * chequeos). No cubre incidencias/horas extra pendientes ni
+ * Incremento 2 del endurecimiento Asistencia-Nómina (A.1). Ya no exige que
+ * exista un AsistenciaPeriodo asociado (ver docblock de la clase) -- solo
+ * período abierto (cuando exigirPeriodoCerrado) y cobertura real de
+ * asistencia. No cubre incidencias/horas extra pendientes ni
  * requiere_recalculo -- eso es el incremento 4.
  */
 class VerificarConsistenciaAsistenciaCicloTest extends TestCase
@@ -35,7 +38,12 @@ class VerificarConsistenciaAsistenciaCicloTest extends TestCase
         ]);
     }
 
-    public function test_rechaza_fechas_sin_ningun_periodo_de_asistencia_asociado(): void
+    /**
+     * Una empresa sin rotativos puede no crear nunca un AsistenciaPeriodo
+     * (ej. procesa asistencia directamente vía Reprocesar) -- verificar() no
+     * debe exigir que exista uno mientras la cobertura real esté completa.
+     */
+    public function test_no_exige_ningun_periodo_de_asistencia_asociado(): void
     {
         $this->seed(DatabaseSeeder::class);
         // Empresa aislada (no la sembrada por DatabaseSeeder) -- así el
@@ -43,10 +51,21 @@ class VerificarConsistenciaAsistenciaCicloTest extends TestCase
         // crea explícitamente, sin verse afectado por datos de otros
         // colaboradores sembrados en la empresa compartida.
         $empresa = Empresa::factory()->create();
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
 
-        $this->expectException(ValidationException::class);
-        $this->expectExceptionMessage('no pertenecen a ningún período de asistencia');
-        app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-31');
+        $this->assertSame(0, AsistenciaPeriodo::query()->where('empresa_id', $empresa->id)->count());
+
+        Carbon::setTestNow(Carbon::parse('2026-07-31 10:00:00', 'America/Lima'));
+        try {
+            $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-01');
+            $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-02');
+
+            app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-02');
+
+            $this->assertTrue(true); // no lanzó excepción a pesar de no existir ningún período
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_rechaza_si_hay_un_periodo_de_asistencia_abierto_superpuesto(): void
@@ -65,6 +84,31 @@ class VerificarConsistenciaAsistenciaCicloTest extends TestCase
         $this->expectException(ValidationException::class);
         $this->expectExceptionMessage('sigue abierto');
         app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-31');
+    }
+
+    /**
+     * BoletaService::calcularPlanilla()/iniciarCalculoAsync() llaman a
+     * verificar() con exigirPeriodoCerrado: false -- es un "pre-cálculo"
+     * recalculable mientras RR.HH. todavía está resolviendo pendientes, así
+     * que un período abierto NO debe bloquearlo (a diferencia de
+     * cerrar()/marcarPagado(), que sí lo exigen por default).
+     */
+    public function test_no_exige_periodo_cerrado_cuando_se_pide_explicitamente(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $empresa = Empresa::factory()->create();
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
+
+        AsistenciaPeriodo::create([
+            'empresa_id' => $empresa->id, 'fecha_inicio' => '2026-07-01', 'fecha_fin' => '2026-07-02', 'estado' => 'abierto',
+        ]);
+        $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-01');
+        $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-02');
+
+        app(VerificarConsistenciaAsistenciaCiclo::class)
+            ->verificar($empresa, '2026-07-01', '2026-07-02', exigirPeriodoCerrado: false);
+
+        $this->assertTrue(true); // no lanzó excepción, a pesar de que el período sigue "abierto"
     }
 
     public function test_rechaza_si_falta_cobertura_de_asistencia_para_algun_colaborador(): void
@@ -107,6 +151,36 @@ class VerificarConsistenciaAsistenciaCicloTest extends TestCase
         app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-02');
 
         $this->assertTrue(true); // no lanzó excepción
+    }
+
+    /**
+     * Decisión de negocio: RR.HH. puede cerrar el ciclo antes de que termine
+     * el mes -- los días que todavía no ocurrieron no deben bloquear el
+     * cálculo (se cuentan como presente; si el mes siguiente aparece una
+     * falta real, se ajusta vía planilla complementaria). Simula "hoy" con
+     * Carbon::setTestNow() porque FechaOperativa lee el reloj real.
+     */
+    public function test_no_exige_cobertura_para_fechas_posteriores_a_hoy(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-07-01 10:00:00', 'America/Lima'));
+
+        try {
+            $this->seed(DatabaseSeeder::class);
+            $empresa = Empresa::factory()->create();
+            $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
+
+            AsistenciaPeriodo::create([
+                'empresa_id' => $empresa->id, 'fecha_inicio' => '2026-07-01', 'fecha_fin' => '2026-07-02', 'estado' => 'cerrado',
+            ]);
+            // Solo el 01 (hoy) tiene resultado -- el 02 es un día futuro, exento de cobertura.
+            $this->crearResultadoDiario($empresa, $colaborador->id, '2026-07-01');
+
+            app(VerificarConsistenciaAsistenciaCiclo::class)->verificar($empresa, '2026-07-01', '2026-07-02');
+
+            $this->assertTrue(true); // no lanzó excepción
+        } finally {
+            Carbon::setTestNow();
+        }
     }
 
     public function test_ignora_colaboradores_fuera_de_su_vigencia_laboral(): void

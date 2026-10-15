@@ -21,11 +21,9 @@ use Illuminate\Support\Carbon;
  * `!= 'manual'`), para que un origen nuevo que se agregue después, o NULL
  * histórico, jamás caigan acá por accidente.
  *
- * No reprocesa nada (nunca invoca ProcesarAsistenciaDiaria): las fechas
- * que queden sin fila tras invalidar simplemente quedan "sin planificar" —
- * las completa después CalendarioMensualGenerator (horario fijo) o
- * Planificación/Cobertura (rotativo, vía dia_sin_clasificar), cada uno
- * bajo su propio mecanismo ya existente.
+ * La invalidación no reprocesa por sí sola. ColaboradorService reprocesa
+ * los resultados existentes después de actualizar la asignación; las
+ * fechas sin resultado se completan por los mecanismos habituales.
  */
 class AjustarCalendarioPorCambioHorario
 {
@@ -36,13 +34,10 @@ class AjustarCalendarioPorCambioHorario
 
     /**
      * Chequeo de solo lectura — nunca escribe nada. `bloqueado_por_procesado`
-     * es la señal fuerte de "no tocar": si ya existe CUALQUIER resultado de
-     * asistencia procesado desde la vigencia, la reasignación completa se
-     * rechaza (ver ColaboradorService::actualizarHorario()) en vez de
-     * intentar invalidar/reprocesar automáticamente — corrección manual
-     * especializada, no automática.
+     * indica que el cambio necesita confirmación y reprocesamiento de los
+     * resultados existentes desde la fecha de vigencia.
      *
-     * @return array{bloqueado_por_procesado: bool, automaticas: int, feriados: int, humanas: int, legacy: int, requiere_confirmacion: bool}
+     * @return array{bloqueado_por_procesado: bool, resultados_procesados: int, automaticas: int, feriados: int, humanas: int, legacy: int, requiere_confirmacion: bool}
      */
     public function evaluarImpacto(Colaborador $colaborador, string $vigenciaDesde): array
     {
@@ -56,13 +51,14 @@ class AjustarCalendarioPorCambioHorario
         $legacy = $filas->whereNull('origen')->count();
         $humanas = $filas->count() - $automaticas - $feriados - $legacy;
 
-        $bloqueadoPorProcesado = AsistenciaResultadoDiario::query()
+        $resultadosProcesados = AsistenciaResultadoDiario::query()
             ->where('colaborador_id', $colaborador->id)
-            ->where('fecha', '>=', $vigenciaDesde)
-            ->exists();
+            ->where('fecha', '>=', $vigenciaDesde);
+        $cantidadProcesada = $resultadosProcesados->count();
 
         return [
-            'bloqueado_por_procesado' => $bloqueadoPorProcesado,
+            'bloqueado_por_procesado' => $cantidadProcesada > 0,
+            'resultados_procesados' => $cantidadProcesada,
             'automaticas' => $automaticas,
             'feriados' => $feriados,
             'humanas' => $humanas,
@@ -94,9 +90,8 @@ class AjustarCalendarioPorCambioHorario
 
     /**
      * Invalida (DELETE) las filas automáticas y registra auditoría. El
-     * llamador ya debe haber verificado bloqueado_por_procesado=false, el
-     * período no protegido, y — si requiere_confirmacion era true — que el
-     * usuario confirmó explícitamente. Pensado para correr DENTRO de la
+     * llamador ya debe haber verificado el período no protegido y las
+     * confirmaciones necesarias. Pensado para correr DENTRO de la
      * misma transacción que crea la nueva ColaboradorHorarioAsignacion.
      *
      * @param  array{automaticas: int, feriados: int, humanas: int, legacy: int}  $impactoPrevio

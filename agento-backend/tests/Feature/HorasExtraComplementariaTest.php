@@ -80,7 +80,7 @@ class HorasExtraComplementariaTest extends TestCase
         return [$empresa, $ciclo, $boleta, $complementaria, $usuario, $service];
     }
 
-    private function horaAprobada(Empresa $empresa, Boleta $boleta, string $fecha, int $minutos): AsistenciaHoraExtra
+    private function horaAprobada(Empresa $empresa, Boleta $boleta, string $fecha, int $minutos, ?string $resueltoAt = null): AsistenciaHoraExtra
     {
         $resultado = AsistenciaResultadoDiario::create([
             'empresa_id' => $empresa->id, 'colaborador_id' => $boleta->colaborador_id,
@@ -93,7 +93,7 @@ class HorasExtraComplementariaTest extends TestCase
             'colaborador_id' => $boleta->colaborador_id, 'fecha' => $fecha,
             'minutos_observados' => $minutos, 'minutos_solicitados' => $minutos,
             'minutos_aprobados' => $minutos, 'tasa' => '25', 'estado' => 'aprobado',
-            'motivo' => 'Marcación validada',
+            'motivo' => 'Marcación validada', 'resuelto_at' => $resueltoAt,
         ]);
     }
 
@@ -132,6 +132,41 @@ class HorasExtraComplementariaTest extends TestCase
 
         $this->assertFalse($pendientes->contains('id', $primera->id));
         $this->assertSame(120, $pendientes->firstWhere('id', $segunda->id)['minutos_pendientes']);
+    }
+
+    public function test_usa_el_periodo_de_asistencia_con_corte_diferido_para_no_ofrecer_horas_ya_pagadas(): void
+    {
+        [$empresa, $ciclo, $boleta, , , $service] = $this->escenario();
+        $ciclo->update(['fecha_corte_asistencia' => '2026-08-27']);
+
+        // La HE del 28/07 pertenece a la planilla de agosto cuando su corte
+        // es 27. La boleta ya tiene 60 min de HE_25 pagados; por tanto debe
+        // consumir esta primera HE y dejar pendiente solamente la del 01/08.
+        $pagada = $this->horaAprobada($empresa, $boleta, '2026-07-28', 60);
+        $pendiente = $this->horaAprobada($empresa, $boleta, '2026-08-01', 60);
+
+        $horas = collect($service->horasExtraPendientes($empresa, $ciclo)['horas']);
+
+        $this->assertFalse($horas->contains('id', $pagada->id));
+        $this->assertSame(60, $horas->firstWhere('id', $pendiente->id)['minutos_pendientes']);
+    }
+
+    public function test_prioriza_resuelto_at_sobre_la_fecha_para_decidir_que_he_ya_esta_pagada(): void
+    {
+        [$empresa, $ciclo, $boleta, , , $service] = $this->escenario();
+
+        // La boleta ya trae 60 min de HE_25 pagados (ver escenario()). Esos
+        // 60 min corresponden a la HE del 20/08, aprobada ANTES de calcular
+        // la boleta. La HE del 05/08 — fecha anterior — se corrigió y
+        // aprobó DESPUÉS del cálculo (ej. un ajuste de asistencia tardío):
+        // debe seguir pendiente aunque su fecha sea más temprana.
+        $yaPagada = $this->horaAprobada($empresa, $boleta, '2026-08-20', 60, now()->subDay()->toDateTimeString());
+        $nueva = $this->horaAprobada($empresa, $boleta, '2026-08-05', 60, now()->addDay()->toDateTimeString());
+
+        $horas = collect($service->horasExtraPendientes($empresa, $ciclo)['horas']);
+
+        $this->assertFalse($horas->contains('id', $yaPagada->id));
+        $this->assertSame(60, $horas->firstWhere('id', $nueva->id)['minutos_pendientes']);
     }
 
     public function test_agrega_parcialmente_hora_detectada_y_eliminarla_libera_los_minutos(): void

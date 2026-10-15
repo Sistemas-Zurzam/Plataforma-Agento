@@ -104,6 +104,7 @@ class StoreColaboradorRequest extends FormRequest
             'salario' => ['required', 'numeric', 'min:0'],
             'moneda_salario' => ['required', Rule::in(['PEN', 'USD'])],
             'periodicidad_pago' => ['required', Rule::in(['mensual', 'quincenal', 'semanal'])],
+            'modo_calculo_honorarios' => ['nullable', Rule::in(['mensual_con_faltas', 'por_dias_presentes'])],
             'asignacion_familiar' => ['nullable', 'numeric', 'min:0'],
 
             // Sin horario no hay calendario que generar (ver horario_id) —

@@ -38,8 +38,14 @@ class ReporteBonoAsistenciaService
                 $dias = ($resultados[$persona->id] ?? collect())->unique(fn ($r) => $r->fecha->toDateString());
                 $stats = ['dias_efectivos' => 0, 'descansos' => 0, 'tardanzas' => 0, 'faltas_justificadas' => 0,
                     'faltas_injustificadas' => 0, 'sin_huellero_completo' => 0, 'incumplimientos_turno' => 0,
-                    'dias_sin_clasificar' => 0, 'permisos_por_revisar' => 0];
+                    'dias_sin_clasificar' => 0, 'permisos_por_revisar' => 0, 'dias_en_revision' => 0];
                 foreach ($dias as $dia) {
+                    // Del 27 al cierre una falta no es falta (misma regla que
+                    // Nómina): no excluye del bono ni resta jornadas.
+                    if ($dia->esFaltaEnRevision()) {
+                        $stats['dias_en_revision']++;
+                        continue;
+                    }
                     $trabajoCompleto = $dia->entrada_at && $dia->salida_at && $dia->salida_at->gt($dia->entrada_at) && $dia->minutos_trabajados > 0;
                     // El colaborador sí asistió (hay marca de entrada) pero le falta o
                     // quedó fuera de horario la marca de salida — cuenta como día
@@ -74,7 +80,14 @@ class ReporteBonoAsistenciaService
                         }
                     }
                 }
-                $stats['dias_sin_resultado'] = max(0, $inicio->daysInMonth - $dias->count());
+                // Un día del 27 al cierre sin resultado tampoco es un dato
+                // faltante que bloquee: está en revisión como una falta.
+                $registrados = $dias->map(fn ($d) => $d->fecha->toDateString())->flip();
+                $stats['dias_sin_resultado'] = 0;
+                for ($fecha = $inicio->copy(); $fecha->lte($fin); $fecha->addDay()) {
+                    if ($registrados->has($fecha->toDateString())) continue;
+                    $fecha->day >= AsistenciaResultadoDiario::DIA_INICIO_REVISION ? $stats['dias_en_revision']++ : $stats['dias_sin_resultado']++;
+                }
                 $observaciones = [];
                 if ($fin->isFuture()) $observaciones[] = 'Mes en curso: evaluación provisional';
                 if ($persona->fecha_ingreso->gt($inicio) || ($persona->fecha_cese && $persona->fecha_cese->lt($fin))) $observaciones[] = 'Ingreso o cese durante el mes';
@@ -85,7 +98,7 @@ class ReporteBonoAsistenciaService
 
     public static function evaluar(array $s, array $observaciones = []): array
     {
-        if ($s['dias_efectivos'] + $s['faltas_justificadas'] < 26) $observaciones[] = 'No completa 26 jornadas (incluidas las faltas justificadas sujetas a excepción)';
+        if (self::jornadasComputables($s) < 26) $observaciones[] = 'No completa 26 jornadas (incluidas las faltas justificadas sujetas a excepción)';
         if ($s['descansos'] !== 4) $observaciones[] = 'Revisar los 4 descansos del mes';
         foreach (['sin_huellero_completo' => 'Revisar ingreso y salida del huellero', 'incumplimientos_turno' => 'Validar horario y autorizaciones previas',
             'dias_sin_clasificar' => 'Días sin clasificar', 'dias_sin_resultado' => 'Faltan resultados diarios',
@@ -100,8 +113,22 @@ class ReporteBonoAsistenciaService
             $observaciones[] = $s['faltas_injustificadas'] > 0 ? 'Falta injustificada: sin recuperación' : '3 o más tardanzas: sin recuperación';
         }
         if ($s['faltas_justificadas'] > 2) $observaciones[] = 'Más de 2 faltas justificadas: Gerencia debe definir el tratamiento';
+        $evaluacion = $excluido ? 'No cumple' : ($observaciones ? 'Requiere revisión' : 'Candidato');
+        // Nota informativa: no cambia la evaluación ni exige sustento.
+        if (($s['dias_en_revision'] ?? 0) > 0) {
+            $observaciones[] = "Del 27 al cierre: {$s['dias_en_revision']} día(s) sin marcación, no se consideran falta";
+        }
         return ['porcentaje_inicial' => $inicial, 'porcentaje_recuperable' => $recuperable,
-            'evaluacion' => $excluido ? 'No cumple' : ($observaciones ? 'Requiere revisión' : 'Candidato'),
+            'evaluacion' => $evaluacion,
             'observaciones' => implode('; ', $observaciones), 'aprobacion_gerencia' => 'Pendiente'];
+    }
+
+    /**
+     * Jornadas que cuentan para el mínimo de 26: efectivas, faltas
+     * justificadas y días del 27 al cierre en revisión (no son falta).
+     */
+    public static function jornadasComputables(array $s): int
+    {
+        return $s['dias_efectivos'] + $s['faltas_justificadas'] + ($s['dias_en_revision'] ?? 0);
     }
 }

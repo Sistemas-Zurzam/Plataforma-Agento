@@ -2,6 +2,7 @@
 
 namespace App\Modules\Asistencia\Http\Resources;
 
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -11,12 +12,15 @@ class AsistenciaColaboradorResource extends JsonResource
     {
         $asignacion = $this->asignacionesHorario->first();
         $resultados = $this->resultadosAsistencia->keyBy(fn ($resultado) => $resultado->fecha->toDateString());
+        $trabajados = $this->resultadosAsistencia->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA);
         $resumen = [
-            'dias_trabajados' => $this->resultadosAsistencia->where('estado', 'presente')->count(),
-            'faltas' => $this->resultadosAsistencia->where('estado', 'falta')->count(),
-            'tardanzas' => $this->resultadosAsistencia->where('minutos_tardanza', '>', 0)->count(),
+            'dias_trabajados' => $trabajados->count(),
+            'faltas' => $this->resultadosAsistencia->filter(fn ($r) => $r->estado === 'falta' && ! $r->esFaltaEnRevision())->count(),
+            'tardanzas' => $trabajados->where('minutos_tardanza', '>', 0)->count(),
             'minutos_extra' => $this->resultadosAsistencia->sum('minutos_extra_observados'),
-            'descansos_feriados' => $this->resultadosAsistencia->whereIn('tipo_dia', ['descanso', 'feriado'])->count(),
+            // Por estado real, no por tipo de día: un descanso trabajado ya
+            // cuenta en dias_trabajados y no debe contarse dos veces.
+            'descansos_feriados' => $this->resultadosAsistencia->whereIn('estado', ['descanso', 'feriado'])->count(),
             'home_office' => $this->resultadosAsistencia->where('estado', 'home_office')->count(),
         ];
 
@@ -38,7 +42,11 @@ class AsistenciaColaboradorResource extends JsonResource
             'incidencias_pendientes' => $this->incidenciasAsistencia->where('estado', 'pendiente')->count(),
             'resumen' => $resumen,
             'calendario' => $this->calendario->keyBy(fn ($dia) => $dia->fecha->toDateString())
-                ->map(fn ($dia) => $dia->tipo),
+                ->map(fn ($dia) => [
+                    'tipo' => $dia->tipo,
+                    'horario_excepcional_id' => $dia->horario_excepcional_id,
+                    'horario_excepcional' => $dia->horarioExcepcional?->nombre,
+                ]),
             'resultados' => $resultados->map(fn ($resultado) => [
                 'id' => $resultado->id,
                 'estado' => $resultado->estado,

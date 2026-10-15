@@ -3,6 +3,7 @@ import {
   BarChartOutlined,
   CalendarOutlined,
   CheckCircleOutlined,
+  ClockCircleOutlined,
   CreditCardOutlined,
   DeleteOutlined,
   DollarCircleOutlined,
@@ -32,15 +33,16 @@ import BoletasImprimirMasivoModal from '../../modules/remuneraciones/components/
 import ComprobanteRhModal from '../../modules/remuneraciones/components/ComprobanteRhModal';
 import ConfiguracionNominaModal from '../../modules/remuneraciones/components/ConfiguracionNominaModal';
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
-import LiquidacionesCeseTab from '../../modules/remuneraciones/components/LiquidacionesCeseTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
 import AportesPrevisionalesTab from '../../modules/remuneraciones/components/AportesPrevisionalesTab';
 import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCashModal';
 import NuevoCicloModal from '../../modules/remuneraciones/components/NuevoCicloModal';
+import EditarCorteAsistenciaModal from '../../modules/remuneraciones/components/EditarCorteAsistenciaModal';
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
 import ImportarComprobantesRhModal from '../../modules/remuneraciones/components/ImportarComprobantesRhModal';
 import PlanillasComplementariasModal from '../../modules/remuneraciones/components/PlanillasComplementariasModal';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
+import AgregarHorasExtraBoletaModal from '../../modules/remuneraciones/components/AgregarHorasExtraBoletaModal';
 import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
 import TelecreditoBcpModal from '../../modules/remuneraciones/components/TelecreditoBcpModal';
 import { useRemuneraciones } from '../../modules/remuneraciones/hooks/useRemuneraciones';
@@ -216,7 +218,7 @@ function DetalleBoleta({ boletaId, verBoleta }) {
 export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const { message, modal } = App.useApp();
   const {
-    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
+    ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, actualizarCorteAsistencia, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
     resumen, fetchResumen, fetchResumenContable, fetchReporteEjecutivoDatos,
     verBoleta, imprimirBoletasMasivo, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
@@ -224,7 +226,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
     actualizarConfiguracionNomina,
-    fetchConceptosPeriodo, registrarConceptoPeriodo, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
+    fetchConceptosPeriodo, registrarConceptoPeriodo, registrarHorasExtraEnBoleta, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
     previsualizacion, previsualizacionLoading, fetchPrevisualizacion,
     aportesPrevisionales, aportesPrevisionalesLoading, fetchAportesPrevisionales,
     fetchPlameValidacion, exportarPlame,
@@ -244,6 +246,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [busquedaPrevisualizacion, setBusquedaPrevisualizacion] = useState('');
   const [nuevoCicloOpen, setNuevoCicloOpen] = useState(false);
   const [cicloEditar, setCicloEditar] = useState(null);
+  const [cicloCorteEditar, setCicloCorteEditar] = useState(null);
   const [creandoCiclo, setCreandoCiclo] = useState(false);
   const [calculando, setCalculando] = useState(false);
   const [exportandoPlanilla, setExportandoPlanilla] = useState(false);
@@ -258,6 +261,8 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [conceptosPeriodo, setConceptosPeriodo] = useState([]);
   const [conceptosPeriodoLoading, setConceptosPeriodoLoading] = useState(false);
   const [registrandoConcepto, setRegistrandoConcepto] = useState(false);
+  const [boletaHorasExtra, setBoletaHorasExtra] = useState(null);
+  const [guardandoHorasExtra, setGuardandoHorasExtra] = useState(false);
 
   const [tipoFiltro, setTipoFiltro] = useState(null);
   const [busquedaPlanilla, setBusquedaPlanilla] = useState('');
@@ -403,6 +408,20 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       fetchCiclos();
     } catch (err) {
       message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo actualizar el ciclo');
+    } finally {
+      setCreandoCiclo(false);
+    }
+  };
+
+  const handleActualizarCorteAsistencia = async (fechaCorte) => {
+    setCreandoCiclo(true);
+    try {
+      await actualizarCorteAsistencia(cicloCorteEditar.id, fechaCorte);
+      message.success('Corte actualizado. La planilla quedó marcada para recálculo.');
+      setCicloCorteEditar(null);
+      await fetchCiclos();
+    } catch (err) {
+      message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudo actualizar el corte');
     } finally {
       setCreandoCiclo(false);
     }
@@ -693,6 +712,22 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     }
   };
 
+  const handleRegistrarHorasExtraBoleta = async (values) => {
+    if (!boletaHorasExtra) return;
+    setGuardandoHorasExtra(true);
+    try {
+      await registrarHorasExtraEnBoleta(boletaHorasExtra.ciclo_id, boletaHorasExtra.colaborador.id, values);
+      message.success('Horas extra registradas. Se recalculó esta boleta y la versión previa quedó en el historial.');
+      setBoletaHorasExtra(null);
+      recargar();
+      fetchCiclos();
+    } catch (err) {
+      message.error(err.response?.data?.errors ? Object.values(err.response.data.errors)[0][0] : 'No se pudieron agregar las horas extra');
+    } finally {
+      setGuardandoHorasExtra(false);
+    }
+  };
+
   const handleRegistrarConcepto = async (colaboradorId, values) => {
     setRegistrandoConcepto(true);
     try {
@@ -768,6 +803,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       width: 200,
       render: (_, c) => `${c.fecha_inicio} — ${c.fecha_fin}`,
     },
+    {
+      title: 'Corte de asistencia',
+      dataIndex: 'fecha_corte_asistencia',
+      width: 170,
+      render: (fecha) => fecha ?? '—',
+    },
     { title: 'Fecha de pago', dataIndex: 'fecha_pago', width: 130 },
     {
       title: 'Estado',
@@ -796,6 +837,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           {puedeGestionarCiclos && (ciclo.boletas_count ?? 0) === 0 && (
             <Tooltip title="Editar fechas del ciclo">
               <Button size="small" icon={<EditOutlined />} onClick={() => setCicloEditar(ciclo)} />
+            </Tooltip>
+          )}
+          {puedeGestionarCiclos && ['abierto', 'calculado', 'reabierto'].includes(ciclo.estado) && (
+            <Tooltip title="Cambiar corte de asistencia">
+              <Button size="small" icon={<CalendarOutlined />} onClick={() => setCicloCorteEditar(ciclo)} />
             </Tooltip>
           )}
           {puedeGestionarCiclos && (ciclo.boletas_count ?? 0) === 0 && (
@@ -887,7 +933,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     {
       title: 'Acciones',
       key: 'acciones',
-      width: 200,
+      width: 230,
       render: (_, boleta) => (
         <div className="flex items-center gap-1">
           <Tooltip title={boleta.estado === 'pagada' ? 'Descargar boleta oficial' : 'Vista previa — documento no oficial (aún no está pagada)'}>
@@ -901,6 +947,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           <Tooltip title="Configuración de planilla">
             <Button size="small" type="text" icon={<SettingOutlined />} onClick={() => abrirConfiguracion(boleta)} disabled={!puedeGestionarCiclos} />
           </Tooltip>
+          {boleta.estado === 'calculada' && puedeCalcular && (
+            <Tooltip title="Agregar horas extra y recalcular esta boleta">
+              <Button size="small" type="text" icon={<ClockCircleOutlined />} onClick={() => setBoletaHorasExtra(boleta)} />
+            </Tooltip>
+          )}
           <Tooltip title={boleta.regimen_laboral === 'Locacion de Servicios' ? 'Registrar descuento (adelanto, error operativo, compra de mercadería)' : 'Registrar comisión / bono / adelanto / descuento'}>
             <Button size="small" type="text" icon={<WalletOutlined />} onClick={() => abrirConceptos(boleta)} disabled={!puedeGestionarCiclos} />
           </Tooltip>
@@ -923,7 +974,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       ),
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [puedeGestionarCiclos, puedeAprobar, puedePagar]);
+  ], [puedeGestionarCiclos, puedeCalcular, puedeAprobar, puedePagar]);
 
   const columnasPrevisualizacion = useMemo(() => [
     {
@@ -1279,11 +1330,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             ),
           },
           {
-            key: 'liquidaciones',
-            label: 'Liquidaciones',
-            children: <LiquidacionesCeseTab empresaId={user?.empresa?.id} puedeAprobar={puedeAprobar} puedePagar={puedePagar} />,
-          },
-          {
             key: 'documentacion',
             label: 'Documentación',
             disabled: true,
@@ -1298,6 +1344,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         onCancel={() => { setNuevoCicloOpen(false); setCicloEditar(null); }}
         onSubmit={cicloEditar ? handleActualizarCiclo : handleCrearCiclo}
         loading={creandoCiclo}
+      />
+      <EditarCorteAsistenciaModal
+        open={!!cicloCorteEditar}
+        ciclo={cicloCorteEditar}
+        loading={creandoCiclo}
+        onCancel={() => setCicloCorteEditar(null)}
+        onSubmit={handleActualizarCorteAsistencia}
       />
 
       <ConfiguracionNominaModal
@@ -1321,6 +1374,15 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         conceptosLoading={conceptosPeriodoLoading}
         catalogo={catalogoConceptos}
         esHonorarios={conceptoEsHonorarios}
+      />
+
+      <AgregarHorasExtraBoletaModal
+        open={!!boletaHorasExtra}
+        onCancel={() => setBoletaHorasExtra(null)}
+        onSubmit={handleRegistrarHorasExtraBoleta}
+        loading={guardandoHorasExtra}
+        boleta={boletaHorasExtra}
+        ciclo={ciclos.find((c) => c.id === boletaHorasExtra?.ciclo_id)}
       />
 
       <BoletaImprimibleModal

@@ -79,9 +79,13 @@ class ProcesarAsistenciaDiaria
             ? (int) max(0, $entrada->diffInMinutes($salida) - $this->minutosRefrigerio($fecha, $horarioDia))
             : 0;
         $tolerancia = $colaborador->tolerancia_particular_minutos
-            ?? $jornada['asignacion']?->horario?->tolerancia_minutos
+            ?? $jornada['horario']?->tolerancia_minutos
             ?? 0;
-        $tardanza = ! $permiso && $entrada && $inicioProgramado && $esLaborable
+        // Una sola marca no prueba una jornada trabajada: puede ser una
+        // entrada sin salida, una salida aislada o una marca mal asociada.
+        // Mientras la incidencia MI no se resuelva, no puede descontarse una
+        // tardanza ficticia (ej. una única marca a las 18:45 = 585 minutos).
+        $tardanza = ! $permiso && $entrada && $salida && $inicioProgramado && $esLaborable
             ? (int) max(0, $inicioProgramado->diffInMinutes($entrada, false) - $tolerancia)
             : 0;
         $salidaAnticipada = ! $permiso && $salida && $finProgramado && $esLaborable
@@ -295,7 +299,25 @@ class ProcesarAsistenciaDiaria
                 $query->where('colaborador_id', $colaborador->id)
                     ->orWhere('person_id', $colaborador->numero_documento);
             })
-            ->whereBetween('marcado_at', [$desde, $hasta])
+            // Una salida excepcional vinculada por RR.HH. puede pertenecer
+            // al día anterior aun si el horario normal no es nocturno. La
+            // marca conserva su timestamp crudo y solo se usa fuera de su
+            // fecha original cuando existe esta decisión auditada.
+            ->where(function ($query) use ($desde, $hasta, $fecha) {
+                $query->whereBetween('marcado_at', [$desde, $hasta])
+                    // RR.HH. ingresó o confirmó explícitamente esta marca;
+                    // no debe perderse por el margen automático de 6 h
+                    // (p. ej. salida real 20:21 en turno que acaba 14:00).
+                    ->orWhere(function ($manual) use ($fecha) {
+                        $manual->where('origen', 'manual_rrhh')
+                            ->whereDate('marcado_at', $fecha->toDateString());
+                    })
+                    ->orWhere('datos_origen->vinculada_a_fecha', $fecha->toDateString());
+            })
+            ->where(function ($query) use ($fecha) {
+                $query->whereNull('datos_origen->vinculada_a_fecha')
+                    ->orWhere('datos_origen->vinculada_a_fecha', $fecha->toDateString());
+            })
             ->orderBy('marcado_at')
             ->get();
     }

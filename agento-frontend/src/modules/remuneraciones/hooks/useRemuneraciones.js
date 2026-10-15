@@ -45,6 +45,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const actualizarCorteAsistencia = useCallback(async (cicloId, fecha_corte_asistencia) => {
+    const { data } = await api.patch(`/ciclos-remunerativos/${cicloId}/corte-asistencia`, { fecha_corte_asistencia });
+    return data.data;
+  }, []);
+
   const eliminarCiclo = useCallback(async (cicloId) => {
     await api.delete(`/ciclos-remunerativos/${cicloId}`);
   }, []);
@@ -389,6 +394,11 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const registrarHorasExtraEnBoleta = useCallback(async (cicloId, colaboradorId, values) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/horas-extra-manuales`, values);
+    return data.data;
+  }, []);
+
   const actualizarConceptoPeriodo = useCallback(async (cicloId, colaboradorId, conceptoPeriodoId, values) => {
     const { data } = await api.put(`/ciclos-remunerativos/${cicloId}/colaboradores/${colaboradorId}/conceptos/${conceptoPeriodoId}`, values);
     return data.data;
@@ -531,9 +541,15 @@ export function useRemuneraciones() {
     window.URL.revokeObjectURL(url);
   }, []);
 
-  const exportarReporteEjecutivoExcel = useCallback(async ({ periodo, estado, categoria }) => {
+  const exportarReporteEjecutivoExcel = useCallback(async ({ periodo, estado, categoria, empresaId, cargos }) => {
     const response = await api.get('/ciclos-remunerativos-reporte-ejecutivo/excel', {
-      params: { periodo, estado: estado || undefined, categoria: categoria || undefined },
+      params: {
+        periodo,
+        estado: estado || undefined,
+        categoria: categoria || undefined,
+        empresa_id: empresaId || undefined,
+        cargos: cargos?.length ? cargos : undefined,
+      },
       responseType: 'blob',
     });
     const disposicion = response.headers?.['content-disposition'] ?? '';
@@ -671,7 +687,7 @@ export function useRemuneraciones() {
     ciclosLoading,
     fetchCiclos,
     crearCiclo,
-    actualizarCiclo,
+    actualizarCiclo, actualizarCorteAsistencia,
     eliminarCiclo,
     calcularPlanilla,
     fetchEstadoCalculo,
@@ -737,6 +753,7 @@ export function useRemuneraciones() {
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo,
     registrarConceptoPeriodo,
+    registrarHorasExtraEnBoleta,
     actualizarConceptoPeriodo,
     eliminarConceptoPeriodo,
     previsualizacion,

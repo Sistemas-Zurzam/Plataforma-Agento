@@ -3,11 +3,14 @@
 namespace App\Modules\Nominas\Services;
 
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
+use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
+use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
 use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -16,6 +19,8 @@ use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Jobs\CalcularPlanillaJob;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
+use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Collection;
@@ -30,7 +35,107 @@ class BoletaService
         private readonly CalcularReciboHonorarios $calculadorHonorarios,
         private readonly IncidenciasPendientesNominaService $incidenciasPendientes,
         private readonly VerificarConsistenciaAsistenciaCiclo $consistenciaAsistencia,
+        private readonly AsistenciaAuditoriaService $auditoria,
     ) {}
+
+    public function registrarHorasExtraEnBoleta(
+        Empresa $empresa,
+        CicloRemunerativo $ciclo,
+        Colaborador $colaborador,
+        string $fecha,
+        int $minutos,
+        string $tasa,
+        string $motivo,
+        int $usuarioId,
+    ): Boleta {
+        $this->verificarPertenencia($empresa, $ciclo);
+        if ($ciclo->estado !== 'calculado' || $ciclo->calculo_estado === 'en_proceso') {
+            throw ValidationException::withMessages(['estado' => 'Las horas extra se pueden agregar a ciclos calculados que no estén recalculándose.']);
+        }
+        if ($ciclo->requiere_recalculo) {
+            $ultimaCorridaCubreCambios = $ciclo->calculo_estado === 'completado'
+                && $ciclo->calculo_finalizado_at
+                && (! $ciclo->recalculo_detectado_at || $ciclo->calculo_finalizado_at->greaterThanOrEqualTo($ciclo->recalculo_detectado_at))
+                && empty($ciclo->calculo_resultado['omitidas'] ?? []);
+
+            if (! $ultimaCorridaCubreCambios) {
+                throw ValidationException::withMessages(['estado' => 'El ciclo tiene cambios pendientes de recalcular. Recalcula la planilla antes de agregar horas extra manuales.']);
+            }
+
+            // Compatibilidad con ciclos recalculados antes de que el proceso
+            // limpiara esta marca automáticamente.
+            $ciclo->update([
+                'requiere_recalculo' => false,
+                'recalculo_motivo' => null,
+                'recalculo_detectado_at' => null,
+            ]);
+        }
+        if ((int) $colaborador->empresa_id !== (int) $empresa->id) {
+            throw ValidationException::withMessages(['colaborador_id' => 'El colaborador no pertenece a la empresa del ciclo.']);
+        }
+        if ($fecha < $ciclo->fecha_inicio->toDateString() || $fecha > $ciclo->fecha_fin->toDateString()) {
+            throw ValidationException::withMessages(['fecha' => 'La fecha debe estar dentro del período de la planilla.']);
+        }
+        $condicion = ColaboradorCondicionLaboral::vigenteEn($colaborador->id, $fecha);
+        if ($condicion?->es_trabajador_confianza || ! ($condicion?->contabilizar_horas_extra ?? $colaborador->contabilizar_horas_extra ?? true)) {
+            throw ValidationException::withMessages(['colaborador_id' => 'El colaborador no tiene habilitado el pago de horas extra en la fecha indicada.']);
+        }
+        return DB::transaction(function () use ($empresa, $ciclo, $colaborador, $fecha, $minutos, $tasa, $motivo, $usuarioId) {
+            $boleta = Boleta::query()->where('ciclo_id', $ciclo->id)
+                ->where('colaborador_id', $colaborador->id)
+                ->where('es_version_vigente', true)
+                ->lockForUpdate()->first();
+            if (! $boleta || $boleta->estado !== 'calculada') {
+                throw ValidationException::withMessages(['boleta' => 'La boleta debe estar calculada y aún no aprobada para agregar horas extra.']);
+            }
+
+            $horaExtra = AsistenciaHoraExtra::withoutGlobalScopes()
+                ->where('empresa_id', $empresa->id)
+                ->where('colaborador_id', $colaborador->id)
+                ->whereDate('fecha', $fecha)
+                ->where('tasa', $tasa)
+                ->where('origen', 'planilla')
+                ->lockForUpdate()->first();
+            if ($horaExtra) {
+                throw ValidationException::withMessages(['tasa' => 'Ya se registraron horas manuales con esta fecha y tasa.']);
+            }
+
+            $salarioEnFecha = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
+                ->whereDate('vigencia_desde', '<=', $fecha)
+                ->orderByDesc('vigencia_desde')->orderByDesc('id')->value('salario');
+            $salarioBase = $salarioEnFecha !== null ? (float) $salarioEnFecha : (float) $boleta->sueldo_basico_snapshot;
+            if ($salarioBase <= 0) {
+                throw ValidationException::withMessages(['fecha' => 'No hay una remuneración histórica ni una remuneración en la boleta para calcular este importe.']);
+            }
+
+            $horaExtra = new AsistenciaHoraExtra();
+            $horaExtra->resultado_diario_id = null;
+            $horaExtra->empresa_id = $empresa->id;
+            $horaExtra->colaborador_id = $colaborador->id;
+            $horaExtra->fecha = $fecha;
+            $horaExtra->tasa = $tasa;
+            $horaExtra->origen = 'planilla';
+
+            $horaExtra->fill([
+                'minutos_observados' => $minutos,
+                'minutos_solicitados' => $minutos,
+                'minutos_aprobados' => $minutos,
+                'estado' => AsistenciaHoraExtra::ESTADO_APROBADO,
+                'motivo' => $motivo,
+                'resuelto_por' => $usuarioId,
+                'resuelto_at' => now(),
+            ])->save();
+
+            $this->auditoria->registrar($empresa->id, $usuarioId, 'hora_extra_manual_planilla', $horaExtra,
+                $motivo, null, $horaExtra->toArray());
+
+            return $this->calcularBoletaColaborador(
+                $ciclo, $colaborador, $usuarioId,
+                "Horas extra agregadas desde planilla: {$minutos} min al {$tasa}% el {$fecha}.",
+                $salarioBase,
+            );
+        });
+    }
 
     /**
      * @param  string|null  $tipo  'planilla' | 'honorarios' | null (ambos) —
@@ -359,7 +464,8 @@ class BoletaService
     public function calcularPlanilla(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): array
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
+        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin'], exigirPeriodoCerrado: false);
 
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([
@@ -385,7 +491,15 @@ class BoletaService
             }
         }
 
-        $ciclo->update(['estado' => 'calculado']);
+        $actualizacion = ['estado' => 'calculado'];
+        if ($omitidas === []) {
+            $actualizacion += [
+                'requiere_recalculo' => false,
+                'recalculo_motivo' => null,
+                'recalculo_detectado_at' => null,
+            ];
+        }
+        $ciclo->update($actualizacion);
 
         return ['procesadas' => $procesadas, 'omitidas' => $omitidas];
     }
@@ -401,7 +515,8 @@ class BoletaService
     public function iniciarCalculoAsync(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
+        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin'], exigirPeriodoCerrado: false);
 
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([
@@ -427,9 +542,9 @@ class BoletaService
         return $ciclo;
     }
 
-    private function calcularBoletaColaborador(CicloRemunerativo $ciclo, Colaborador $colaborador, int $usuarioId, ?string $motivoRecalculo): Boleta
+    private function calcularBoletaColaborador(CicloRemunerativo $ciclo, Colaborador $colaborador, int $usuarioId, ?string $motivoRecalculo, ?float $salarioBaseOverride = null): Boleta
     {
-        return DB::transaction(function () use ($ciclo, $colaborador, $usuarioId, $motivoRecalculo) {
+        return DB::transaction(function () use ($ciclo, $colaborador, $usuarioId, $motivoRecalculo, $salarioBaseOverride) {
             // Único punto de bifurcación entre los dos motores (Sección de
             // Recibos por Honorarios acordada con el usuario): un locador
             // nunca entra a CalcularBoletaColaborador ni a
@@ -444,18 +559,16 @@ class BoletaService
                 || $colaborador->regimen_laboral === 'Locacion de Servicios';
             $calculador = $esHonorarios ? $this->calculadorHonorarios : $this->calculador;
 
-            $resultado = $calculador->calcular(
+            $argumentosBase = [
                 $colaborador,
                 $ciclo->fecha_inicio->toDateString(),
                 $ciclo->fecha_fin->toDateString(),
                 $ciclo->fecha_corte_asistencia->toDateString(),
                 $ciclo->id,
-                // V3 Fase 6F.2.3 — únicamente para resolver la RMA de
-                // AFP_PRIMA_SEGURO (Fase 6F.2.2); CalcularReciboHonorarios
-                // ignora este 6to argumento (su firma no lo declara — PHP
-                // no falla por argumentos posicionales de más).
-                $ciclo->fecha_pago->toDateString(),
-            );
+            ];
+            $resultado = $esHonorarios
+                ? $calculador->calcular(...[...$argumentosBase, $salarioBaseOverride])
+                : $calculador->calcular(...[...$argumentosBase, $ciclo->fecha_pago->toDateString(), $salarioBaseOverride]);
 
             $versionAnterior = Boleta::where('ciclo_id', $ciclo->id)
                 ->where('colaborador_id', $colaborador->id)
@@ -676,7 +789,16 @@ class BoletaService
     private function colaboradoresElegibles(Empresa $empresa, string $fechaInicio, string $fechaFin)
     {
         return Colaborador::where('empresa_id', $empresa->id)
-            ->where('activo', true)
+            // Un cesado queda inactivo, pero igual cobra en la planilla del
+            // período de su cese (hasta esa fecha, ver ProrateoCese).
+            ->where(fn ($query) => $query->where('activo', true)->orWhereNotNull('fecha_cese'))
+            // Cesados con el flujo anterior: su último mes ya se pagó dentro
+            // de la liquidación ("legado" con remuneración incluida).
+            ->whereNotExists(fn ($query) => $query->select(DB::raw(1))->from('liquidaciones_cese')
+                ->whereColumn('liquidaciones_cese.colaborador_id', 'colaboradores.id')
+                ->where('liquidaciones_cese.modo', 'legado')
+                ->where('liquidaciones_cese.incluir_remuneracion', true)
+                ->where('liquidaciones_cese.estado', '!=', 'anulada'))
             ->whereDate('fecha_ingreso', '<=', $fechaFin)
             ->where(fn ($query) => $query->whereNull('fecha_cese')->orWhereDate('fecha_cese', '>=', $fechaInicio))
             ->get();

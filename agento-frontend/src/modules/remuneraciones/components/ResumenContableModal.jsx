@@ -23,6 +23,8 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
   const [periodo, setPeriodo] = useState(dayjs());
   const [estado, setEstado] = useState(null);
   const [categoria, setCategoria] = useState(null);
+  const [empresaExport, setEmpresaExport] = useState(null);
+  const [cargosExport, setCargosExport] = useState([]);
   const [resultado, setResultado] = useState(null);
   const [loading, setLoading] = useState(false);
   const [exportando, setExportando] = useState(false);
@@ -33,6 +35,8 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
     setPeriodo(ciclo?.fecha_inicio ? dayjs(ciclo.fecha_inicio) : dayjs());
     setEstado(null);
     setCategoria(null);
+    setEmpresaExport(null);
+    setCargosExport([]);
   }, [open, ciclo?.fecha_inicio]);
 
   useEffect(() => {
@@ -93,6 +97,32 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
 
   const totales = resultado?.totales;
 
+  const opcionesEmpresa = useMemo(() => (resultado?.empresas ?? [])
+    .map((fila) => ({ value: fila.empresa_id, label: fila.empresa })), [resultado]);
+
+  // Sin empresa elegida se listan los cargos de todas, sin repetir.
+  const opcionesCargo = useMemo(() => {
+    const cargos = (resultado?.cargos ?? [])
+      .filter((fila) => !empresaExport || fila.empresa_id === empresaExport)
+      .map((fila) => fila.cargo);
+    return [...new Set(cargos)].sort((a, b) => a.localeCompare(b)).map((cargo) => ({ value: cargo, label: cargo }));
+  }, [resultado, empresaExport]);
+
+  // Al cambiar empresa o filtros, se descartan cargos que ya no aplican.
+  useEffect(() => {
+    const vigentes = new Set(opcionesCargo.map((opcion) => opcion.value));
+    setCargosExport((actuales) => {
+      const filtrados = actuales.filter((cargo) => vigentes.has(cargo));
+      return filtrados.length === actuales.length ? actuales : filtrados;
+    });
+  }, [opcionesCargo]);
+
+  useEffect(() => {
+    if (empresaExport && resultado && !resultado.empresas?.some((fila) => fila.empresa_id === empresaExport)) {
+      setEmpresaExport(null);
+    }
+  }, [resultado, empresaExport]);
+
   const handleExportarExcel = async () => {
     if (!periodo) return;
 
@@ -102,10 +132,16 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
         periodo: periodo.format('YYYY-MM'),
         estado: estado || undefined,
         categoria: categoria || undefined,
+        empresaId: empresaExport || undefined,
+        cargos: cargosExport,
       });
       message.success('Reporte ejecutivo de remuneraciones generado');
-    } catch {
-      message.error('No se pudo generar el reporte ejecutivo de remuneraciones');
+    } catch (error) {
+      // responseType blob: el mensaje de error del backend llega como Blob.
+      const texto = error.response?.data instanceof Blob ? await error.response.data.text().catch(() => '') : '';
+      let detalle = null;
+      try { detalle = JSON.parse(texto)?.message; } catch { /* respuesta sin JSON */ }
+      message.error(detalle ?? 'No se pudo generar el reporte ejecutivo de remuneraciones');
     } finally {
       setExportando(false);
     }
@@ -123,10 +159,10 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
       <div className="space-y-4">
         <p className="text-sm text-gray-500">Consolidado transversal de todas las empresas a las que tienes acceso. No modifica el ciclo seleccionado.</p>
 
-        <div className="flex flex-wrap items-center gap-2">
-          <DatePicker picker="month" value={periodo} onChange={setPeriodo} format="MMMM YYYY" allowClear={false} />
+        <div className="flex flex-wrap items-center gap-2 lg:flex-nowrap">
+          <DatePicker className="w-36 shrink-0" picker="month" value={periodo} onChange={setPeriodo} format="MMM YYYY" allowClear={false} />
           <Select
-            className="w-40"
+            className="w-36 shrink-0"
             value={estado ?? 'todos'}
             onChange={(valor) => setEstado(valor === 'todos' ? null : valor)}
             options={[
@@ -140,23 +176,44 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
             ]}
           />
           <Select
-            className="w-48"
+            className="w-40 shrink-0"
             value={categoria ?? 'todos'}
             onChange={(valor) => setCategoria(valor === 'todos' ? null : valor)}
             options={[
-              { value: 'todos', label: '4ta y 5ta categoría' },
-              { value: 'planilla', label: '5ta categoría' },
-              { value: 'honorarios', label: '4ta categoría' },
+              { value: 'todos', label: 'Planilla y RH' },
+              { value: 'planilla', label: 'Solo planilla (5ta)' },
+              { value: 'honorarios', label: 'Solo RH (4ta)' },
             ]}
           />
-          <div className="ml-auto flex gap-2">
-            <Tooltip title="Reporte ejecutivo de remuneraciones: desglose de AFP/ONP y ESSALUD por colaborador, agrupado por empresa">
-              <Button icon={<FileExcelOutlined />} loading={exportando} onClick={handleExportarExcel}>Excel</Button>
-            </Tooltip>
-            <Tooltip title="Reporte ejecutivo de remuneraciones, listo para guardar como PDF desde el navegador">
-              <Button icon={<FilePdfOutlined />} onClick={() => setPdfModalOpen(true)}>PDF</Button>
-            </Tooltip>
-          </div>
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            className="w-40 shrink-0"
+            placeholder="Empresa: todas"
+            value={empresaExport}
+            onChange={(valor) => setEmpresaExport(valor ?? null)}
+            options={opcionesEmpresa}
+          />
+          <Select
+            mode="multiple"
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            maxTagCount="responsive"
+            className="min-w-48 flex-1"
+            placeholder="Cargos: todos (puedes elegir varios)"
+            value={cargosExport}
+            onChange={setCargosExport}
+            options={opcionesCargo}
+            notFoundContent="Sin cargos en este período"
+          />
+          <Tooltip title="Reporte ejecutivo de remuneraciones: desglose de AFP/ONP y ESSALUD por colaborador, agrupado por empresa. Respeta estado, Planilla/RH, empresa y cargos.">
+            <Button className="shrink-0" icon={<FileExcelOutlined />} loading={exportando} onClick={handleExportarExcel}>Excel</Button>
+          </Tooltip>
+          <Tooltip title="Reporte ejecutivo de remuneraciones, listo para guardar como PDF desde el navegador. Respeta estado, Planilla/RH, empresa y cargos.">
+            <Button className="shrink-0" icon={<FilePdfOutlined />} onClick={() => setPdfModalOpen(true)}>PDF</Button>
+          </Tooltip>
         </div>
 
         <Table
@@ -193,6 +250,8 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
         periodo={periodo?.format('YYYY-MM')}
         estado={estado || undefined}
         categoria={categoria || undefined}
+        empresaId={empresaExport || undefined}
+        cargos={cargosExport}
         fetchReporteEjecutivoDatos={fetchReporteEjecutivoDatos}
       />
     </Modal>

@@ -7,14 +7,17 @@ function soles(valor) {
   return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+// Fecha sin hora: se toma la parte YYYY-MM-DD tal cual, sin pasar por la
+// zona horaria del navegador (evita mostrar un día menos).
+const fecha = (valor) => (valor ? String(valor).slice(0, 10).split('-').reverse().join('/') : '—');
+
 const ESTADOS = { calculada: 'blue', aprobada: 'cyan', pagada: 'green', anulada: 'red' };
+const MODOS = { asistido: 'Cálculo asistido', manual: 'Cálculo manual', legado: 'Liquidación anterior (incluye sueldo del mes)' };
+const MEDIOS = { transferencia: 'Transferencia', cheque: 'Cheque', efectivo: 'Efectivo', otro: 'Otro' };
 
 /**
- * Vista imprimible de una liquidación por cese — mismo patrón que
- * BoletaImprimibleModal: window.print() con CSS que oculta el resto de la
- * página, sin generar PDF en el backend. Muestra también los conceptos
- * marcados como no incluidos (tachados) porque forman parte del respaldo
- * de por qué el neto quedó en ese monto, no solo el detalle final.
+ * Hoja de liquidación de beneficios por cese — window.print() con CSS que
+ * oculta el resto de la página, mismo patrón que BoletaImprimibleModal.
  */
 export default function LiquidacionImprimibleModal({ open, onCancel, liquidacionId }) {
   const [detalle, setDetalle] = useState(null);
@@ -31,7 +34,24 @@ export default function LiquidacionImprimibleModal({ open, onCancel, liquidacion
   }, [open, liquidacionId]);
 
   const conceptos = detalle?.conceptos ?? [];
+  const ingresos = conceptos.filter((c) => c.tipo === 'ingreso');
+  const egresos = conceptos.filter((c) => c.tipo === 'egreso');
   const esOficial = detalle?.estado === 'pagada';
+  const colaborador = detalle?.colaborador;
+
+  const filas = (lista) => lista.map((c) => (
+    <tr key={c.id} className={`border-b border-gray-100 ${c.tipo === 'egreso' ? 'text-red-600' : ''}`}>
+      <td className="py-1 pr-2">
+        {c.nombre}
+        {c.origen === 'ajustado' && <span className="ml-1 text-[10px] font-semibold text-amber-600">(ajustado)</span>}
+        {c.origen === 'manual' && <span className="ml-1 text-[10px] font-semibold text-gray-500">(manual)</span>}
+        {c.formula_texto && <span className="block text-[10px] text-gray-400">{c.formula_texto}</span>}
+        {c.origen === 'ajustado' && <span className="block text-[10px] text-amber-700">Calculado: {soles(c.monto_calculado)} · Motivo: {c.motivo_ajuste}</span>}
+        {c.origen === 'manual' && c.motivo_ajuste && <span className="block text-[10px] text-gray-500">Sustento: {c.motivo_ajuste}</span>}
+      </td>
+      <td className="py-1 text-right font-medium">{c.tipo === 'egreso' ? '-' : ''}{soles(c.monto)}</td>
+    </tr>
+  ));
 
   return (
     <Modal
@@ -44,7 +64,7 @@ export default function LiquidacionImprimibleModal({ open, onCancel, liquidacion
           {esOficial ? 'Descargar liquidación oficial' : 'Imprimir vista previa'}
         </Button>,
       ]}
-      width={{ xs: '95%', sm: '85%', md: 640 }}
+      width={{ xs: '95%', sm: '85%', md: 680 }}
       destroyOnHidden
     >
       {loading || !detalle ? (
@@ -58,27 +78,45 @@ export default function LiquidacionImprimibleModal({ open, onCancel, liquidacion
           )}
           <div className="mb-4 flex items-start justify-between border-b border-gray-100 pb-3">
             <div>
-              <p className="text-lg font-semibold text-gray-900">{`${detalle.colaborador?.nombres ?? ''} ${detalle.colaborador?.apellidos ?? ''}`.trim()}</p>
-              <p className="text-xs text-gray-500">{detalle.colaborador?.legajo}</p>
-              <p className="text-xs text-gray-500">Fecha de cese: {detalle.fecha_cese} · Régimen: {detalle.regimen_laboral_snapshot}</p>
-              <p className="text-xs text-gray-500">Motivo: {detalle.motivo_cese}</p>
+              <p className="text-lg font-semibold text-gray-900">{`${colaborador?.nombres ?? ''} ${colaborador?.apellidos ?? ''}`.trim()}</p>
+              <p className="text-xs text-gray-500">{colaborador?.tipo_documento?.toUpperCase()} {colaborador?.numero_documento} · {colaborador?.cargo}</p>
+              <p className="text-xs text-gray-500">Período laborado: {fecha(colaborador?.fecha_ingreso)} al {fecha(detalle.fecha_cese)} · Régimen: {detalle.regimen_laboral_snapshot}</p>
+              <p className="text-xs text-gray-500">Motivo de cese: {detalle.motivo_cese}</p>
+              <p className="text-xs text-gray-500">{MODOS[detalle.modo] ?? detalle.modo}</p>
             </div>
             <Tag color={ESTADOS[detalle.estado]}>{detalle.estado} — v{detalle.version}</Tag>
           </div>
 
           <table className="w-full border-collapse text-sm">
             <tbody>
-              {conceptos.map((c) => (
-                <tr key={c.id} className={`border-b border-gray-100 ${c.tipo === 'egreso' ? 'text-red-600' : ''}`}>
-                  <td className="py-1 pr-2">
-                    {c.nombre}
-                    {c.formula_texto && <span className="block text-[10px] text-gray-400">{c.formula_texto}</span>}
-                  </td>
-                  <td className="py-1 text-right font-medium">{c.tipo === 'egreso' ? '-' : ''}{soles(c.monto)}</td>
-                </tr>
-              ))}
+              <tr><td colSpan={2} className="pt-1 pb-1 text-xs font-semibold text-gray-500 uppercase">Ingresos</td></tr>
+              {filas(ingresos)}
+              {egresos.length > 0 && <tr><td colSpan={2} className="pt-3 pb-1 text-xs font-semibold text-gray-500 uppercase">Descuentos</td></tr>}
+              {filas(egresos)}
             </tbody>
           </table>
+
+          <div className="mt-3 space-y-1 border-t border-gray-200 pt-3 text-sm">
+            <div className="flex justify-between"><span>Total ingresos</span><span className="font-semibold text-green-600">{soles(detalle.total_ingresos)}</span></div>
+            <div className="flex justify-between"><span>Total descuentos</span><span className="font-semibold text-red-500">{soles(detalle.total_egresos)}</span></div>
+            <div className="flex justify-between text-base"><span className="font-semibold">Neto a pagar</span><span className="font-bold">{soles(detalle.neto_pagar)}</span></div>
+          </div>
+
+          {detalle.datos_calculo && (
+            <div className="mt-3 text-[11px] text-gray-600">
+              <p className="font-semibold">Datos del cálculo</p>
+              <ul className="mt-1 grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+                {Object.entries(detalle.datos_calculo).map(([clave, d]) => (
+                  <li key={clave}>
+                    {d.etiqueta}: <strong>{d.tipo === 'monto' ? soles(d.valor) : d.tipo === 'fecha' ? fecha(d.valor) : d.tipo === 'si_no' ? (d.valor ? 'Sí' : 'No') : d.valor}</strong>
+                    {d.origen === 'manual' && <span className="text-blue-600"> (ingresado; sistema: {d.valor_sistema === null ? 'sin dato' : d.tipo === 'monto' ? soles(d.valor_sistema) : d.tipo === 'fecha' ? fecha(d.valor_sistema) : String(d.valor_sistema)})</span>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {detalle.sustento && <p className="mt-3 text-[11px] text-gray-600"><strong>Sustento:</strong> {detalle.sustento}</p>}
 
           {detalle.alertas?.length > 0 && (
             <ul className="mt-3 list-disc space-y-1 pl-4 text-[11px] text-amber-700">
@@ -86,15 +124,16 @@ export default function LiquidacionImprimibleModal({ open, onCancel, liquidacion
             </ul>
           )}
 
-          <div className="mt-3 space-y-1 border-t border-gray-200 pt-3 text-sm">
-            <div className="flex justify-between"><span>Total ingresos</span><span className="font-semibold text-green-600">{soles(detalle.total_ingresos)}</span></div>
-            <div className="flex justify-between"><span>Total egresos</span><span className="font-semibold text-red-500">{soles(detalle.total_egresos)}</span></div>
-            <div className="flex justify-between text-base"><span className="font-semibold">Neto a pagar</span><span className="font-bold">{soles(detalle.neto_pagar)}</span></div>
-          </div>
-
           {detalle.referencia_pago && (
-            <p className="mt-4 text-[10px] text-gray-400">Referencia de pago: {detalle.referencia_pago}</p>
+            <p className="mt-3 text-[11px] text-gray-500">
+              Pagado el {fecha(detalle.fecha_pago ?? detalle.pagado_at)}{detalle.medio_pago ? ` · ${MEDIOS[detalle.medio_pago] ?? detalle.medio_pago}` : ''} · Referencia: {detalle.referencia_pago}
+            </p>
           )}
+
+          <div className="mt-12 grid grid-cols-2 gap-10 text-center text-xs text-gray-600">
+            <div className="border-t border-gray-400 pt-1">Empleador</div>
+            <div className="border-t border-gray-400 pt-1">Trabajador<br />{colaborador?.numero_documento}</div>
+          </div>
         </div>
       )}
 

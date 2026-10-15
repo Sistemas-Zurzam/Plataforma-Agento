@@ -89,6 +89,39 @@ class ResumenContableService
     }
 
     /**
+     * Cargos de los colaboradores con boleta vigente en el período, por
+     * empresa — alimenta el filtro de cargo del Excel/PDF del reporte
+     * ejecutivo. Se devuelve el valor tal cual está guardado para que el
+     * filtro coincida exacto.
+     *
+     * @param  array<int, int>  $empresaIds
+     * @return Collection<int, array{empresa_id: int, cargo: string}>
+     */
+    public function cargos(array $empresaIds, string $periodo, ?string $estado, ?string $categoria): Collection
+    {
+        $inicio = Carbon::createFromFormat('Y-m', $periodo)->startOfMonth()->toDateString();
+        $fin = Carbon::createFromFormat('Y-m', $periodo)->endOfMonth()->toDateString();
+
+        return DB::table('boletas as b')
+            ->join('ciclos_remunerativos as c', 'c.id', '=', 'b.ciclo_id')
+            ->join('colaboradores as col', 'col.id', '=', 'b.colaborador_id')
+            ->where('b.es_version_vigente', true)
+            ->whereIn('c.empresa_id', $empresaIds)
+            ->whereDate('c.fecha_inicio', '<=', $fin)
+            ->whereDate('c.fecha_fin', '>=', $inicio)
+            ->when($estado, fn ($query) => $query->where('c.estado', $estado))
+            ->when($categoria === 'honorarios', fn ($query) => $query->where('b.regimen_laboral_snapshot', 'Locacion de Servicios'))
+            ->when($categoria === 'planilla', fn ($query) => $query->where('b.regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
+            ->whereNotNull('col.cargo')
+            ->where('col.cargo', '!=', '')
+            ->distinct()
+            ->orderBy('col.cargo')
+            ->get(['c.empresa_id', 'col.cargo'])
+            ->map(fn ($fila) => ['empresa_id' => (int) $fila->empresa_id, 'cargo' => $fila->cargo])
+            ->values();
+    }
+
+    /**
      * Suma de diferencia_neta de complementarias aprobadas/pagadas por
      * empresa, en el mismo período/filtros que el resto del resumen. Se
      * calcula en una consulta aparte (no un JOIN más sobre la principal)

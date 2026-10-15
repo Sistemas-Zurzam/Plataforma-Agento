@@ -25,6 +25,8 @@ use App\Modules\Asistencia\Http\Resources\AsistenciaResultadoResource;
 use App\Modules\Asistencia\Http\Resources\AsistenciaColaboradorResource;
 use App\Modules\Asistencia\Http\Resources\AsistenciaPermisoResource;
 use App\Modules\Asistencia\Http\Resources\SolicitudAreaResource;
+use App\Modules\Asistencia\Infrastructure\HorasExtraExcelExporter;
+use App\Modules\Asistencia\Infrastructure\ReporteColaboradoresExcelExporter;
 use App\Modules\Asistencia\Services\AsistenciaConsultaService;
 use App\Modules\Asistencia\Services\AsistenciaPermisoService;
 use App\Modules\Asistencia\Services\SolicitudAreaService;
@@ -39,11 +41,15 @@ use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\AsistenciaSolicitudArea;
+use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
 
 class AsistenciaController extends Controller
 {
@@ -76,6 +82,49 @@ class AsistenciaController extends Controller
 
         return AsistenciaColaboradorResource::collection($this->consultas->listarColaboradores($empresa, $filtros))
             ->additional(['stats' => $this->consultas->estadisticasColaboradores($empresa, $filtros)]);
+    }
+
+    /**
+     * Excel con el resumen de totales de asistencia + horas extra por
+     * colaborador -- pensado para que RR.HH. lo descargue y se lo envíe a
+     * cada empresa/jefe para que lo corrobore y apruebe fuera del sistema.
+     */
+    public function reporteColaboradoresExcel(ResumenAsistenciaRequest $request): Response
+    {
+        $empresa = $request->user('api')->empresa;
+        $filtros = $request->validated();
+
+        $colaboradores = $this->consultas->reporteColaboradores($empresa, $filtros);
+        $contenido = ReporteColaboradoresExcelExporter::generar($empresa, $filtros['fecha_desde'], $filtros['fecha_hasta'], $colaboradores);
+        $nombre = sprintf('Resumen_asistencia_%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $filtros['fecha_desde']);
+
+        return $this->descargaExcel($contenido, $nombre);
+    }
+
+    public function horasExtraExcel(ResumenAsistenciaRequest $request): Response
+    {
+        $empresa = $request->user('api')->empresa;
+        $filtros = $request->validated();
+
+        $horasExtra = $this->operaciones->horasExtraParaExportar($empresa, $filtros);
+        $contenido = HorasExtraExcelExporter::generar($empresa, $filtros['fecha_desde'], $filtros['fecha_hasta'], $horasExtra);
+
+        $colaboradores = $horasExtra->pluck('colaborador')->filter()->unique('id');
+        $sufijo = $colaboradores->count() === 1
+            ? Str::slug(trim($colaboradores->first()->nombres.' '.$colaboradores->first()->apellidos))
+            : Str::slug($empresa->nombre_comercial);
+        $nombre = sprintf('Horas_extra_%s_%s.xlsx', $sufijo, $filtros['fecha_desde']);
+
+        return $this->descargaExcel($contenido, $nombre);
+    }
+
+    private function descargaExcel(string $contenido, string $nombre): Response
+    {
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
     }
 
     public function colaborador(
@@ -202,6 +251,15 @@ class AsistenciaController extends Controller
         )]);
     }
 
+    public function vincularSalidaDiaSiguiente(Request $request, AsistenciaIncidencia $incidencia): JsonResponse
+    {
+        $datos = $request->validate(['motivo' => ['required', 'string', 'max:2000']]);
+
+        return response()->json(['data' => $this->decisiones->vincularSalidaDiaSiguiente(
+            $request->user('api')->empresa, $incidencia, $datos['motivo'], $request->user('api')
+        )]);
+    }
+
     public function resolverIncidenciasMasivo(ResolverAsistenciaMasivaRequest $request): JsonResponse
     {
         $usuario = $request->user('api'); $datos = $request->validated();
@@ -216,6 +274,25 @@ class AsistenciaController extends Controller
         return response()->json(['data' => $this->decisiones->editarDia(
             $request->user('api')->empresa, $resultado, $request->validated(), $request->user('api')
         )]);
+    }
+
+    public function horariosExcepcionales(Request $request): JsonResponse
+    {
+        $datos = $request->validate(['fecha' => ['required', 'date']]);
+        $diaSemana = Carbon::parse($datos['fecha'])->dayOfWeekIso - 1;
+
+        $horarios = Horario::query()->where('activo', true)
+            ->with(['dias' => fn ($query) => $query->where('dia_semana', $diaSemana)])
+            ->get()->filter(fn ($horario) => $horario->dias->first()?->hora_entrada && $horario->dias->first()?->hora_salida)
+            ->map(fn ($horario) => [
+                'id' => $horario->id,
+                'nombre' => $horario->nombre,
+                'hora_entrada' => $horario->dias->first()->hora_entrada,
+                'hora_salida' => $horario->dias->first()->hora_salida,
+                'tolerancia_minutos' => $horario->tolerancia_minutos,
+            ])->values();
+
+        return response()->json(['data' => $horarios]);
     }
 
     public function horasExtra(ResumenAsistenciaRequest $request): JsonResponse
@@ -299,6 +376,21 @@ class AsistenciaController extends Controller
             'cobertura_finalizado_at' => $periodo->cobertura_finalizado_at?->toDateTimeString(),
             'cobertura_resultado' => $periodo->cobertura_resultado,
         ]);
+    }
+
+    /**
+     * Verifica/reconcilia el período (cobertura diaria + descanso flexible
+     * si está habilitado) SIN cerrarlo — para que RR.HH. pueda revisar la
+     * clasificación real de los días durante el mes, en vez de recién
+     * verla al momento de "Cerrar período" (que ya implica listo para
+     * pagar). A diferencia de transicionarPeriodo('cerrar'), nunca lanza
+     * por pendientes: los devuelve para mostrarlos.
+     */
+    public function verificarPeriodo(Request $request, AsistenciaPeriodo $periodo): JsonResponse
+    {
+        $resultado = $this->periodos->verificarCobertura($request->user('api')->empresa, $periodo, $request->user('api')->id);
+
+        return response()->json($resultado, $resultado['cobertura_estado'] === 'en_proceso' ? 202 : 200);
     }
 
     public function auditoria(ResumenAsistenciaRequest $request): JsonResponse

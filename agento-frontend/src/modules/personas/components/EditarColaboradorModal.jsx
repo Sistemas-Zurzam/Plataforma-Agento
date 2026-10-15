@@ -7,7 +7,7 @@ import SedeSelect from '../../configuracion/components/SedeSelect';
 import { REGIMEN_OPTIONS } from '../../configuracion/constants/regimenLaboral';
 import { useAfps } from '../../configuracion/hooks/useAfps';
 import {
-  BANCO_OPTIONS, CATEGORIA_TRABAJADOR_OPTIONS, MONEDA_OPTIONS, PERIODICIDAD_OPTIONS, TIPO_CONTRATO_OPTIONS, TIPO_CUENTA_OPTIONS, TIPO_DOCUMENTO_OPTIONS, TIPO_DOCUMENTO_OPTIONS_LOCADOR,
+  BANCO_OPTIONS, CATEGORIA_TRABAJADOR_OPTIONS, MODO_CALCULO_HONORARIOS_OPTIONS, MONEDA_OPTIONS, PERIODICIDAD_OPTIONS, TIPO_CONTRATO_OPTIONS, TIPO_CUENTA_OPTIONS, TIPO_DOCUMENTO_OPTIONS, TIPO_DOCUMENTO_OPTIONS_LOCADOR,
 } from '../constants/opciones';
 
 /**
@@ -20,7 +20,7 @@ const CAMPOS_POR_TAB = {
   personal: ['nombres', 'apellido_paterno', 'apellido_materno', 'tipo_documento', 'numero_documento', 'fecha_nacimiento', 'email', 'celular_colaborador', 'celular_referencia', 'direccion'],
   laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_ingreso', 'fecha_fin_contrato', 'es_trabajador_confianza', 'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'condicion_vigencia_desde'],
   previsional: ['sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_suspension_renta_4ta'],
-  remuneracion: ['salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'vigencia_desde'],
+  remuneracion: ['salario', 'moneda_salario', 'periodicidad_pago', 'modo_calculo_honorarios', 'asignacion_familiar', 'vigencia_desde'],
   bancarios: ['banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
 };
 
@@ -64,6 +64,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
       salario: vigente?.salario ?? null,
       moneda_salario: vigente?.moneda_salario ?? 'PEN',
       periodicidad_pago: vigente?.periodicidad_pago ?? 'mensual',
+      modo_calculo_honorarios: vigente?.modo_calculo_honorarios ?? 'mensual_con_faltas',
       asignacion_familiar: vigente?.asignacion_familiar ?? 0,
       vigencia_desde: vigente?.vigencia_desde ? dayjs(vigente.vigencia_desde) : dayjs(),
       condicion_vigencia_desde: colaborador.condicion_laboral?.vigencia_desde
@@ -75,7 +76,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
 
   const guardar = (values) => {
     const {
-      salario, moneda_salario, periodicidad_pago, asignacion_familiar, vigencia_desde,
+      salario, moneda_salario, periodicidad_pago, modo_calculo_honorarios, asignacion_familiar, vigencia_desde,
       sistema_previsional, afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta,
       condicion_vigencia_desde,
       ...datosBasicos
@@ -89,6 +90,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
       Number(salario) !== Number(vigente?.salario ?? 0) ||
       moneda_salario !== (vigente?.moneda_salario ?? 'PEN') ||
       periodicidad_pago !== (vigente?.periodicidad_pago ?? 'mensual') ||
+      modo_calculo_honorarios !== (vigente?.modo_calculo_honorarios ?? 'mensual_con_faltas') ||
       Number(asignacion_familiar ?? 0) !== Number(vigente?.asignacion_familiar ?? 0) ||
       (vigencia_desde?.format('YYYY-MM-DD') ?? '') !== (vigente?.vigencia_desde ?? '');
 
@@ -101,7 +103,7 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
         condicion_vigencia_desde: condicion_vigencia_desde?.format('YYYY-MM-DD') ?? dayjs().format('YYYY-MM-DD'),
       },
       remuneracionCambio
-        ? { salario, moneda_salario, periodicidad_pago, asignacion_familiar, vigencia_desde: vigencia_desde?.format('YYYY-MM-DD') ?? dayjs().format('YYYY-MM-DD') }
+        ? { salario, moneda_salario, periodicidad_pago, modo_calculo_honorarios, asignacion_familiar, vigencia_desde: vigencia_desde?.format('YYYY-MM-DD') ?? dayjs().format('YYYY-MM-DD') }
         : null,
       // V3 P4/P5 — null cuando el usuario no puede gestionar nómina (la
       // pestaña ni siquiera se renderizó, no hay nada que guardar acá).
@@ -315,6 +317,16 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
             <Form.Item label="Periodicidad" name="periodicidad_pago" rules={[{ required: true }]}>
               <Select options={PERIODICIDAD_OPTIONS} />
             </Form.Item>
+            {esHonorarios && (
+              <Form.Item
+                label="Cálculo del honorario"
+                name="modo_calculo_honorarios"
+                extra="Pago por días presentes usa Honorario/30 por cada día con asistencia presente."
+                className="sm:col-span-2"
+              >
+                <Select options={MODO_CALCULO_HONORARIOS_OPTIONS} />
+              </Form.Item>
+            )}
             <Form.Item label="Asignación familiar" name="asignacion_familiar">
               <InputNumber min={0} step={0.01} className="w-full" placeholder="0.00" />
             </Form.Item>

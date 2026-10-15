@@ -18,6 +18,10 @@ class ResumenAsistenciaRequest extends FormRequest
             'preparacion' => ['nullable', 'in:todos,listos,sin_horario,sin_calendario,sin_biometrico'],
             'area_id' => ['nullable', 'integer'],
             'colaborador_id' => ['nullable', 'integer'],
+            'colaborador_ids' => ['nullable', 'array'],
+            'colaborador_ids.*' => ['integer'],
+            'horas_extra_ids' => ['nullable', 'array'],
+            'horas_extra_ids.*' => ['integer'],
             'per_page' => ['nullable', 'integer', 'between:1,100'],
         ];
     }

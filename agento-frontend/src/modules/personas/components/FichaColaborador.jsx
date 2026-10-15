@@ -293,7 +293,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
   const { message, modal } = App.useApp();
   const {
     fetchColaborador, actualizarCalendario, actualizarHorario,
-    actualizarColaborador, actualizarConfiguracionNomina, actualizarRemuneracion, cesarColaborador, previsualizarLiquidacionCese, eliminarColaborador, subirDocumento, verDocumento,
+    actualizarColaborador, actualizarConfiguracionNomina, actualizarRemuneracion, cesarColaborador, reactivarColaborador, eliminarColaborador, subirDocumento, verDocumento,
     subirFotoPerfil, fetchFotoPerfil, listarVacacionMovimientos, crearVacacionMovimiento, eliminarVacacionMovimiento,
   } = useColaboradores();
   const [colaborador, setColaborador] = useState(null);
@@ -422,19 +422,20 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
    */
   const confirmarPlanificacionExistente = (datosHorario, impacto) => {
     const partes = [
+      impacto.resultados_procesados > 0 ? `${impacto.resultados_procesados} día(s) con asistencia ya calculada se reprocesarán con el nuevo horario. Las marcaciones originales se conservarán.` : null,
       impacto.automaticas > 0 ? `${impacto.automaticas} fecha(s) generadas automáticamente por el horario anterior se recalcularán con el horario nuevo.` : null,
       impacto.humanas > 0 ? `${impacto.humanas} fecha(s) planificadas manualmente se conservarán tal cual, sin tocarlas.` : null,
       impacto.legacy > 0 ? `${impacto.legacy} fecha(s) históricas (de antes de este control) se conservarán tal cual, sin tocarlas.` : null,
     ].filter(Boolean);
 
     modal.confirm({
-      title: 'El colaborador tiene planificación futura existente',
+      title: 'Confirmar corrección del horario y la asistencia',
       content: (
         <div>
           <ul className="list-disc pl-4">
             {partes.map((parte, indice) => <li key={indice}>{parte}</li>)}
           </ul>
-          <p className="mt-2">Las decisiones manuales o históricas nunca se eliminan automáticamente. ¿Deseas continuar de todas formas?</p>
+          <p className="mt-2">Las decisiones manuales o históricas se conservan. Si la planilla ya fue calculada, quedará señalada para revisión y recálculo; una planilla pagada no se modifica automáticamente. Revisa también las incidencias y horas extra después del reprocesamiento. ¿Deseas continuar?</p>
         </div>
       ),
       okText: 'Continuar',
@@ -442,7 +443,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
       onOk: async () => {
         setGuardandoHorario(true);
         try {
-          const actualizado = await actualizarHorario(colaborador.id, { ...datosHorario, confirmar_planificacion_existente: true });
+          const actualizado = await actualizarHorario(colaborador.id, { ...datosHorario, confirmar_planificacion_existente: true, confirmar_reproceso_asistencia: true });
           setColaborador(actualizado);
           setHorarioOpen(false);
           message.success('Horario actualizado correctamente');
@@ -564,6 +565,24 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
     },
   });
 
+  const confirmarReactivacion = () => {
+    let motivo = '';
+    modal.confirm({ title: 'Reactivar colaborador', content: <Input.TextArea rows={3} placeholder="Motivo de la reactivación" onChange={(e) => { motivo = e.target.value; }} />, okText: 'Reactivar',
+      onOk: async () => {
+        if (!motivo.trim()) { message.warning('Ingresa el motivo de la reactivación'); throw new Error('motivo requerido'); }
+        try {
+          const actualizado = await reactivarColaborador(colaborador.id, motivo.trim());
+          setColaborador(actualizado);
+          message.success('Colaborador reactivado. Ahora puedes cambiar su contrato a RH.');
+        } catch (error) {
+          const errors = error.response?.data?.errors;
+          message.error(errors ? Object.values(errors)[0]?.[0] : error.response?.data?.message ?? 'No se pudo reactivar al colaborador');
+          throw error;
+        }
+      },
+    });
+  };
+
   if (loading) return <div className="flex min-h-96 items-center justify-center"><Spin size="large" /></div>;
   if (!colaborador) return <Empty description="No se pudo cargar el colaborador"><Button onClick={onVolver}>Volver</Button></Empty>;
 
@@ -616,7 +635,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
             <Button type="text" size="small" icon={<EditOutlined />} onClick={() => setEditarOpen(true)}>Editar datos</Button>
             <Button type="text" size="small" icon={<IdcardOutlined />} onClick={() => setCarnetOpen(true)}>Carnet</Button>
             <span className="mx-1 hidden w-px bg-gray-200 sm:block" />
-            <Button type="text" size="small" danger icon={<UserDeleteOutlined />} disabled={!colaborador.activo} onClick={() => setCeseOpen(true)}>Cesar</Button>
+            {colaborador.activo ? <Button type="text" size="small" danger icon={<UserDeleteOutlined />} onClick={() => setCeseOpen(true)}>Cesar</Button> : <Button type="text" size="small" className="text-green-700" onClick={confirmarReactivacion}>Reactivar</Button>}
             <Button type="text" size="small" danger icon={<DeleteOutlined />} onClick={confirmarEliminacion}>Eliminar</Button>
           </div>
         </div>
@@ -632,7 +651,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
     <EditarHorarioColaboradorModal open={horarioOpen} colaborador={colaborador} submitting={guardandoHorario} onGuardar={guardarHorario} onCancel={() => setHorarioOpen(false)} />
     <EditarCalendarioModal open={calendarioOpen} colaborador={colaborador} submitting={guardandoCalendario} onGuardar={guardarCalendario} onCancel={() => setCalendarioOpen(false)} />
     <EditarColaboradorModal open={editarOpen} colaborador={colaborador} user={user} submitting={guardandoEdicion} onGuardar={guardarEdicion} onCancel={() => setEditarOpen(false)} />
-    <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onPrevisualizar={(values) => previsualizarLiquidacionCese(colaborador.id, values)} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
+    <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
     <VerCarnetModal colaborador={carnetOpen ? colaborador : null} onClose={() => setCarnetOpen(false)} />
     <Modal title={documentoVista?.nombre ?? 'Ver documento'} open={Boolean(documentoVista)} onCancel={cerrarDocumento} footer={null} width={{ xs: '95%', sm: '90%', lg: 900 }} centered destroyOnHidden>
       {documentoVista?.mimeType?.startsWith('image/') ? (

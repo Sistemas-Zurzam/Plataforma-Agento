@@ -136,6 +136,7 @@ Route::middleware('jwt')->group(function () {
 
     Route::get('/asistencia/resumen', [AsistenciaController::class, 'index'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/colaboradores', [AsistenciaController::class, 'colaboradores'])->middleware('permiso:asistencia.ver');
+    Route::get('/asistencia/reporte-colaboradores/excel', [AsistenciaController::class, 'reporteColaboradoresExcel'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/colaboradores/{colaborador}', [AsistenciaController::class, 'colaborador'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/permisos', [AsistenciaController::class, 'permisos'])->middleware('permiso:asistencia.ver');
     Route::post('/asistencia/permisos', [AsistenciaController::class, 'guardarPermiso'])->middleware('permiso:asistencia.permisos');
@@ -155,9 +156,12 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/asistencia/incidencias/{incidencia}/permiso', [AsistenciaController::class, 'resolverIncidenciaConPermiso'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/incidencias/{incidencia}/clasificar-dia', [AsistenciaController::class, 'clasificarDiaSinRol'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/incidencias/{incidencia}/resolver-trabajo-descanso', [AsistenciaController::class, 'resolverTrabajoEnDescanso'])->middleware('permiso:asistencia.incidencias');
+    Route::patch('/asistencia/incidencias/{incidencia}/vincular-salida-siguiente', [AsistenciaController::class, 'vincularSalidaDiaSiguiente'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/incidencias', [AsistenciaController::class, 'resolverIncidenciasMasivo'])->middleware('permiso:asistencia.incidencias');
     Route::patch('/asistencia/resultados/{resultado}', [AsistenciaController::class, 'editarDia'])->middleware('permiso:asistencia.incidencias');
+    Route::get('/asistencia/horarios-excepcionales', [AsistenciaController::class, 'horariosExcepcionales'])->middleware('permiso:asistencia.ver');
     Route::get('/asistencia/horas-extra', [AsistenciaController::class, 'horasExtra'])->middleware('permiso:asistencia.ver');
+    Route::get('/asistencia/horas-extra/excel', [AsistenciaController::class, 'horasExtraExcel'])->middleware('permiso:asistencia.ver');
     Route::patch('/asistencia/horas-extra/{horaExtra}', [AsistenciaController::class, 'resolverHoraExtra'])->middleware('permiso:asistencia.horas_extra');
     Route::patch('/asistencia/horas-extra', [AsistenciaController::class, 'resolverHorasExtraMasivo'])->middleware('permiso:asistencia.horas_extra');
     Route::patch('/asistencia/gestiones-area/{solicitud}', [AsistenciaController::class, 'resolverGestionArea'])->middleware('permiso:asistencia.gestiones_area');
@@ -166,6 +170,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/asistencia/periodos', [AsistenciaController::class, 'guardarPeriodo'])->middleware('permiso:asistencia.periodos');
     Route::patch('/asistencia/periodos/{periodo}', [AsistenciaController::class, 'transicionarPeriodo'])->middleware('permiso:asistencia.periodos');
     Route::get('/asistencia/periodos/{periodo}/estado-cobertura', [AsistenciaController::class, 'estadoCoberturaPeriodo'])->middleware('permiso:asistencia.ver');
+    Route::post('/asistencia/periodos/{periodo}/verificar', [AsistenciaController::class, 'verificarPeriodo'])->middleware('permiso:asistencia.periodos');
     Route::get('/asistencia/auditoria', [AsistenciaController::class, 'auditoria'])->middleware('permiso:asistencia.ver');
 
     // Control de Acceso — kiosco de marcación por carnet/código de barras.
@@ -190,8 +195,8 @@ Route::middleware('jwt')->group(function () {
     Route::put('/colaboradores/{colaborador}/remuneracion', [ColaboradorController::class, 'actualizarRemuneracion'])->middleware('permiso:colaboradores.editar');
     Route::put('/colaboradores/{colaborador}/configuracion-nomina', [ColaboradorController::class, 'actualizarConfiguracionNomina'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/colaboradores/{colaborador}', [ColaboradorController::class, 'update'])->middleware('permiso:colaboradores.editar');
-    Route::get('/colaboradores/{colaborador}/liquidacion-cese/previsualizar', [ColaboradorController::class, 'previsualizarLiquidacionCese'])->middleware('permiso:colaboradores.cesar');
     Route::patch('/colaboradores/{colaborador}/cesar', [ColaboradorController::class, 'cesar'])->middleware('permiso:colaboradores.cesar');
+    Route::patch('/colaboradores/{colaborador}/reactivar', [ColaboradorController::class, 'reactivar'])->middleware('permiso:colaboradores.cesar');
     Route::get('/colaboradores/{colaborador}/vacacion-movimientos', [VacacionMovimientoController::class, 'index'])->middleware('permiso:colaboradores.ver');
     Route::post('/colaboradores/{colaborador}/vacacion-movimientos', [VacacionMovimientoController::class, 'store'])->middleware('permiso:colaboradores.editar');
     Route::delete('/colaboradores/{colaborador}/vacacion-movimientos/{movimiento}', [VacacionMovimientoController::class, 'destroy'])->middleware('permiso:colaboradores.editar');
@@ -209,6 +214,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('/ciclos-remunerativos-reporte-ejecutivo/datos', [CicloRemunerativoController::class, 'datosReporteEjecutivo'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos', [CicloRemunerativoController::class, 'store'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'actualizar'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::patch('/ciclos-remunerativos/{ciclo}/corte-asistencia', [CicloRemunerativoController::class, 'actualizarCorteAsistencia'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::delete('/ciclos-remunerativos/{ciclo}', [CicloRemunerativoController::class, 'eliminar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::post('/ciclos-remunerativos/{ciclo}/calcular', [CicloRemunerativoController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/estado-calculo', [CicloRemunerativoController::class, 'estadoCalculo'])->middleware('permiso:nominas.ver');
@@ -232,6 +238,7 @@ Route::middleware('jwt')->group(function () {
     Route::post('/ciclos-remunerativos/{ciclo}/bbva-netcash/exportar', [CicloRemunerativoController::class, 'exportarBbvaNetCash'])->middleware('permiso:nominas.bbva_netcash_exportar');
     Route::get('/planilla/previsualizar', [BoletaController::class, 'previsualizar'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas', [BoletaController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/horas-extra-manuales', [BoletaController::class, 'registrarHorasExtraManual'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/boletas-exportables/ids', [BoletaController::class, 'idsExportables'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/boletas/imprimir-masivo', [BoletaController::class, 'imprimirMasivo'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/resumen', [BoletaController::class, 'resumen'])->middleware('permiso:nominas.ver');
@@ -240,10 +247,14 @@ Route::middleware('jwt')->group(function () {
     Route::post('/beneficios-sociales/calcular', [BeneficioSocialController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::patch('/beneficios-sociales/{beneficio}/pagar', [BeneficioSocialController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
     Route::get('/liquidaciones-cese', [LiquidacionCeseController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::get('/liquidaciones-cese/pendientes', [LiquidacionCeseController::class, 'pendientes'])->middleware('permiso:nominas.ver');
+    Route::get('/liquidaciones-cese/catalogo', [LiquidacionCeseController::class, 'catalogo'])->middleware('permiso:nominas.ver');
+    Route::match(['get', 'post'], '/liquidaciones-cese/propuesta/{colaborador}', [LiquidacionCeseController::class, 'propuesta'])->middleware('permiso:nominas.calcular');
+    Route::post('/liquidaciones-cese', [LiquidacionCeseController::class, 'store'])->middleware('permiso:nominas.calcular');
     Route::get('/liquidaciones-cese/{liquidacion}', [LiquidacionCeseController::class, 'show'])->middleware('permiso:nominas.ver');
     Route::patch('/liquidaciones-cese/{liquidacion}/aprobar', [LiquidacionCeseController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/liquidaciones-cese/{liquidacion}/pagar', [LiquidacionCeseController::class, 'pagar'])->middleware('permiso:nominas.pagar');
-    Route::patch('/liquidaciones-cese/{liquidacion}/anular-revertir', [LiquidacionCeseController::class, 'anularYRevertir'])->middleware('permiso:nominas.aprobar');
+    Route::patch('/liquidaciones-cese/{liquidacion}/anular', [LiquidacionCeseController::class, 'anular'])->middleware('permiso:nominas.aprobar');
     Route::get('/nominas/importaciones-historicas', [NominaImportacionHistoricaController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::post('/nominas/importaciones-historicas', [NominaImportacionHistoricaController::class, 'importar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/nominas/importaciones-historicas/{importacion}', [NominaImportacionHistoricaController::class, 'show'])->middleware('permiso:nominas.ver');

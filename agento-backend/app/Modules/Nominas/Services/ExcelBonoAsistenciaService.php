@@ -139,7 +139,7 @@ class ExcelBonoAsistenciaService
                     if ($ciclo->estado !== 'pagado' || $ciclo->fecha_fin->isFuture()) throw new \RuntimeException('Se requiere un ciclo pagado y un mes terminado.');
                     if ($actual['faltas_injustificadas'] > 0 || $actual['tardanzas'] >= 3) throw new \RuntimeException('No cumple: faltas injustificadas o 3 tardanzas. Corrige Asistencia antes de aprobar.');
                     if ($actual['dias_sin_resultado'] > 0 || $actual['dias_sin_clasificar'] > 0) throw new \RuntimeException('Completa o clasifica los resultados diarios antes de aprobar.');
-                    if ($actual['dias_efectivos'] + $actual['faltas_justificadas'] < 26 || $actual['descansos'] !== 4) throw new \RuntimeException('No cumple las 26 jornadas (considerando las excepciones justificadas) y los 4 descansos. Revisa Asistencia.');
+                    if (ReporteBonoAsistenciaService::jornadasComputables($actual) < 26 || $actual['descansos'] !== 4) throw new \RuntimeException('No cumple las 26 jornadas (considerando las excepciones justificadas) y los 4 descansos. Revisa Asistencia.');
                     if (! preg_match('/^\d{1,7}([.,]\d{1,2})?$/', (string) $fila[23])) throw new \RuntimeException('Monto inválido: ingresa un número positivo con hasta dos decimales.');
                     $monto = (int) round((float) str_replace(',', '.', $fila[23]) * 100);
                     $maximo = (int) round(((float) $control['fijos'][17] + ($meta === 'si' ? (float) $control['fijos'][19] : 0)) * 100);

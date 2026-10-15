@@ -120,7 +120,7 @@ class NotificarCambioAsistenciaCicloTest extends TestCase
         $this->assertTrue($ciclo->requiere_recalculo);
     }
 
-    public function test_ciclo_cerrado_se_marca_y_bloquea_el_pago(): void
+    public function test_ciclo_cerrado_puede_pagarse_aunque_asistencia_requiera_recalculo(): void
     {
         $empresa = Empresa::factory()->create();
         $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
@@ -132,8 +132,30 @@ class NotificarCambioAsistenciaCicloTest extends TestCase
         $ciclo->refresh();
         $this->assertTrue($ciclo->requiere_recalculo);
 
-        $this->expectException(ValidationException::class);
-        app(CicloRemunerativoService::class)->marcarPagado($empresa, $ciclo);
+        $pagado = app(CicloRemunerativoService::class)->marcarPagado($empresa, $ciclo);
+
+        $this->assertSame('pagado', $pagado->estado);
+        $this->assertTrue($pagado->requiere_recalculo);
+    }
+
+    public function test_ciclo_cerrado_puede_pagarse_aunque_asistencia_no_tenga_cobertura(): void
+    {
+        $this->seed(\Database\Seeders\DatabaseSeeder::class);
+        $empresa = Empresa::factory()->create();
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-07-01']);
+        $ciclo = $this->crearCiclo($empresa, 'cerrado');
+        $boleta = $this->crearBoletaPagada($ciclo, $colaborador->id);
+
+        \App\Modules\Asistencia\Models\AsistenciaPeriodo::create([
+            'empresa_id' => $empresa->id,
+            'fecha_inicio' => '2026-07-01',
+            'fecha_fin' => '2026-07-31',
+            'estado' => 'abierto',
+        ]);
+        $pagado = app(CicloRemunerativoService::class)->marcarPagado($empresa, $ciclo);
+
+        $this->assertSame('pagado', $pagado->estado);
+        $this->assertSame('pagada', $boleta->fresh()->estado);
     }
 
     public function test_ciclo_pagado_no_se_marca_y_genera_incidencia_sin_tocar_la_boleta(): void
@@ -177,6 +199,21 @@ class NotificarCambioAsistenciaCicloTest extends TestCase
         $ciclo->refresh();
         // Una sola línea -- la segunda notificación no se volvió a acumular.
         $this->assertSame(1, substr_count($ciclo->recalculo_motivo, 'ref-123'));
+    }
+
+    public function test_motivo_acumulado_se_limita_y_deja_referencia_a_auditoria(): void
+    {
+        $empresa = Empresa::factory()->create();
+        $ciclo = $this->crearCiclo($empresa, 'calculado');
+        $motivoLargo = str_repeat('cambio de asistencia ', 1000);
+
+        app(NotificarCambioAsistenciaCiclo::class)->notificar(
+            $empresa->id, 5, '2026-07-10', '2026-07-10', $motivoLargo, 'motivo-largo'
+        );
+
+        $ciclo->refresh();
+        $this->assertLessThanOrEqual(16000, mb_strlen($ciclo->recalculo_motivo, 'UTF-8'));
+        $this->assertStringContainsString('consulta la auditoría del ciclo', $ciclo->recalculo_motivo);
     }
 
     public function test_cambio_original_revertido_nunca_notifica(): void

@@ -6,6 +6,7 @@ use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -24,6 +25,9 @@ use Illuminate\Support\Facades\DB;
  */
 class NotificarCambioAsistenciaCiclo
 {
+    /** Mantener el resumen muy por debajo del límite de una columna TEXT. */
+    private const MAX_CARACTERES_MOTIVO_RECALCULO = 16000;
+
     /**
      * Solo estos 3 estados tienen un cálculo previo que invalidar. 'abierto'
      * nunca se calculó (nada que invalidar); 'pagado' tiene su propia rama
@@ -48,16 +52,27 @@ class NotificarCambioAsistenciaCiclo
         // una referencia.
         $clave = $referencia ?? md5("{$colaboradorId}|{$fechaDesde}|{$fechaHasta}|{$motivo}");
         $finExclusivo = Carbon::parse($fechaHasta)->addDay()->toDateString();
+        // El rango de asistencia puede comenzar hasta un mes antes de la
+        // fecha_inicio del ciclo (corte diferido, p. ej. 28/08–27/09 para
+        // la planilla de septiembre). Se busca esa ventana adicional y se
+        // confirma el solapamiento exacto por ciclo dentro de la transacción.
+        $hastaPosibleInicioCiclo = Carbon::parse($fechaHasta)->addMonthNoOverflow()->toDateString();
 
-        DB::transaction(function () use ($empresaId, $colaboradorId, $fechaDesde, $fechaHasta, $motivo, $clave, $finExclusivo) {
+        DB::transaction(function () use ($empresaId, $colaboradorId, $fechaDesde, $fechaHasta, $motivo, $clave, $finExclusivo, $hastaPosibleInicioCiclo) {
             $ciclos = CicloRemunerativo::query()
                 ->where('empresa_id', $empresaId)
-                ->where('fecha_inicio', '<', $finExclusivo)
+                ->where('fecha_inicio', '<=', $hastaPosibleInicioCiclo)
                 ->where('fecha_fin', '>=', $fechaDesde)
                 ->lockForUpdate()
                 ->get();
 
             foreach ($ciclos as $ciclo) {
+                $periodo = PeriodoAsistenciaCiclo::resolver(
+                    $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString(),
+                );
+                if ($periodo['inicio'] >= $finExclusivo || $periodo['fin'] < $fechaDesde) {
+                    continue;
+                }
                 $this->procesarCiclo($ciclo, $colaboradorId, $fechaDesde, $fechaHasta, $motivo, $clave);
             }
         });
@@ -84,11 +99,24 @@ class NotificarCambioAsistenciaCiclo
 
         $ciclo->update([
             'requiere_recalculo' => true,
-            'recalculo_motivo' => trim(($ciclo->recalculo_motivo ? $ciclo->recalculo_motivo."\n" : '').$linea),
+            'recalculo_motivo' => $this->acotarMotivoRecalculo($ciclo->recalculo_motivo, $linea),
             'recalculo_detectado_at' => $ciclo->recalculo_detectado_at ?? now(),
         ]);
 
         $this->auditoria->registrar($ciclo->empresa_id, null, 'ciclo_requiere_recalculo', $ciclo, $linea, $antes, $ciclo->fresh()->toArray());
+    }
+
+    private function acotarMotivoRecalculo(?string $motivoActual, string $linea): string
+    {
+        $resumen = trim(($motivoActual ? $motivoActual."\n" : '').$linea);
+        if (mb_strlen($resumen, 'UTF-8') <= self::MAX_CARACTERES_MOTIVO_RECALCULO) {
+            return $resumen;
+        }
+
+        $aviso = '[Resumen limitado; consulta la auditoría del ciclo para ver todos los cambios.]';
+        $contenidoMaximo = self::MAX_CARACTERES_MOTIVO_RECALCULO - mb_strlen($aviso, 'UTF-8') - 1;
+
+        return rtrim(mb_substr($resumen, 0, $contenidoMaximo, 'UTF-8'))."\n".$aviso;
     }
 
     /**

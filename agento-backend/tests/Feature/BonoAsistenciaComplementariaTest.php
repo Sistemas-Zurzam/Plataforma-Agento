@@ -238,7 +238,7 @@ class BonoAsistenciaComplementariaTest extends TestCase
         );
     }
 
-    public function test_colaborador_con_complementaria_pendiente_por_otro_motivo_no_esta_disponible(): void
+    public function test_colaborador_con_complementaria_por_otro_motivo_puede_recibir_bono(): void
     {
         [$empresa, $ciclo, $usuario, $service, $concepto, $definicion] = $this->escenario();
 
@@ -260,13 +260,13 @@ class BonoAsistenciaComplementariaTest extends TestCase
 
         $this->assertNotNull($fila);
         $this->assertSame(27, $fila['dias_asistidos']);
-        $this->assertFalse($fila['disponible']);
-        $this->assertSame('Ya tiene una complementaria pendiente.', $fila['motivo']);
+        $this->assertTrue($fila['disponible']);
+        $this->assertNull($fila['motivo']);
 
-        $this->expectException(ValidationException::class);
-        $service->aplicarBonoPorAsistencia(
+        $bono = $service->aplicarBonoPorAsistencia(
             $empresa, $ciclo, [$boleta->id], 27, 'exacto', $concepto->id, $definicion->id, 150.0,
             'Bono por asistencia perfecta - Agosto 2026', $usuario->id,
         );
+        $this->assertSame('calculada', $bono->estado);
     }
 }

@@ -96,7 +96,6 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       setBusquedaDescuentos('');
       setFiltroDescuento(null);
       setTipoRegularizacion('reintegro_descuentos');
-      setMontoComision(null);
       setMontosComision(Object.fromEntries(boletasSeleccionadas.map((b) => [b.id, null])));
       setSemanasDescanso([]);
       setSemanasSeleccionadas([]);
@@ -108,7 +107,8 @@ export default function PlanillasComplementariasModal({ open, onCancel, ciclo, b
       setSinDescansoSustitutorio(false);
       setCategoria('5');
       setSeleccionReintegros([]);
-      api.fetchFeriadosHistoricos(ciclo.id).then(setFeriadosDisponibles);
+      api.fetchFeriadosHistoricos(ciclo.id).then(setFeriadosDisponibles)
+        .catch((e) => message.error(e.response?.data?.message ?? 'No se pudieron cargar los feriados disponibles.'));
     });
   }, [open, ciclo?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 

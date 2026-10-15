@@ -82,12 +82,14 @@ class CicloRemunerativoController extends Controller
             'categoria' => ['nullable', Rule::in(['planilla', 'honorarios'])],
         ]);
 
-        return response()->json($this->resumenContable->consolidar(
-            $this->empresaIdsAutorizadas($request),
-            $datos['periodo'],
-            $datos['estado'] ?? null,
-            $datos['categoria'] ?? null,
-        ));
+        $empresaIds = $this->empresaIdsAutorizadas($request);
+        $estado = $datos['estado'] ?? null;
+        $categoria = $datos['categoria'] ?? null;
+
+        return response()->json([
+            ...$this->resumenContable->consolidar($empresaIds, $datos['periodo'], $estado, $categoria),
+            'cargos' => $this->resumenContable->cargos($empresaIds, $datos['periodo'], $estado, $categoria),
+        ]);
     }
 
     public function exportarPlanillaPagadaExcel(Request $request, CicloRemunerativo $ciclo): Response
@@ -140,7 +142,15 @@ class CicloRemunerativoController extends Controller
         [$datos, $boletas, $periodoLabel, $reintegrosPorBoleta] = $this->resolverReporteEjecutivo($request);
 
         $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas, $reintegrosPorBoleta);
-        $nombre = sprintf('reporte_ejecutivo_remuneraciones_%s.xlsx', $datos['periodo']);
+        $sufijo = match ($datos['categoria'] ?? null) {
+            'planilla' => '_planilla',
+            'honorarios' => '_rh',
+            default => '',
+        };
+        if (! empty($datos['empresa_id'])) {
+            $sufijo .= '_'.Str::slug($boletas->first()?->empresa?->nombre_comercial ?? '');
+        }
+        $nombre = sprintf('reporte_ejecutivo_remuneraciones_%s%s.xlsx', $datos['periodo'], $sufijo);
 
         Log::info('reporte_ejecutivo_remuneraciones.excel_exportado', [
             'usuario_id' => $request->user('api')->id,
@@ -183,7 +193,7 @@ class CicloRemunerativoController extends Controller
     }
 
     /**
-     * Valida periodo/estado/categoria, resuelve las boletas pagadas de todas
+     * Valida periodo/estado/categoria, resuelve las boletas vigentes de todas
      * las empresas autorizadas que caen en ese período, y arma la etiqueta
      * legible del período — compartido entre el Excel y el JSON del PDF
      * para no duplicar la consulta ni el criterio de elegibilidad.
@@ -196,22 +206,36 @@ class CicloRemunerativoController extends Controller
             'periodo' => ['required', 'date_format:Y-m'],
             'estado' => ['nullable', Rule::in(['borrador', 'abierto', 'calculado', 'cerrado', 'reabierto', 'pagado'])],
             'categoria' => ['nullable', Rule::in(['planilla', 'honorarios'])],
+            'empresa_id' => ['nullable', 'integer'],
+            'cargos' => ['nullable', 'array'],
+            'cargos.*' => ['string', 'max:255'],
         ]);
 
         $inicio = Carbon::createFromFormat('Y-m', $datos['periodo'])->startOfMonth()->toDateString();
         $fin = Carbon::createFromFormat('Y-m', $datos['periodo'])->endOfMonth()->toDateString();
 
-        $cicloIds = CicloRemunerativo::whereIn('empresa_id', $this->empresaIdsAutorizadas($request))
+        $empresaIds = $this->empresaIdsAutorizadas($request);
+        if (! empty($datos['empresa_id'])) {
+            // empresa_id del request nunca autoriza por sí solo: solo acota
+            // dentro de las empresas que el usuario ya administra.
+            abort_unless(in_array((int) $datos['empresa_id'], $empresaIds, true), 403, 'No tienes acceso a esa empresa.');
+            $empresaIds = [(int) $datos['empresa_id']];
+        }
+
+        $cicloIds = CicloRemunerativo::whereIn('empresa_id', $empresaIds)
             ->whereDate('fecha_inicio', '<=', $fin)
             ->whereDate('fecha_fin', '>=', $inicio)
             ->when($datos['estado'] ?? null, fn ($query, $estado) => $query->where('estado', $estado))
             ->pluck('id');
 
+        // Mismas boletas que la tabla del Resumen contable (vigentes, en
+        // cualquier estado): un ciclo solo "calculado" también debe poder
+        // exportarse. Cada fila ya indica su estado (Pagado/Calculada/…).
         $boletas = Boleta::whereIn('ciclo_id', $cicloIds)
             ->where('es_version_vigente', true)
-            ->where('estado', 'pagada')
             ->when(($datos['categoria'] ?? null) === 'honorarios', fn ($query) => $query->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
             ->when(($datos['categoria'] ?? null) === 'planilla', fn ($query) => $query->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
+            ->when($datos['cargos'] ?? null, fn ($query, $cargos) => $query->whereHas('colaborador', fn ($colaborador) => $colaborador->whereIn('cargo', $cargos)))
             ->with(['colaborador:id,nombres,apellidos,numero_documento', 'conceptos.concepto:id,codigo', 'empresa:id,nombre_comercial'])
             ->get()
             // Orden estable en dos pasadas: por colaborador primero y luego por
@@ -223,7 +247,7 @@ class CicloRemunerativoController extends Controller
             ->sortBy(fn ($boleta) => mb_strtolower($boleta->empresa?->nombre_comercial ?? ''))
             ->values();
 
-        abort_if($boletas->isEmpty(), 422, 'No hay boletas pagadas para el período y filtros seleccionados.');
+        abort_if($boletas->isEmpty(), 422, 'No hay boletas calculadas para el período y filtros seleccionados.');
 
         $fechaPeriodo = Carbon::createFromFormat('Y-m', $datos['periodo']);
         $periodoLabel = ucfirst(mb_strtolower($fechaPeriodo->translatedFormat('F'), 'UTF-8')).' '.$fechaPeriodo->format('Y');
@@ -304,6 +328,18 @@ class CicloRemunerativoController extends Controller
 
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
         $ciclo = $this->ciclos->actualizar($empresa, $ciclo, $datos);
+
+        return new CicloRemunerativoResource($ciclo);
+    }
+
+    public function actualizarCorteAsistencia(Request $request, CicloRemunerativo $ciclo): CicloRemunerativoResource
+    {
+        $datos = $request->validate([
+            'fecha_corte_asistencia' => ['required', 'date', 'after_or_equal:'.$ciclo->fecha_inicio->toDateString(), 'before_or_equal:'.$ciclo->fecha_fin->toDateString()],
+        ]);
+
+        $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
+        $ciclo = $this->ciclos->actualizarCorteAsistencia($empresa, $ciclo, $datos['fecha_corte_asistencia']);
 
         return new CicloRemunerativoResource($ciclo);
     }

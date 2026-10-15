@@ -31,6 +31,39 @@ class ReporteBonoAsistenciaTest extends TestCase
         $this->assertSame('Requiere revisión', ReporteBonoAsistenciaService::evaluar([...$base, 'dias_sin_resultado' => 1])['evaluacion']);
     }
 
+    public function test_dias_del_27_al_cierre_no_son_falta_ni_restan_jornadas(): void
+    {
+        $base = ['dias_efectivos' => 23, 'descansos' => 4, 'tardanzas' => 0, 'faltas_justificadas' => 0,
+            'faltas_injustificadas' => 0, 'sin_huellero_completo' => 0, 'incumplimientos_turno' => 0,
+            'dias_sin_clasificar' => 0, 'dias_sin_resultado' => 0, 'permisos_por_revisar' => 0, 'dias_en_revision' => 3];
+
+        $resultado = ReporteBonoAsistenciaService::evaluar($base);
+
+        // 23 efectivos + 3 en revisión = 26 jornadas: no excluye ni observa.
+        $this->assertSame('Candidato', $resultado['evaluacion']);
+        $this->assertSame(100, $resultado['porcentaje_inicial']);
+        $this->assertStringContainsString('no se consideran falta', $resultado['observaciones']);
+    }
+
+    public function test_falta_registrada_del_27_al_cierre_no_cuenta_como_injustificada(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $empresa = Empresa::firstOrFail();
+        $persona = $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-01-01']);
+        $persona->area()->withoutGlobalScopes()->update(['nombre' => 'VENTAS']);
+        foreach ([26 => 'falta', 28 => 'falta'] as $dia => $estado) {
+            AsistenciaResultadoDiario::create(['empresa_id' => $empresa->id, 'colaborador_id' => $persona->id,
+                'fecha' => Carbon::create(2026, 9, $dia), 'tipo_dia' => 'laborable_presencial', 'estado' => $estado,
+                'minutos_trabajados' => 0, 'procesado_at' => now()]);
+        }
+
+        $fila = collect(app(ReporteBonoAsistenciaService::class)->generar($empresa, '2026-09')['colaboradores'])
+            ->firstWhere('colaborador_id', $persona->id);
+
+        $this->assertSame(1, $fila['faltas_injustificadas'], 'La falta del 26 sí cuenta.');
+        $this->assertSame(4, $fila['dias_en_revision'], 'El 28 registrado como falta + 27, 29 y 30 sin resultado.');
+    }
+
     public function test_incluye_sin_boleta_y_sin_datos_cuenta_trabajo_con_incidencias_y_valida_huellero(): void
     {
         $this->seed(DatabaseSeeder::class);
@@ -70,7 +103,9 @@ class ReporteBonoAsistenciaTest extends TestCase
         $this->assertSame(4, $filas[$persona->id]['descansos']);
         $this->assertSame(1, $filas[$persona->id]['tardanzas']);
         $this->assertSame(1, $filas[$persona->id]['sin_huellero_completo']);
-        $this->assertSame(30, $filas[$sinDatos->id]['dias_sin_resultado']);
+        // Del 27 al cierre los días sin resultado están en revisión, no faltan.
+        $this->assertSame(26, $filas[$sinDatos->id]['dias_sin_resultado']);
+        $this->assertSame(4, $filas[$sinDatos->id]['dias_en_revision']);
         $marketingReporte = app(ReporteBonoAsistenciaService::class)->generar($empresa, '2026-09', $marketing->area_id);
         $this->assertSame($marketing->id, $marketingReporte['colaboradores'][0]['colaborador_id']);
         $this->assertSame('Requiere revisión', $filas[$persona->id]['evaluacion']);

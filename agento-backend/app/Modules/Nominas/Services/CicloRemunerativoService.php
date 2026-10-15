@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Services;
 
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaDatosPago;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -112,6 +113,27 @@ class CicloRemunerativoService
         });
     }
 
+    public function actualizarCorteAsistencia(Empresa $empresa, CicloRemunerativo $ciclo, string $fechaCorte): CicloRemunerativo
+    {
+        $this->verificarPertenencia($empresa, $ciclo);
+
+        if (! in_array($ciclo->estado, ['abierto', 'calculado', 'reabierto'], true)) {
+            throw ValidationException::withMessages(['estado' => 'Solo se puede cambiar el corte de un ciclo abierto, calculado o reabierto.']);
+        }
+        if ($ciclo->boletas()->where('es_version_vigente', true)->where('estado', 'pagada')->exists()) {
+            throw ValidationException::withMessages(['estado' => 'No se puede cambiar el corte porque el ciclo tiene boletas pagadas.']);
+        }
+
+        $ciclo->update([
+            'fecha_corte_asistencia' => $fechaCorte,
+            'requiere_recalculo' => true,
+            'recalculo_motivo' => 'Se modificó la fecha de corte de asistencia.',
+            'recalculo_detectado_at' => now(),
+        ]);
+
+        return $ciclo->fresh();
+    }
+
     /**
      * Elimina un ciclo que todavía no tiene ninguna boleta — mismo criterio
      * que actualizar(): boletas.ciclo_id tiene cascadeOnDelete a nivel de
@@ -144,15 +166,16 @@ class CicloRemunerativoService
     /**
      * Reglas de cierre (Sección 58): no se permite cerrar sin boletas
      * calculadas ni con boletas vigentes que todavía no estén aprobadas.
-     * Las incidencias pendientes se pueden gestionar después y no impiden
-     * cerrar ni generar archivos de pago sobre boletas ya aprobadas.
+     * La cobertura y el cierre del período de asistencia no bloquean el
+     * cierre de nómina: RR. HH. puede emitir el archivo bancario usando las
+     * boletas aprobadas mientras termina de revisar asistencia.
+     * Las incidencias pendientes tampoco impiden el cierre.
      *
      * @throws ValidationException
      */
     public function cerrar(Empresa $empresa, CicloRemunerativo $ciclo): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
 
         $totalVigentes = $ciclo->boletas()->where('es_version_vigente', true)->count();
         if ($totalVigentes === 0) {
@@ -289,7 +312,6 @@ class CicloRemunerativoService
     public function marcarPagado(Empresa $empresa, CicloRemunerativo $ciclo): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $this->consistenciaAsistencia->verificar($empresa, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
 
         // Incremento 3 (A.4, "evitar carreras") -- entre este chequeo previo
         // y el guardado real puede colarse una notificarCambioAsistencia()
@@ -299,12 +321,6 @@ class CicloRemunerativoService
         // (ya cargado antes del lock) no serviría de nada.
         return DB::transaction(function () use ($ciclo) {
             $ciclo = CicloRemunerativo::query()->lockForUpdate()->findOrFail($ciclo->id);
-
-            if ($ciclo->requiere_recalculo) {
-                throw ValidationException::withMessages([
-                    'estado' => 'La asistencia cambió después del último cálculo de este ciclo. Vuelve a calcular antes de pagar.',
-                ]);
-            }
 
             if ($ciclo->estado !== 'cerrado') {
                 throw ValidationException::withMessages([

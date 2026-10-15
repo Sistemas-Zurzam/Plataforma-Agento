@@ -9,6 +9,7 @@ use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaSolicitudArea;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\AsistenciaMarcacion;
+use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo;
 use App\Modules\Personas\Models\ColaboradorCalendarioDia;
@@ -51,6 +52,42 @@ class AsistenciaDecisionService
                 'motivo_resolucion' => $datos['motivo'], 'resuelto_por' => $usuario->id, 'resuelto_at' => now(),
             ]);
             $this->auditoria->registrar($empresa->id, $usuario->id, 'incidencia_'.$datos['accion'], $incidencia, $datos['motivo'], $antes, $incidencia->fresh()->toArray());
+            return $incidencia->fresh(['colaborador', 'resultado']);
+        });
+    }
+
+    /** Vincula una salida excepcional de madrugada al día laborable anterior. */
+    public function vincularSalidaDiaSiguiente(Empresa $empresa, AsistenciaIncidencia $incidencia, string $motivo, User $usuario): AsistenciaIncidencia
+    {
+        $this->asegurarEmpresa($empresa, $incidencia);
+        abort_unless($incidencia->tipo === AsistenciaIncidencia::TIPO_MARCACION_INCOMPLETA, 422, 'Esta acción solo aplica a marcaciones incompletas.');
+        $resultado = $incidencia->resultado()->with('colaborador')->firstOrFail();
+        abort_unless($resultado->entrada_at !== null && $resultado->salida_at === null, 422, 'La incidencia debe corresponder a una entrada sin salida.');
+
+        $fecha = $resultado->fecha->toDateString();
+        $fechaSiguiente = $resultado->fecha->copy()->addDay()->toDateString();
+        $this->periodos->asegurarRangoEditable($empresa->id, $fecha, $fechaSiguiente);
+
+        return DB::transaction(function () use ($empresa, $incidencia, $resultado, $fecha, $fechaSiguiente, $motivo, $usuario) {
+            $salida = AsistenciaMarcacion::query()
+                ->where('empresa_id', $empresa->id)->where('colaborador_id', $resultado->colaborador_id)
+                ->whereNull('anulada_at')->whereNull('datos_origen->vinculada_a_fecha')
+                ->whereBetween('marcado_at', [Carbon::parse($fechaSiguiente)->startOfDay(), Carbon::parse($fechaSiguiente)->addHours(12)])
+                ->orderBy('marcado_at')->first();
+            abort_unless($salida, 422, 'No se encontró una marcación libre durante la madrugada del día siguiente.');
+
+            $antes = $incidencia->toArray();
+            $origen = $salida->datos_origen ?? [];
+            $origen['vinculada_a_fecha'] = $fecha;
+            $origen['vinculada_por'] = $usuario->id;
+            $origen['vinculada_motivo'] = $motivo;
+            $salida->update(['datos_origen' => $origen]);
+
+            $actualizado = $this->procesador->procesar($resultado->colaborador, $resultado->fecha);
+            // Recalcula el día de la marca para retirar su MI independiente.
+            $this->procesador->procesar($resultado->colaborador, Carbon::parse($fechaSiguiente));
+            $this->auditoria->registrar($empresa->id, $usuario->id, 'salida_dia_siguiente_vinculada', $actualizado, $motivo, $antes, $actualizado->fresh('marcaciones')->toArray());
+
             return $incidencia->fresh(['colaborador', 'resultado']);
         });
     }
@@ -376,6 +413,12 @@ class AsistenciaDecisionService
         $this->asegurarEmpresa($empresa, $horaExtra);
         $fecha = $horaExtra->fecha->toDateString();
         $this->periodos->asegurarRangoEditable($empresa->id, $fecha, $fecha);
+        if ($datos['accion'] === 'anular_aprobacion' && $horaExtra->estado !== AsistenciaHoraExtra::ESTADO_APROBADO) {
+            throw ValidationException::withMessages(['accion' => ['Solo se puede anular una hora extra aprobada.']]);
+        }
+        if (in_array($datos['accion'], ['aprobar', 'rechazar'], true) && $horaExtra->estado !== AsistenciaHoraExtra::ESTADO_PENDIENTE) {
+            throw ValidationException::withMessages(['accion' => ['La hora extra ya fue resuelta. Usa anular aprobación si se aprobó por error.']]);
+        }
         $resultado = DB::transaction(function () use ($empresa, $horaExtra, $datos, $usuario) {
             $antes = $horaExtra->toArray();
             $aprobados = $datos['accion'] === 'aprobar'
@@ -388,6 +431,7 @@ class AsistenciaDecisionService
             $estado = match ($datos['accion']) {
                 'aprobar' => AsistenciaHoraExtra::ESTADO_APROBADO,
                 'rechazar' => AsistenciaHoraExtra::ESTADO_RECHAZADO,
+                'anular_aprobacion' => AsistenciaHoraExtra::ESTADO_RECHAZADO,
                 default => $datos['accion'],
             };
             $horaExtra->update([
@@ -466,10 +510,22 @@ class AsistenciaDecisionService
         $fecha = $resultado->fecha->toDateString();
         $this->periodos->asegurarRangoEditable($empresa->id, $fecha, $fecha);
         $antes = $resultado->load('marcaciones')->toArray();
-        AsistenciaMarcacion::query()->where('empresa_id', $empresa->id)
-            ->where('colaborador_id', $resultado->colaborador_id)->where('origen', 'manual_rrhh')
-            ->whereDate('marcado_at', $fecha)->whereNull('anulada_at')
-            ->update(['anulada_at' => now(), 'anulada_por' => $usuario->id]);
+        $editaMarcaciones = array_key_exists('entrada', $datos) || array_key_exists('salida', $datos);
+        if ($editaMarcaciones) {
+            AsistenciaMarcacion::query()->where('empresa_id', $empresa->id)
+                ->where('colaborador_id', $resultado->colaborador_id)->where('origen', 'manual_rrhh')
+                ->whereDate('marcado_at', $fecha)->whereNull('anulada_at')
+                ->update(['anulada_at' => now(), 'anulada_por' => $usuario->id]);
+        }
+        if (! empty($datos['horario_excepcional_id'])) {
+            $horario = Horario::query()->whereKey($datos['horario_excepcional_id'])->where('activo', true)->firstOrFail();
+            $diaHorario = $horario->dias()->where('dia_semana', $resultado->fecha->dayOfWeekIso - 1)->first();
+            abort_unless($diaHorario?->hora_entrada && $diaHorario?->hora_salida, 422, 'El horario seleccionado no tiene un tramo laborable para esta fecha.');
+            ColaboradorCalendarioDia::query()->updateOrCreate(
+                ['colaborador_id' => $resultado->colaborador_id, 'fecha' => $fecha],
+                ['tipo' => 'laborable_presencial', 'origen' => ColaboradorCalendarioDia::ORIGEN_MANUAL, 'horario_excepcional_id' => $horario->id],
+            );
+        }
         foreach (['entrada', 'salida'] as $campo) {
             if (! empty($datos[$campo])) {
                 AsistenciaMarcacion::query()->firstOrCreate([

@@ -21,7 +21,28 @@ const ESTADOS = {
   permiso: ['PE', 'Permiso', 'cyan'], falta_justificada: ['FJ', 'Falta justificada', 'gold'],
   dia_sin_clasificar: ['?', 'Rotativo sin planificar — pendiente de clasificación', 'magenta'],
 };
+// Mismas etiquetas que ETIQUETAS_INCIDENCIA en AsistenciaPeriodoService (backend)
+// — para el resumen de "Verificar asistencia", que es informativo (nunca
+// bloquea nada, a diferencia del mensaje de "Cerrar período").
+const ETIQUETAS_INCIDENCIA_PENDIENTE = {
+  falta: 'faltas', marcacion_incompleta: 'marcaciones incompletas', horario_desplazado: 'horarios desplazados',
+  horas_incompletas: 'horas incompletas', dia_sin_clasificar: 'días sin clasificar',
+  trabajo_en_descanso: 'trabajos en descanso pendientes de decisión', sin_descanso_semanal: 'semanas sin descanso',
+  descanso_flexible_incompleto: 'descansos flexibles incompletos', semana_rotativa_omitida: 'semanas rotativas omitidas',
+};
+const mensajePendientesResumen = (pendientes) => {
+  const partes = Object.entries(pendientes.incidencias ?? {}).map(([tipo, total]) => `${total} ${ETIQUETAS_INCIDENCIA_PENDIENTE[tipo] ?? tipo}`);
+  if (pendientes.horas_extra > 0) partes.push(`${pendientes.horas_extra} horas extra pendientes`);
+  if (pendientes.permisos > 0) partes.push(`${pendientes.permisos} permisos pendientes`);
+  return `Asistencia verificada. Pendientes por revisar: ${partes.join(', ')}.`;
+};
 const duracion = (minutos) => `${Math.floor((minutos ?? 0) / 60)}h ${String((minutos ?? 0) % 60).padStart(2, '0')}m`;
+const duracionEnTexto = (minutos) => {
+  const total = Math.max(0, Number(minutos) || 0);
+  const horas = Math.floor(total / 60);
+  const resto = total % 60;
+  return `${horas} ${horas === 1 ? 'hora' : 'horas'} y ${resto} ${resto === 1 ? 'minuto' : 'minutos'}`;
+};
 const hora = (valor) => (valor ? dayjs(valor).format('HH:mm') : '—');
 const claveEstado = (resultado) => (resultado?.estado === 'presente' && resultado?.minutos_tardanza > 0 ? 'tardanza' : resultado?.estado);
 
@@ -33,6 +54,11 @@ function EstadoDia({ resultado, mostrarHoras = false }) {
       {mostrarHoras && Number(resultado?.minutos_trabajados) > 0 && (
         <span className="text-[11px] font-medium text-slate-600" title="Horas trabajadas">
           {duracion(Number(resultado.minutos_trabajados))}
+        </span>
+      )}
+      {mostrarHoras && Number(resultado?.minutos_tardanza) > 0 && (
+        <span className="text-[10px] font-medium text-amber-700" title="Minutos de tardanza detectados">
+          Tardanza: {Number(resultado.minutos_tardanza)} min
         </span>
       )}
       {mostrarHoras && (resultado?.entrada || resultado?.salida) && (
@@ -49,6 +75,7 @@ function EstadoDia({ resultado, mostrarHoras = false }) {
 
 const ESTADOS_CORREGIBLES = [
   { value: 'presente', label: 'Presente' },
+  { value: 'falta', label: 'Falta' },
   { value: 'falta_justificada', label: 'Falta justificada' },
   { value: 'permiso', label: 'Permiso' },
   { value: 'home_office', label: 'Trabajo remoto' },
@@ -61,15 +88,24 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
   const [entrada, setEntrada] = useState('');
   const [salida, setSalida] = useState('');
   const [estadoManual, setEstadoManual] = useState(undefined);
+  const [horariosExcepcionales, setHorariosExcepcionales] = useState([]);
+  const [horarioExcepcional, setHorarioExcepcional] = useState(undefined);
 
   useEffect(() => {
-    if (open) { setMotivo(''); setEntrada(''); setSalida(''); setEstadoManual(undefined); }
+    if (!open || !fecha) return;
+    const fechaTexto = fecha.format('YYYY-MM-DD');
+    setMotivo(''); setEntrada(''); setSalida(''); setEstadoManual(undefined);
+    setHorarioExcepcional(undefined);
+    api.get('/asistencia/horarios-excepcionales', { params: { fecha: fechaTexto } })
+      .then(({ data }) => setHorariosExcepcionales(data.data ?? []))
+      .catch(() => setHorariosExcepcionales([]));
   }, [open, fecha]);
 
   if (!fecha) return null;
 
   const fechaTexto = fecha.format('YYYY-MM-DD');
-  const tipoProgramado = colaborador.calendario?.[fechaTexto];
+  const configuracionDia = colaborador.calendario?.[fechaTexto];
+  const tipoProgramado = typeof configuracionDia === 'string' ? configuracionDia : configuracionDia?.tipo;
   const resultado = colaborador.resultados?.[fechaTexto];
   const estado = resultado ? (ESTADOS[claveEstado(resultado)] ?? ESTADOS.no_programado) : ESTADOS.no_programado;
   const marcacionesDelDia = (colaborador.marcaciones ?? [])
@@ -104,8 +140,8 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
             type="primary"
             icon={<EditOutlined />}
             loading={corrigiendo}
-            disabled={!motivo.trim() || !puedeCorregir || (!entrada && !salida && !estadoManual)}
-            onClick={() => onCorregir(resultado.id, { entrada: entrada || undefined, salida: salida || undefined, estado: estadoManual, motivo: motivo.trim() }).then(onCerrar).catch(() => {})}
+            disabled={!motivo.trim() || !puedeCorregir || (!entrada && !salida && !estadoManual && !horarioExcepcional)}
+            onClick={() => onCorregir(resultado.id, { entrada: entrada || undefined, salida: salida || undefined, estado: estadoManual, horario_excepcional_id: horarioExcepcional, motivo: motivo.trim() }).then(onCerrar).catch(() => {})}
           >
             Guardar corrección
           </Button>
@@ -149,6 +185,21 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
             })}
           </ul>
         )}
+      </div>
+      <div className="mt-4">
+        <Text type="secondary" className="text-xs">Horario excepcional para este día</Text>
+        <Select
+          allowClear
+          className="mt-1 w-full"
+          placeholder={configuracionDia?.horario_excepcional ? `Actual: ${configuracionDia.horario_excepcional}` : 'Mantener horario habitual'}
+          value={horarioExcepcional}
+          onChange={setHorarioExcepcional}
+          options={horariosExcepcionales.map((horario) => ({
+            value: horario.id,
+            label: `${horario.nombre} · ${String(horario.hora_entrada).slice(0, 5)}–${String(horario.hora_salida).slice(0, 5)}`,
+          }))}
+        />
+        <Text type="secondary" className="mt-1 block text-xs">Úsalo solo cuando el colaborador tuvo un turno distinto al habitual. Se recalcularán tardanza, horas trabajadas y horas extra.</Text>
       </div>
 
       <div className="mt-5 rounded-lg border border-slate-200 p-3">
@@ -366,12 +417,15 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const [filtroSede, setFiltroSede] = useState();
   const [filtroArea, setFiltroArea] = useState();
   const [filtroPreparacion, setFiltroPreparacion] = useState('todos');
+  const [colaboradoresSeleccionados, setColaboradoresSeleccionados] = useState([]);
   const [resultados, setResultados] = useState([]);
   const [colaboradores, setColaboradores] = useState([]);
   const [stats, setStats] = useState({});
   const [statsColaboradores, setStatsColaboradores] = useState({});
   const [loading, setLoading] = useState(false);
   const [reprocesando, setReprocesando] = useState(false);
+  const [exportandoReporte, setExportandoReporte] = useState(false);
+  const [exportandoHorasExtra, setExportandoHorasExtra] = useState(false);
   const [reprocesandoDia, setReprocesandoDia] = useState(false);
   const [corrigiendoDia, setCorrigiendoDia] = useState(false);
   const [perfil, setPerfil] = useState(null);
@@ -451,6 +505,28 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
 
   useEffect(() => { cargar(); }, [cargar, user?.empresa?.id]);
 
+  // La tabla principal recibe como máximo 100 horas extra de toda la empresa.
+  // Filtrar después en el navegador ocultaba registros antiguos de un
+  // colaborador cuando la empresa tenía más de 100 filas. Al elegirlo,
+  // consultamos al servidor con colaborador_id para obtener todo su rango.
+  useEffect(() => {
+    if (!colaboradorFiltroHorasExtra) return;
+    let vigente = true;
+    api.get('/asistencia/horas-extra', {
+      params: { ...parametros, colaborador_id: colaboradorFiltroHorasExtra },
+    })
+      .then(({ data }) => {
+        if (vigente) {
+          setHorasExtra(data.data ?? []);
+          setHorasExtraSeleccionadas([]);
+        }
+      })
+      .catch((error) => {
+        if (vigente) message.error(error.response?.data?.message ?? 'No se pudieron cargar las horas extra del colaborador.');
+      });
+    return () => { vigente = false; };
+  }, [colaboradorFiltroHorasExtra, message, parametros]);
+
   /**
    * Separado del Promise.all de cargar(): Incidencias necesita su propio
    * filtro de estado y, opcionalmente, quedar preseleccionado a un
@@ -498,6 +574,42 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       }
     } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo reprocesar la asistencia'); }
     finally { setReprocesando(false); }
+  };
+
+  const descargarExcel = async (ruta, params, nombrePorDefecto) => {
+    const response = await api.get(ruta, { params, responseType: 'blob' });
+    const disposicion = response.headers?.['content-disposition'] ?? '';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? nombrePorDefecto;
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const exportarReporte = async () => {
+    setExportandoReporte(true);
+    try {
+      const params = colaboradoresSeleccionados.length > 0 ? { ...parametros, colaborador_ids: colaboradoresSeleccionados } : parametros;
+      await descargarExcel('/asistencia/reporte-colaboradores/excel', params, 'Resumen_asistencia.xlsx');
+      message.success('Reporte generado correctamente');
+    } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo generar el reporte'); }
+    finally { setExportandoReporte(false); }
+  };
+
+  const exportarHorasExtra = async () => {
+    setExportandoHorasExtra(true);
+    try {
+      const params = horasExtraSeleccionadas.length > 0
+        ? { fecha_desde: parametros.fecha_desde, fecha_hasta: parametros.fecha_hasta, horas_extra_ids: horasExtraSeleccionadas }
+        : { fecha_desde: parametros.fecha_desde, fecha_hasta: parametros.fecha_hasta, colaborador_id: colaboradorFiltroHorasExtra, estado: estadoFiltroHorasExtra };
+      await descargarExcel('/asistencia/horas-extra/excel', params, 'Horas_extra.xlsx');
+      message.success('Excel de horas extra generado');
+    } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo generar el Excel de horas extra'); }
+    finally { setExportandoHorasExtra(false); }
   };
 
   const reprocesarDia = async (fecha, motivo) => {
@@ -598,8 +710,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
         {advertencia && <Alert className="mb-3" type="info" showIcon message={advertencia} />}
         <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} />
       </div>,
-      okText: accion === 'aprobar' ? 'Aprobar' : accion === 'rechazar' ? 'Rechazar' : 'Confirmar',
-      okButtonProps: { danger: accion === 'rechazar' },
+      okText: accion === 'aprobar' ? 'Aprobar' : accion === 'rechazar' ? 'Rechazar' : accion === 'anular_aprobacion' ? 'Anular aprobación' : 'Confirmar',
+      okButtonProps: { danger: ['rechazar', 'anular_aprobacion'].includes(accion) },
       cancelText: 'Cancelar',
       onOk: async () => {
         if (!motivo.trim()) { message.warning('Ingresa el motivo de la decisión'); throw new Error('motivo_requerido'); }
@@ -668,6 +780,34 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       + (generados.length ? ` Se generaron: ${generados.join(', ')}. Ya puedes cerrar el período — resuelve las incidencias antes de enviarlo a Nómina.` : ' Ya puedes intentar cerrar el período nuevamente.'),
       8,
     );
+  };
+
+  /**
+   * A diferencia de "Cerrar período" (que implica listo para pagar), esto
+   * corre la misma reconciliación (cobertura diaria + descanso flexible si
+   * está habilitado) sin cerrar nada — para que RR.HH. pueda revisar la
+   * clasificación real de los días durante el mes, apenas importa el
+   * huellero, en vez de recién verla al momento de cerrar.
+   */
+  const handleVerificarPeriodo = async (periodo) => {
+    try {
+      const { data, status } = await api.post(`/asistencia/periodos/${periodo.id}/verificar`);
+      if (status === 202) {
+        message.info(data.message);
+        setCoberturaEnProceso((prev) => ({ ...prev, [periodo.id]: true }));
+        pollEstadoCobertura(periodo.id);
+        return;
+      }
+      const pendientes = data.pendientes;
+      if (!pendientes) {
+        message.success('Asistencia verificada — no hay pendientes en este período.');
+      } else {
+        message.info(mensajePendientesResumen(pendientes), 8);
+      }
+      await cargar();
+    } catch (error) {
+      message.error(error.response?.data?.message ?? 'No se pudo verificar la asistencia del período');
+    }
   };
 
   const handleCerrarPeriodo = (periodo) => {
@@ -895,10 +1035,28 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     <Button type="link" size="small" onClick={() => abrirCorregirPlanificacion(row)}>Corregir planificación</Button>
   </Space>;
 
+  const vincularSalidaDiaSiguiente = (row) => {
+    let motivo = '';
+    Modal.confirm({
+      title: 'Vincular salida del día siguiente',
+      content: <div className="mt-3 space-y-3"><Alert type="info" showIcon message="Se usará la primera marcación libre de la madrugada del día siguiente como salida excepcional. No cambia el horario normal del colaborador." /><Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} /></div>,
+      okText: 'Vincular y reprocesar',
+      onOk: async () => {
+        if (!motivo.trim()) { message.warning('Ingresa el motivo'); throw new Error('motivo_requerido'); }
+        await api.patch(`/asistencia/incidencias/${row.id}/vincular-salida-siguiente`, { motivo: motivo.trim() });
+        message.success('Salida vinculada y jornada reprocesada');
+        await cargar(); await cargarIncidencias();
+      },
+    });
+  };
+
   const accionesIncidencia = (row, opciones = {}) => {
     if (row.estado !== 'pendiente' || !puedeResolverIncidencias) return '—';
     if (row.tipo === 'dia_sin_clasificar') return accionesDiaSinClasificar(row);
     if (row.tipo === 'trabajo_en_descanso') return accionesTrabajoEnDescanso(row);
+    if (row.tipo === 'marcacion_incompleta' && row.resultado?.entrada_at && !row.resultado?.salida_at) {
+      return <Space size={2}><Button type="link" size="small" onClick={() => vincularSalidaDiaSiguiente(row)}>Vincular salida siguiente</Button><Dropdown menu={{ items: [{ key: 'marcaciones', label: 'Editar marcaciones' }, { key: 'permiso', label: 'Registrar permiso' }], onClick: ({ key }) => (key === 'marcaciones' ? editarMarcacionesDeIncidencia(row) : abrirModalPermiso(row)) }}><Button type="link" size="small">Resolver <DownOutlined /></Button></Dropdown></Space>;
+    }
     const onEditarMarcaciones = opciones.onEditarMarcaciones ?? (() => editarMarcacionesDeIncidencia(row));
     const advertencia = row.tipo === 'horario_desplazado'
       ? 'Al aprobar, el día quedará como presente sin descuento de tardanza.'
@@ -1016,8 +1174,11 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       <Select size="middle" value={filtroPreparacion} onChange={setFiltroPreparacion} className="w-40 shrink-0" options={[{ value: 'todos', label: 'Todos' }, { value: 'listos', label: 'Listos' }, { value: 'sin_horario', label: 'Sin horario' }, { value: 'sin_calendario', label: 'Sin calendario' }, { value: 'sin_biometrico', label: 'Sin ID biométrico' }]} />
       {(busqueda || filtroSede || filtroArea || filtroPreparacion !== 'todos') && <Button type="text" size="small" onClick={() => { setBusqueda(''); setFiltroSede(); setFiltroArea(); setFiltroPreparacion('todos'); }}>Limpiar</Button>}
     </div>
-    <div className="flex flex-wrap items-center gap-1.5 text-xs"><Text type="secondary" className="mr-1">Leyenda</Text>{Object.entries(ESTADOS).map(([key, estado]) => <Tag className="!m-0" color={estado[2]} key={key}>{estado[0]} {estado[1]}</Tag>)}<Text type="secondary" className="ml-auto">{colaboradoresFiltrados.length} colaboradores</Text></div>
-    <Card className="overflow-hidden border-slate-200" styles={{ body: { padding: 0 } }}><Table size="small" tableLayout="fixed" rowKey="id" columns={columnasColaboradores} dataSource={colaboradoresFiltrados} loading={loading} rowClassName="hover:bg-slate-50" pagination={{ pageSize: 25, size: 'small', showSizeChanger: false, showTotal: (total) => `${total} colaboradores` }} locale={{ emptyText: <Empty description="No hay colaboradores para los filtros seleccionados" /> }} /></Card>
+    <div className="flex flex-wrap items-center gap-1.5 text-xs"><Text type="secondary" className="mr-1">Leyenda</Text>{Object.entries(ESTADOS).map(([key, estado]) => <Tag className="!m-0" color={estado[2]} key={key}>{estado[0]} {estado[1]}</Tag>)}
+      {colaboradoresSeleccionados.length > 0 && <><Tag color="blue" className="!m-0">{colaboradoresSeleccionados.length} seleccionado(s)</Tag><Button type="text" size="small" onClick={() => setColaboradoresSeleccionados([])}>Limpiar selección</Button></>}
+      <Text type="secondary" className="ml-auto">{colaboradoresFiltrados.length} colaboradores</Text>
+    </div>
+    <Card className="overflow-hidden border-slate-200" styles={{ body: { padding: 0 } }}><Table size="small" tableLayout="fixed" rowKey="id" columns={columnasColaboradores} dataSource={colaboradoresFiltrados} loading={loading} rowClassName="hover:bg-slate-50" rowSelection={{ selectedRowKeys: colaboradoresSeleccionados, onChange: setColaboradoresSeleccionados }} pagination={{ pageSize: 25, size: 'small', showSizeChanger: false, showTotal: (total) => `${total} colaboradores` }} locale={{ emptyText: <Empty description="No hay colaboradores para los filtros seleccionados" /> }} /></Card>
   </div>;
 
   const importar = <div className="space-y-5">
@@ -1130,6 +1291,28 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     && (estadoFiltroHorasExtra === 'todos' || row.estado === estadoFiltroHorasExtra)
   ));
 
+  // La selección sirve también para exportar (cualquier estado), pero
+  // aprobar/rechazar solo aplica a pendientes: el backend rechaza el lote
+  // completo si incluye una ya resuelta.
+  const pendientesSeleccionadas = horasExtra
+    .filter((row) => horasExtraSeleccionadas.includes(row.id) && row.estado === 'pendiente')
+    .map((row) => row.id);
+
+  const resumenHorasExtraSeleccionadas = useMemo(() => {
+    const seleccionadas = horasExtra.filter((row) => horasExtraSeleccionadas.includes(row.id));
+    const minutosObservados = seleccionadas.reduce((total, row) => total + (Number(row.minutos_observados) || 0), 0);
+    const minutosPendientes = seleccionadas
+      .filter((row) => row.estado === 'pendiente')
+      .reduce((total, row) => total + (Number(row.minutos_observados) || 0), 0);
+    const porTasa = seleccionadas.reduce((total, row) => {
+      const tasa = String(row.tasa);
+      total[tasa] = (total[tasa] || 0) + (Number(row.minutos_observados) || 0);
+      return total;
+    }, {});
+
+    return { minutosObservados, minutosPendientes, porTasa };
+  }, [horasExtra, horasExtraSeleccionadas]);
+
   const resolverHorasExtraMasivo = (accion) => {
     let motivo = '';
     Modal.confirm({
@@ -1139,7 +1322,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
           <Alert
             type="info"
             showIcon
-            message={`${horasExtraSeleccionadas.length} registro(s) seleccionado(s)`}
+            message={`${pendientesSeleccionadas.length} registro(s) pendiente(s) seleccionado(s)`}
             description={accion === 'aprobar' ? 'Se aprobarán todos los minutos observados de cada registro.' : undefined}
           />
           <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { motivo = event.target.value; }} />
@@ -1150,8 +1333,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       cancelText: 'Cancelar',
       onOk: async () => {
         if (!motivo.trim()) { message.warning('Ingresa el motivo de la decisión'); throw new Error('motivo_requerido'); }
-        await api.patch('/asistencia/horas-extra', { ids: horasExtraSeleccionadas, accion, motivo: motivo.trim() });
-        message.success(`${horasExtraSeleccionadas.length} registro(s) procesado(s)`);
+        await api.patch('/asistencia/horas-extra', { ids: pendientesSeleccionadas, accion, motivo: motivo.trim() });
+        message.success(`${pendientesSeleccionadas.length} registro(s) procesado(s)`);
         setHorasExtraSeleccionadas([]);
         await cargar();
       },
@@ -1182,17 +1365,33 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
           { value: 'rechazado', label: 'Rechazadas' },
         ]}
       />
-      {puedeGestionarHorasExtra && horasExtraSeleccionadas.length > 0 && <>
+      {puedeGestionarHorasExtra && pendientesSeleccionadas.length > 0 && <>
         <Button type="primary" onClick={() => resolverHorasExtraMasivo('aprobar')}>Aprobar seleccionadas</Button>
         <Button danger onClick={() => resolverHorasExtraMasivo('rechazar')}>Rechazar seleccionadas</Button>
-        <Text type="secondary">{horasExtraSeleccionadas.length} seleccionada(s)</Text>
       </>}
+      {horasExtraSeleccionadas.length > 0 && <>
+        <Text type="secondary">
+          {horasExtraSeleccionadas.length} seleccionada(s)
+          {' · Observadas: '}{duracionEnTexto(resumenHorasExtraSeleccionadas.minutosObservados)}
+          {Object.entries(resumenHorasExtraSeleccionadas.porTasa).length > 1 && (
+            <> ({Object.entries(resumenHorasExtraSeleccionadas.porTasa).sort(([a], [b]) => Number(a) - Number(b)).map(([tasa, minutos]) => `${tasa}%: ${duracionEnTexto(minutos)}`).join('; ')})</>
+          )}
+          {pendientesSeleccionadas.length !== horasExtraSeleccionadas.length && ` · ${pendientesSeleccionadas.length} pendiente(s)`}
+          {resumenHorasExtraSeleccionadas.minutosPendientes > 0 && pendientesSeleccionadas.length !== horasExtraSeleccionadas.length && (
+            ` · Por aprobar: ${duracionEnTexto(resumenHorasExtraSeleccionadas.minutosPendientes)}`
+          )}
+        </Text>
+        <Button type="text" size="small" onClick={() => setHorasExtraSeleccionadas([])}>Limpiar selección</Button>
+      </>}
+      <Button className="ml-auto" icon={<FileExcelOutlined />} loading={exportandoHorasExtra} disabled={horasExtraFiltradas.length === 0} onClick={exportarHorasExtra}>
+        {horasExtraSeleccionadas.length > 0 ? `Descargar Excel (${horasExtraSeleccionadas.length})` : 'Descargar Excel'}
+      </Button>
     </div>
-    <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={horasExtraFiltradas} rowSelection={puedeGestionarHorasExtra ? {
+    <Card styles={{ body: { padding: 0 } }}><Table size="small" rowKey="id" dataSource={horasExtraFiltradas} rowSelection={{
       selectedRowKeys: horasExtraSeleccionadas,
       onChange: setHorasExtraSeleccionadas,
-      getCheckboxProps: (row) => ({ disabled: row.estado !== 'pendiente' }),
-    } : undefined} columns={[
+      selections: [Table.SELECTION_ALL, Table.SELECTION_NONE],
+    }} columns={[
     { title: 'Fecha', dataIndex: 'fecha', width: 110, render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Colaborador', render: (_, row) => `${row.colaborador?.nombres ?? ''} ${row.colaborador?.apellidos ?? ''}`.trim() },
     { title: 'Tasa', dataIndex: 'tasa', width: 75, render: (value) => <Tag>{value}%</Tag> },
@@ -1200,7 +1399,16 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Aprobadas', dataIndex: 'minutos_aprobados', width: 105, render: duracion },
     { title: 'Estado', dataIndex: 'estado', width: 110, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'aprobado' ? 'green' : 'red'}>{value}</Tag> },
     { title: 'Motivo', dataIndex: 'motivo', ellipsis: true, render: (value) => value || '—' },
-    { title: 'Acciones', width: 160, render: (_, row) => row.estado === 'pendiente' && puedeGestionarHorasExtra ? <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Aprobar horas extra', `/asistencia/horas-extra/${row.id}`, 'aprobar', { minutos_aprobados: row.minutos_observados })}>Aprobar</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar horas extra', `/asistencia/horas-extra/${row.id}`, 'rechazar')}>Rechazar</Button></Space> : '—' },
+    {
+      title: 'Acciones',
+      width: 180,
+      render: (_, row) => {
+        if (!puedeGestionarHorasExtra) return '—';
+        if (row.estado === 'pendiente') return <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Aprobar horas extra', `/asistencia/horas-extra/${row.id}`, 'aprobar', { minutos_aprobados: row.minutos_observados })}>Aprobar</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar horas extra', `/asistencia/horas-extra/${row.id}`, 'rechazar')}>Rechazar</Button></Space>;
+        if (row.estado === 'aprobado') return <Button type="link" size="small" danger onClick={() => solicitarDecision('Anular aprobación de horas extra', `/asistencia/horas-extra/${row.id}`, 'anular_aprobacion', {}, 'La hora extra dejará de pagarse. Si la planilla ya fue calculada, quedará marcada para recalcular.')}>Anular aprobación</Button>;
+        return '—';
+      },
+    },
   ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay horas extra para el filtro seleccionado" /> }} /></Card>
   </div>;
 
@@ -1217,7 +1425,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Hasta', dataIndex: 'fecha_fin', render: (value) => dayjs(value).format('DD/MM/YYYY') },
     { title: 'Versión', dataIndex: 'version', width: 80 },
     { title: 'Estado', dataIndex: 'estado', render: (value, row) => <Space size={4}><Tag color={value === 'abierto' ? 'green' : value === 'cerrado' ? 'gold' : 'blue'}>{value.replaceAll('_', ' ')}</Tag>{row.cobertura_estado === 'en_proceso' && <Tag icon={<ReloadOutlined spin />} color="processing">verificando cobertura</Tag>}</Space> },
-    { title: 'Acciones', width: 280, render: (_, row) => puedeGestionarPeriodos ? <Space size={3}>{row.estado === 'abierto' && <Button size="small" loading={coberturaEnProceso[row.id]} disabled={coberturaEnProceso[row.id]} onClick={() => handleCerrarPeriodo(row)}>Cerrar</Button>}{row.estado === 'cerrado' && <><Button size="small" type="primary" onClick={() => solicitarDecision('Enviar período a Nómina', `/asistencia/periodos/${row.id}`, 'enviar_nomina')}>Enviar a Nómina</Button><Button size="small" onClick={() => solicitarDecision('Reabrir período', `/asistencia/periodos/${row.id}`, 'reabrir')}>Reabrir</Button></>}</Space> : '—' },
+    { title: 'Acciones', width: 340, render: (_, row) => puedeGestionarPeriodos ? <Space size={3}>{row.estado === 'abierto' && <><Button size="small" loading={coberturaEnProceso[row.id]} disabled={coberturaEnProceso[row.id]} onClick={() => handleVerificarPeriodo(row)}>Verificar asistencia</Button><Button size="small" loading={coberturaEnProceso[row.id]} disabled={coberturaEnProceso[row.id]} onClick={() => handleCerrarPeriodo(row)}>Cerrar</Button></>}{row.estado === 'cerrado' && <><Button size="small" type="primary" onClick={() => solicitarDecision('Enviar período a Nómina', `/asistencia/periodos/${row.id}`, 'enviar_nomina')}>Enviar a Nómina</Button><Button size="small" onClick={() => solicitarDecision('Reabrir período', `/asistencia/periodos/${row.id}`, 'reabrir')}>Reabrir</Button></>}</Space> : '—' },
   ]} pagination={{ pageSize: 15, size: 'small' }} /></Card></div>;
   const tabs = [
     { key: 'resumen', label: 'Resumen', icon: <TeamOutlined />, children: resumen }, { key: 'colaboradores', label: 'Colaboradores', icon: <TeamOutlined />, children: vistaColaboradores },
@@ -1253,7 +1461,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     />
   </>;
 
-  return <div className="space-y-4"><div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><Title level={3} className="!mb-1">Gestión de asistencias</Title><Text type="secondary">Control diario de {user?.empresa?.nombre_comercial ?? 'la empresa activa'}</Text></div><Space wrap><RangePicker value={rango} allowClear={false} format="DD/MM/YYYY" onChange={(value) => value && setRango(value)} />{puedeProcesar && <Button icon={<ReloadOutlined />} loading={reprocesando} onClick={reprocesar}>Reprocesar</Button>}</Space></div><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
+  return <div className="space-y-4"><div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><Title level={3} className="!mb-1">Gestión de asistencias</Title><Text type="secondary">Control diario de {user?.empresa?.nombre_comercial ?? 'la empresa activa'}</Text></div><Space wrap><RangePicker value={rango} allowClear={false} format="DD/MM/YYYY" onChange={(value) => value && setRango(value)} />{activeTab !== 'horas-extra' && <Button icon={<FileExcelOutlined />} loading={exportandoReporte} onClick={exportarReporte}>{colaboradoresSeleccionados.length > 0 ? `Descargar reporte (${colaboradoresSeleccionados.length})` : 'Descargar reporte'}</Button>}{puedeProcesar && <Button icon={<ReloadOutlined />} loading={reprocesando} onClick={reprocesar}>Reprocesar</Button>}</Space></div><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
     <Modal title="Nuevo permiso" open={permisoModalOpen} onCancel={() => setPermisoModalOpen(false)} footer={null} destroyOnHidden width={520}>
       <Form form={permisoForm} layout="vertical" onFinish={crearPermiso} initialValues={{ tipo: 'personal' }} requiredMark="optional">
         <Form.Item name="colaborador_id" label="Empleado" rules={[{ required: true, message: 'Selecciona un empleado' }]}><Select showSearch optionFilterProp="label" placeholder="Seleccionar empleado" options={colaboradores.map((item) => ({ value: item.id, label: `${item.nombre_completo} · ${item.legajo}` }))} /></Form.Item>

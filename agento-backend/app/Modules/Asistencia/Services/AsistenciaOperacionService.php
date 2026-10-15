@@ -192,12 +192,32 @@ class AsistenciaOperacionService
 
     public function horasExtra(Empresa $empresa, array $filtros): LengthAwarePaginator
     {
+        return $this->queryHorasExtra($empresa, $filtros)->paginate($filtros['per_page'] ?? 25);
+    }
+
+    /**
+     * Mismas filas y orden que la pestaña "Horas extra", sin paginar, para
+     * el Excel. Si llegan ids seleccionados, se exportan solo esos (sin
+     * importar su estado).
+     *
+     * @return \Illuminate\Support\Collection<int, AsistenciaHoraExtra>
+     */
+    public function horasExtraParaExportar(Empresa $empresa, array $filtros): \Illuminate\Support\Collection
+    {
+        return $this->queryHorasExtra($empresa, $filtros)
+            ->when($filtros['horas_extra_ids'] ?? null, fn ($q, $ids) => $q->whereIn('id', $ids))
+            ->orderBy('id')
+            ->get();
+    }
+
+    private function queryHorasExtra(Empresa $empresa, array $filtros)
+    {
         return AsistenciaHoraExtra::query()->where('empresa_id', $empresa->id)
             ->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']])
             ->when($filtros['estado'] ?? null, fn ($q, $estado) => $estado === 'todos' ? $q : $q->where('estado', $estado))
             ->when($filtros['colaborador_id'] ?? null, fn ($q, $colaboradorId) => $q->where('colaborador_id', $colaboradorId))
-            ->with('colaborador:id,nombres,apellidos,legajo,area_id')
-            ->orderByDesc('fecha')->paginate($filtros['per_page'] ?? 25);
+            ->with('colaborador:id,nombres,apellidos,legajo,numero_documento,area_id')
+            ->orderByDesc('fecha');
     }
 
     public function importaciones(Empresa $empresa, int $perPage): LengthAwarePaginator

@@ -6,6 +6,8 @@ use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
+use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
+use App\Modules\Nominas\Support\ProrateoCese;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
@@ -32,7 +34,7 @@ use RuntimeException;
  */
 class CalcularReciboHonorarios
 {
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?float $salarioBaseOverride = null): array
     {
         $parametros = ParametrosVigentesResolver::paraHonorarios($colaborador->empresa, $fechaCorte);
 
@@ -42,11 +44,21 @@ class CalcularReciboHonorarios
             ->orderByDesc('id')
             ->first();
 
-        if (! $remuneracion) {
+        if (! $remuneracion && $salarioBaseOverride === null) {
             throw new RuntimeException("El colaborador #{$colaborador->id} no tiene un honorario pactado vigente a {$fechaCorte}.");
         }
 
-        $honorarioBruto = (float) $remuneracion->salario;
+        $honorarioBruto = (float) ($remuneracion?->salario ?? $salarioBaseOverride);
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
+        $asistencia = $this->obtenerAsistenciaConfigurada(
+            $colaborador, $periodoAsistencia['inicio'], $periodoAsistencia['fin']
+        );
+        $pagoPorDiasPresentes = $remuneracion?->modo_calculo_honorarios === 'por_dias_presentes';
+        // Esta modalidad paga exactamente el período mostrado en la
+        // planilla; el corte diferido no arrastra presentes de otro mes.
+        $asistenciaParaPago = $pagoPorDiasPresentes
+            ? $this->obtenerAsistenciaConfigurada($colaborador, $fechaInicio, $fechaFin)
+            : $asistencia;
 
         // Un locador que ingresa a mitad de $fechaInicio no debe facturar el
         // honorario pactado completo — el recibo real de ese período es
@@ -58,10 +70,13 @@ class CalcularReciboHonorarios
         // valor-hora/valor-día no se prorratea, mismo criterio que
         // CalcularBoletaColaborador. No-op si ya estaba activo antes del
         // período — ver ProrateoIngresoTardio.
-        $diasNoPagadosPorIngresoTardio = ProrateoIngresoTardio::diasNoPagados($colaborador->fecha_ingreso, $fechaInicio);
-        $honorarioDelPeriodo = $diasNoPagadosPorIngresoTardio > 0
-            ? round($honorarioBruto * max(0, 30 - $diasNoPagadosPorIngresoTardio) / 30, 2)
-            : $honorarioBruto;
+        $diasNoPagadosPorIngresoTardio = ProrateoIngresoTardio::diasNoPagados($colaborador->fecha_ingreso, $fechaInicio)
+            + ProrateoCese::diasNoPagados($colaborador->fecha_cese, $fechaInicio, $fechaFin);
+        $honorarioDelPeriodo = $pagoPorDiasPresentes
+            ? round(($honorarioBruto / 30) * $asistenciaParaPago['dias_presentes'], 2)
+            : ($diasNoPagadosPorIngresoTardio > 0
+                ? round($honorarioBruto * max(0, 30 - $diasNoPagadosPorIngresoTardio) / 30, 2)
+                : $honorarioBruto);
 
         $retencion = 0.0;
         $alertas = [];
@@ -81,9 +96,12 @@ class CalcularReciboHonorarios
             'base_utilizada' => null,
             'tasa_aplicada' => null,
             'cantidad' => null,
-            'formula_texto' => $diasNoPagadosPorIngresoTardio > 0
-                ? "Monto pactado vigente para este período — excluye {$diasNoPagadosPorIngresoTardio} día(s) previos al ingreso ({$colaborador->fecha_ingreso->toDateString()})"
-                : 'Monto pactado vigente para este período (historial remunerativo del colaborador)',
+            'formula_texto' => $pagoPorDiasPresentes
+                ? "Honorario/30 (".round($honorarioBruto / 30, 2)." × {$asistenciaParaPago['dias_presentes']} día(s) con asistencia presente"
+                    .($asistenciaParaPago['fechas_presentes'] ? ' — '.implode(', ', $asistenciaParaPago['fechas_presentes']) : '')
+                : ($diasNoPagadosPorIngresoTardio > 0
+                    ? "Monto pactado vigente para este período — excluye {$diasNoPagadosPorIngresoTardio} día(s) fuera del vínculo (ingreso {$colaborador->fecha_ingreso->toDateString()}".($colaborador->fecha_cese ? ", cese {$colaborador->fecha_cese->toDateString()}" : '').')'
+                    : 'Monto pactado vigente para este período (historial remunerativo del colaborador)'),
         ]];
 
         $egresos = [[
@@ -95,7 +113,9 @@ class CalcularReciboHonorarios
             'formula_texto' => $formulaRetencion,
         ]];
 
-        $asistencia = $this->obtenerAsistenciaConfigurada($colaborador, $fechaInicio, $fechaFin);
+        // Honorarios y dependientes deben usar el mismo corte diferido. De
+        // otro modo un locador seguía descontando todo el mes calendario,
+        // aunque el ciclo tuviera corte el 27.
         $valorHora = $honorarioBruto / 240;
 
         foreach ([
@@ -113,7 +133,8 @@ class CalcularReciboHonorarios
                 'base_utilizada' => round($valorHora, 6),
                 'tasa_aplicada' => $tramo['tasa'],
                 'cantidad' => $tramo['horas'],
-                'formula_texto' => "Honorario/240 ({$valorHora}) × {$tramo['horas']} horas aprobadas × {$tramo['tasa']}",
+                'formula_texto' => "Honorario/240 ({$valorHora}) × {$tramo['horas']} horas aprobadas × {$tramo['tasa']}"
+                    .($asistencia['detalle_horas_extra'][str_replace('HE_', '', $tramo['codigo'])] ?? '' ? ' — '.($asistencia['detalle_horas_extra'][str_replace('HE_', '', $tramo['codigo'])]) : ''),
             ];
         }
 
@@ -129,7 +150,7 @@ class CalcularReciboHonorarios
             ];
         }
 
-        if ($asistencia['dias_falta'] > 0) {
+        if (! $pagoPorDiasPresentes && $asistencia['dias_falta'] > 0) {
             $valorDia = $honorarioBruto / 30;
             $egresos[] = [
                 'codigo' => 'DESCUENTO_FALTA',
@@ -177,7 +198,9 @@ class CalcularReciboHonorarios
             'total_aportaciones' => 0.0,
             'neto_a_pagar' => round($totalIngresos - $totalEgresos, 2),
             'snapshot_parametros_version' => $parametros['version_id'],
-            'snapshot_reglas_version' => 'recibos-honorarios-v2-asistencia-configurable',
+            'snapshot_reglas_version' => $pagoPorDiasPresentes
+                ? 'recibos-honorarios-v3-dias-presentes'
+                : 'recibos-honorarios-v2-asistencia-configurable',
             'alertas' => $alertas,
         ];
     }
@@ -236,10 +259,20 @@ class CalcularReciboHonorarios
         $diasFalta = (float) $resultados->filter(function (AsistenciaResultadoDiario $resultado) use ($condiciones, $colaborador) {
             $config = $this->configuracionEnFecha($condiciones, $resultado->fecha->toDateString(), $colaborador);
 
-            return $config['contabilizar_faltas'] && $resultado->estado === 'falta';
+            // Del 27 al cierre la asistencia sigue en revisión de RR. HH.;
+            // no se descuenta hasta contar con las marcaciones definitivas.
+            return $config['contabilizar_faltas']
+                && $resultado->estado === 'falta'
+                && $resultado->fecha->day < 27;
         })->count();
+        $diasPresentes = (float) $resultados->where('estado', 'presente')->count();
+        $fechasPresentes = $resultados->where('estado', 'presente')
+            ->sortBy('fecha')
+            ->map(fn (AsistenciaResultadoDiario $resultado) => $resultado->fecha->format('d/m'))
+            ->values()
+            ->all();
 
-        $minutosHe = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
+        $horasExtraAprobadas = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
             ->whereBetween('fecha', [$fechaInicio, $fechaFin])
             ->where('estado', AsistenciaHoraExtra::ESTADO_APROBADO)
             ->get()
@@ -247,17 +280,28 @@ class CalcularReciboHonorarios
                 $condiciones,
                 $horaExtra->fecha->toDateString(),
                 $colaborador,
-            )['contabilizar_horas_extra'])
-            ->groupBy('tasa')
+            )['contabilizar_horas_extra']);
+        $minutosHe = $horasExtraAprobadas->groupBy('tasa')
             ->map(fn (Collection $items) => (int) $items->sum('minutos_aprobados'));
+        $detalleHorasExtra = $horasExtraAprobadas->sortBy('fecha')->groupBy('tasa')
+            ->map(fn (Collection $items) => $items->map(function (AsistenciaHoraExtra $horaExtra) {
+                $minutos = (int) $horaExtra->minutos_aprobados;
+                $duracion = intdiv($minutos, 60).' h'.($minutos % 60 ? ' '.($minutos % 60).' min' : '');
+
+                return $horaExtra->fecha->format('d/m').' · '.$duracion;
+            })->implode(', '))
+            ->all();
 
         return [
             'asistencia_procesada' => $resultados->isNotEmpty(),
+            'dias_presentes' => $diasPresentes,
+            'fechas_presentes' => $fechasPresentes,
             'dias_falta' => $diasFalta,
             'minutos_tardanza' => $minutosTardanza,
             'horas_he25' => round((float) $minutosHe->get('25', 0) / 60, 2),
             'horas_he35' => round((float) $minutosHe->get('35', 0) / 60, 2),
             'horas_he100' => round((float) $minutosHe->get('100', 0) / 60, 2),
+            'detalle_horas_extra' => $detalleHorasExtra,
         ];
     }
 

@@ -17,12 +17,8 @@ use Illuminate\Support\Carbon;
  * rango), así que asumir eso penalizaría a un colaborador ya empleado si
  * alguna vez se crea un ciclo más corto que un mes. Solo resta los días
  * previos al ingreso — si el colaborador ya estaba empleado antes de
- * $fechaInicio, el resultado es 0 y no cambia nada.
- *
- * Es matemáticamente un no-op para LiquidacionCeseService: esa clase ya
- * recorta $fechaInicio a max(inicioDelMes, fecha_ingreso) antes de llamar al
- * motor de planilla, así que fecha_ingreso nunca queda estrictamente después
- * del $fechaInicio que le pasa — el `gt()` de abajo nunca es true ahí.
+ * $fechaInicio, el resultado es 0 y no cambia nada. El recorte por fecha de
+ * cese es simétrico: ver ProrateoCese.
  */
 final class ProrateoIngresoTardio
 {

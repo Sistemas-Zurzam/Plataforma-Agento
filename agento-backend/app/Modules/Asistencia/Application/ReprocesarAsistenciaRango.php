@@ -2,9 +2,11 @@
 
 namespace App\Modules\Asistencia\Application;
 
+use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Asistencia\Services\AsistenciaPeriodoService;
+use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Support\Carbon;
@@ -16,6 +18,8 @@ class ReprocesarAsistenciaRango
         private readonly ProcesarAsistenciaDiaria $procesador,
         private readonly AsistenciaPeriodoService $periodos,
         private readonly AsistenciaAuditoriaService $auditoria,
+        private readonly AsignarDescansoFlexibleSemanal $descansoFlexible,
+        private readonly FechaOperativa $fechaOperativa,
     ) {}
 
     /**
@@ -32,14 +36,19 @@ class ReprocesarAsistenciaRango
     ): array {
         $this->periodos->asegurarRangoEditable($empresa->id, $fechaDesde, $fechaHasta);
 
+        // Un cesado sigue necesitando su asistencia hasta la fecha de cese:
+        // su último mes se paga en la boleta normal del ciclo.
         $colaboradores = Colaborador::query()
             ->where('empresa_id', $empresa->id)
-            ->where('activo', true)
+            ->where(fn ($query) => $query->where('activo', true)->orWhereDate('fecha_cese', '>=', $fechaDesde))
             ->when($colaboradorIds, fn ($query, $ids) => $query->whereIn('id', $ids))
             ->get();
 
         $inicio = Carbon::parse($fechaDesde);
-        $fin = Carbon::parse($fechaHasta);
+        // Un reproceso solicitado hasta fin de mes no puede fabricar faltas
+        // para jornadas que todavía no existen. Las fechas posteriores se
+        // procesarán cuando llegue su Excel semanal o en el próximo reproceso.
+        $fin = Carbon::parse($fechaHasta)->min($this->fechaOperativa->hoy());
         $procesados = 0;
         $eliminadosAnterioresIngreso = 0;
         $omitidosSinRolRotativo = 0;
@@ -65,6 +74,9 @@ class ReprocesarAsistenciaRango
                 if ($fecha->lt($colaborador->fecha_ingreso->copy()->startOfDay())) {
                     continue;
                 }
+                if ($colaborador->fecha_cese && $fecha->gt($colaborador->fecha_cese->copy()->startOfDay())) {
+                    break; // después del último día trabajado no hay jornada
+                }
                 try {
                     $this->procesador->procesar($colaborador, $fecha);
                     $procesados++;
@@ -75,6 +87,19 @@ class ReprocesarAsistenciaRango
                     $omitidosSinRolRotativo++;
                 }
             }
+        }
+
+        // Descanso semanal flexible automático (opt-in) — corre acá, DESPUÉS
+        // del reprocesamiento día a día de arriba, porque necesita que ya
+        // exista un AsistenciaResultadoDiario por cada fecha (incluso
+        // 'dia_sin_clasificar') para poder clasificar la semana. No requiere
+        // un AsistenciaPeriodo real guardado: procesarPeriodo() solo lee las
+        // fechas del objeto, así que se le pasa una instancia efímera con el
+        // rango pedido — así RR.HH. no necesita crear/gestionar un período
+        // formal solo para que esto se aplique.
+        if ($empresa->descanso_flexible_automatico) {
+            $periodoEfimero = new AsistenciaPeriodo(['fecha_inicio' => $inicio, 'fecha_fin' => $fin]);
+            $this->descansoFlexible->procesarPeriodo($empresa, $periodoEfimero, $usuarioId, $colaboradorIds);
         }
 
         $this->auditoria->registrar(

@@ -4,6 +4,7 @@ namespace App\Modules\Personas\Services;
 
 use App\Models\User;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
+use App\Modules\Asistencia\Application\ProcesarAsistenciaDiaria;
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Banco;
@@ -17,7 +18,8 @@ use App\Modules\Personas\Models\ColaboradorDocumento;
 use App\Modules\Personas\Application\AjustarCalendarioPorCambioHorario;
 use App\Modules\Personas\Support\CalendarioMensualGenerator;
 use App\Modules\Personas\Support\FeriadosPeru;
-use App\Modules\Nominas\Services\LiquidacionCeseService;
+use App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo;
+use App\Modules\Nominas\Models\LiquidacionCese;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
@@ -32,7 +34,8 @@ class ColaboradorService
 {
     public function __construct(
         private readonly AjustarCalendarioPorCambioHorario $ajusteCalendario,
-        private readonly LiquidacionCeseService $liquidaciones,
+        private readonly NotificarCambioAsistenciaCiclo $notificarCambioCiclo,
+        private readonly ProcesarAsistenciaDiaria $procesadorAsistencia,
     ) {}
 
     /**
@@ -241,7 +244,7 @@ class ColaboradorService
      * @param  array{horario_id:int, modalidad_trabajo:string, tolerancia_particular_minutos:?int, vigencia_desde:string, vigencia_hasta:?string}  $datos
      * @return Colaborador|array{requiere_confirmacion: true, impacto: array<string, mixed>}
      */
-    public function actualizarHorario(Empresa $empresa, Colaborador $colaborador, array $datos, int $usuarioId, bool $confirmarPlanificacionExistente = false): Colaborador|array
+    public function actualizarHorario(Empresa $empresa, Colaborador $colaborador, array $datos, int $usuarioId, bool $confirmarPlanificacionExistente = false, bool $confirmarReproceso = false): Colaborador|array
     {
         if ($colaborador->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
@@ -274,27 +277,30 @@ class ColaboradorService
 
         $impacto = null;
         if ($requiereNuevaVigencia) {
-            // Fase 4C — antes de tocar nada: ¿ya existen resultados de
-            // asistencia procesados desde esta vigencia? Un cambio
-            // retroactivo sobre historial ya procesado no se invalida
-            // automáticamente (corrección manual especializada, ver
-            // AjustarCalendarioPorCambioHorario::evaluarImpacto()).
+            // Antes de tocar nada, medir el calendario y los resultados
+            // existentes para pedir confirmación y recalcularlos juntos.
             $impacto = $this->ajusteCalendario->evaluarImpacto($colaborador, $vigenciaDesde);
-
-            if ($impacto['bloqueado_por_procesado']) {
-                throw ValidationException::withMessages([
-                    'vigencia_desde' => ['Ya existen resultados de asistencia procesados desde esta fecha — un cambio de horario retroactivo sobre historial ya procesado requiere corrección manual especializada, no se aplica automáticamente.'],
-                ]);
-            }
 
             $this->ajusteCalendario->asegurarSinPeriodoProtegido($empresa->id, $vigenciaDesde);
 
-            if ($impacto['requiere_confirmacion'] && ! $confirmarPlanificacionExistente) {
+            if (($impacto['requiere_confirmacion'] && ! $confirmarPlanificacionExistente)
+                || ($impacto['bloqueado_por_procesado'] && ! $confirmarReproceso)) {
                 return ['requiere_confirmacion' => true, 'impacto' => $impacto];
             }
         }
 
         DB::transaction(function () use ($colaborador, $datos, $empresa, $vigenciaDesde, $vigenciaHasta, $requiereNuevaVigencia, $asignacionActual, $diasDescansoNuevo, $impacto, $usuarioId) {
+            // Conservar exactamente las fechas ya calculadas: el cambio no
+            // debe fabricar resultados nuevos para días aún sin procesar.
+            $fechasProcesadas = $requiereNuevaVigencia && $impacto['bloqueado_por_procesado']
+                ? AsistenciaResultadoDiario::query()
+                    ->where('empresa_id', $empresa->id)
+                    ->where('colaborador_id', $colaborador->id)
+                    ->where('fecha', '>=', $vigenciaDesde)
+                    ->orderBy('fecha')
+                    ->pluck('fecha')
+                : collect();
+
             if ($requiereNuevaVigencia) {
                 // Fase 4C — invalida solo lo automático (selección positiva
                 // exacta), conserva feriados/humano/legacy siempre.
@@ -332,6 +338,10 @@ class ColaboradorService
                 'modalidad_trabajo' => $datos['modalidad_trabajo'],
                 'tolerancia_particular_minutos' => $datos['tolerancia_particular_minutos'] ?? null,
             ]);
+
+            foreach ($fechasProcesadas as $fecha) {
+                $this->procesadorAsistencia->procesar($colaborador, Carbon::parse($fecha));
+            }
         });
 
         return $this->obtenerDetalle($empresa, $colaborador);
@@ -409,6 +419,7 @@ class ColaboradorService
             && (float) $datos['salario'] === (float) $vigente->salario
             && ($datos['moneda_salario'] ?? $vigente->moneda_salario ?? 'PEN') === $vigente->moneda_salario
             && ($datos['periodicidad_pago'] ?? $vigente->periodicidad_pago ?? 'mensual') === $vigente->periodicidad_pago
+            && ($datos['modo_calculo_honorarios'] ?? $vigente->modo_calculo_honorarios ?? 'mensual_con_faltas') === ($vigente->modo_calculo_honorarios ?? 'mensual_con_faltas')
             && (float) ($datos['asignacion_familiar'] ?? 0) === (float) $vigente->asignacion_familiar;
 
         // Si solo se corrige la fecha, se ajusta la fila vigente en lugar de
@@ -451,6 +462,7 @@ class ColaboradorService
             'salario' => $datos['salario'],
             'moneda_salario' => $datos['moneda_salario'] ?? $vigente?->moneda_salario ?? 'PEN',
             'periodicidad_pago' => $datos['periodicidad_pago'] ?? $vigente?->periodicidad_pago ?? 'mensual',
+            'modo_calculo_honorarios' => $datos['modo_calculo_honorarios'] ?? $vigente?->modo_calculo_honorarios ?? 'mensual_con_faltas',
             'asignacion_familiar' => $datos['asignacion_familiar'] ?? 0,
             'vigencia_desde' => $datos['vigencia_desde'],
         ]);
@@ -555,25 +567,22 @@ class ColaboradorService
         ]);
     }
 
-    public function cesar(Empresa $empresa, Colaborador $colaborador, string $fechaCese, string $motivo, array $seleccion, int $usuarioId): Colaborador
+    /**
+     * Registra el cese: hasta qué día se le paga al colaborador. NO genera la
+     * liquidación de beneficios — esa se calcula aparte en Liquidaciones. El
+     * sueldo del mes del cese lo paga la boleta normal del ciclo, prorrateada
+     * hasta esta fecha (ProrateoCese).
+     */
+    public function cesar(Empresa $empresa, Colaborador $colaborador, string $fechaCese, string $motivo): Colaborador
     {
         if ($colaborador->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
         }
-        $esHonorarios = $colaborador->regimen_laboral === 'Locacion de Servicios';
-        if (! $esHonorarios && ! collect($seleccion)->contains(true)) {
-            throw ValidationException::withMessages(['conceptos' => 'Selecciona al menos un concepto para generar la liquidación.']);
-        }
 
-        DB::transaction(function () use ($empresa, $colaborador, $fechaCese, $motivo, $seleccion, $usuarioId) {
+        DB::transaction(function () use ($colaborador, $fechaCese, $motivo) {
             $bloqueado = Colaborador::whereKey($colaborador->id)->lockForUpdate()->firstOrFail();
             if (! $bloqueado->activo || $bloqueado->fecha_cese) {
                 throw ValidationException::withMessages(['colaborador' => 'El colaborador ya fue cesado.']);
-            }
-            // El snapshot se calcula antes de inactivar/cerrar vigencias, pero
-            // se confirma en la misma transacción que el cese.
-            if ($bloqueado->regimen_laboral !== 'Locacion de Servicios') {
-                $this->liquidaciones->guardar($empresa, $bloqueado, $fechaCese, $motivo, $seleccion, $usuarioId);
             }
             $bloqueado->update([
                 'activo' => false,
@@ -584,6 +593,15 @@ class ColaboradorService
             $bloqueado->asignacionesHorario()
                 ->whereNull('vigencia_hasta')
                 ->update(['vigencia_hasta' => $fechaCese]);
+            // Después del último día trabajado no hay jornada: un resultado
+            // ya procesado ahí (p. ej. una "falta") se descontaría encima del
+            // prorrateo por cese. Las incidencias/HE caen por cascade; las
+            // marcaciones crudas se conservan como evidencia.
+            AsistenciaResultadoDiario::query()
+                ->where('empresa_id', $bloqueado->empresa_id)
+                ->where('colaborador_id', $bloqueado->id)
+                ->whereDate('fecha', '>', $fechaCese)
+                ->delete();
         });
 
         // El bloqueo/actualización dentro de la transacción ocurre sobre
@@ -593,8 +611,20 @@ class ColaboradorService
         // frontend mentiría sobre el resultado de una operación que sí tuvo
         // éxito en base de datos.
         $colaborador->refresh();
+        $this->notificarCambioCese($empresa, $colaborador, $fechaCese, "Se registró el cese del colaborador al {$fechaCese}.");
 
         return $this->obtenerDetalle($empresa, $colaborador);
+    }
+
+    /**
+     * Un cese (o su reversión) cambia cuántos días paga la boleta del ciclo
+     * que lo contiene: se marca ese ciclo para recalcular. Se llama después
+     * del commit, como exige NotificarCambioAsistenciaCiclo.
+     */
+    private function notificarCambioCese(Empresa $empresa, Colaborador $colaborador, string $fechaCese, string $motivo): void
+    {
+        $finMes = Carbon::parse($fechaCese)->endOfMonth()->toDateString();
+        $this->notificarCambioCiclo->notificar($empresa->id, $colaborador->id, $fechaCese, $finMes, $motivo);
     }
 
     public function eliminar(Empresa $empresa, Colaborador $colaborador): void
@@ -604,6 +634,25 @@ class ColaboradorService
         }
 
         $colaborador->delete();
+    }
+
+    public function reactivar(Empresa $empresa, Colaborador $colaborador, string $motivo): Colaborador
+    {
+        if ($colaborador->empresa_id !== $empresa->id) throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
+        $fechaCese = DB::transaction(function () use ($empresa, $colaborador) {
+            $bloqueado = Colaborador::whereKey($colaborador->id)->lockForUpdate()->firstOrFail();
+            if ($bloqueado->activo || ! $bloqueado->fecha_cese) throw ValidationException::withMessages(['colaborador' => 'El colaborador no tiene un cese pendiente de revertir.']);
+            $liquidacion = LiquidacionCese::query()->where('empresa_id', $empresa->id)->where('colaborador_id', $bloqueado->id)->where('es_version_vigente', true)->first();
+            if ($liquidacion && $liquidacion->estado !== 'anulada') throw ValidationException::withMessages(['liquidacion' => 'Existe una liquidación vigente. Anúlala desde Liquidaciones antes de reactivar al colaborador.']);
+            $fechaCese = $bloqueado->fecha_cese->toDateString();
+            $bloqueado->update(['activo' => true, 'fecha_cese' => null, 'motivo_cese' => null]);
+            $bloqueado->asignacionesHorario()->whereDate('vigencia_hasta', $fechaCese)->update(['vigencia_hasta' => null]);
+
+            return $fechaCese;
+        });
+        $colaborador->refresh();
+        $this->notificarCambioCese($empresa, $colaborador, $fechaCese, "Se revirtió el cese del colaborador del {$fechaCese}.");
+        return $this->obtenerDetalle($empresa, $colaborador);
     }
 
     /**
@@ -886,7 +935,7 @@ class ColaboradorService
         return DB::transaction(function () use ($empresa, $datos) {
             $colaborador = Colaborador::create([
                 ...collect($datos)
-                    ->except(['salario', 'moneda_salario', 'periodicidad_pago', 'asignacion_familiar', 'calendario'])
+                    ->except(['salario', 'moneda_salario', 'periodicidad_pago', 'modo_calculo_honorarios', 'asignacion_familiar', 'calendario'])
                     ->all(),
                 'empresa_id' => $empresa->id,
                 'legajo' => $this->siguienteLegajo($empresa),
@@ -905,6 +954,7 @@ class ColaboradorService
                 'salario' => $datos['salario'],
                 'moneda_salario' => $datos['moneda_salario'],
                 'periodicidad_pago' => $datos['periodicidad_pago'],
+                'modo_calculo_honorarios' => $datos['modo_calculo_honorarios'] ?? 'mensual_con_faltas',
                 'asignacion_familiar' => $datos['asignacion_familiar'] ?? 0,
                 'vigencia_desde' => $datos['fecha_ingreso'],
             ]);

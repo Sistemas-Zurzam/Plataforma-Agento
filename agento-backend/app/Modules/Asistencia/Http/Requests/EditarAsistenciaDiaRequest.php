@@ -12,7 +12,8 @@ class EditarAsistenciaDiaRequest extends FormRequest
         return [
             'entrada' => ['nullable', 'date_format:H:i'],
             'salida' => ['nullable', 'date_format:H:i'],
-            'estado' => ['nullable', Rule::in(['presente', 'falta_justificada', 'permiso', 'home_office', 'descanso', 'feriado'])],
+            'horario_excepcional_id' => ['nullable', 'integer', 'exists:horarios,id'],
+            'estado' => ['nullable', Rule::in(['presente', 'falta', 'falta_justificada', 'permiso', 'home_office', 'descanso', 'feriado'])],
             'motivo' => ['required', 'string', 'max:2000'],
         ];
     }
