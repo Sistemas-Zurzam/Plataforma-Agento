@@ -195,7 +195,6 @@ Route::middleware('jwt')->group(function () {
     Route::put('/colaboradores/{colaborador}/remuneracion', [ColaboradorController::class, 'actualizarRemuneracion'])->middleware('permiso:colaboradores.editar');
     Route::put('/colaboradores/{colaborador}/configuracion-nomina', [ColaboradorController::class, 'actualizarConfiguracionNomina'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/colaboradores/{colaborador}', [ColaboradorController::class, 'update'])->middleware('permiso:colaboradores.editar');
-    Route::get('/colaboradores/{colaborador}/liquidacion-cese/previsualizar', [ColaboradorController::class, 'previsualizarLiquidacionCese'])->middleware('permiso:colaboradores.cesar');
     Route::patch('/colaboradores/{colaborador}/cesar', [ColaboradorController::class, 'cesar'])->middleware('permiso:colaboradores.cesar');
     Route::patch('/colaboradores/{colaborador}/reactivar', [ColaboradorController::class, 'reactivar'])->middleware('permiso:colaboradores.cesar');
     Route::get('/colaboradores/{colaborador}/vacacion-movimientos', [VacacionMovimientoController::class, 'index'])->middleware('permiso:colaboradores.ver');
@@ -248,10 +247,14 @@ Route::middleware('jwt')->group(function () {
     Route::post('/beneficios-sociales/calcular', [BeneficioSocialController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::patch('/beneficios-sociales/{beneficio}/pagar', [BeneficioSocialController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
     Route::get('/liquidaciones-cese', [LiquidacionCeseController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::get('/liquidaciones-cese/pendientes', [LiquidacionCeseController::class, 'pendientes'])->middleware('permiso:nominas.ver');
+    Route::get('/liquidaciones-cese/catalogo', [LiquidacionCeseController::class, 'catalogo'])->middleware('permiso:nominas.ver');
+    Route::match(['get', 'post'], '/liquidaciones-cese/propuesta/{colaborador}', [LiquidacionCeseController::class, 'propuesta'])->middleware('permiso:nominas.calcular');
+    Route::post('/liquidaciones-cese', [LiquidacionCeseController::class, 'store'])->middleware('permiso:nominas.calcular');
     Route::get('/liquidaciones-cese/{liquidacion}', [LiquidacionCeseController::class, 'show'])->middleware('permiso:nominas.ver');
     Route::patch('/liquidaciones-cese/{liquidacion}/aprobar', [LiquidacionCeseController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/liquidaciones-cese/{liquidacion}/pagar', [LiquidacionCeseController::class, 'pagar'])->middleware('permiso:nominas.pagar');
-    Route::patch('/liquidaciones-cese/{liquidacion}/anular-revertir', [LiquidacionCeseController::class, 'anularYRevertir'])->middleware('permiso:nominas.aprobar');
+    Route::patch('/liquidaciones-cese/{liquidacion}/anular', [LiquidacionCeseController::class, 'anular'])->middleware('permiso:nominas.aprobar');
     Route::get('/nominas/importaciones-historicas', [NominaImportacionHistoricaController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::post('/nominas/importaciones-historicas', [NominaImportacionHistoricaController::class, 'importar'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/nominas/importaciones-historicas/{importacion}', [NominaImportacionHistoricaController::class, 'show'])->middleware('permiso:nominas.ver');

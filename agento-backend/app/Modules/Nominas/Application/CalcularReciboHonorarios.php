@@ -7,6 +7,7 @@ use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
+use App\Modules\Nominas\Support\ProrateoCese;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
@@ -69,7 +70,8 @@ class CalcularReciboHonorarios
         // valor-hora/valor-día no se prorratea, mismo criterio que
         // CalcularBoletaColaborador. No-op si ya estaba activo antes del
         // período — ver ProrateoIngresoTardio.
-        $diasNoPagadosPorIngresoTardio = ProrateoIngresoTardio::diasNoPagados($colaborador->fecha_ingreso, $fechaInicio);
+        $diasNoPagadosPorIngresoTardio = ProrateoIngresoTardio::diasNoPagados($colaborador->fecha_ingreso, $fechaInicio)
+            + ProrateoCese::diasNoPagados($colaborador->fecha_cese, $fechaInicio, $fechaFin);
         $honorarioDelPeriodo = $pagoPorDiasPresentes
             ? round(($honorarioBruto / 30) * $asistenciaParaPago['dias_presentes'], 2)
             : ($diasNoPagadosPorIngresoTardio > 0
@@ -98,7 +100,7 @@ class CalcularReciboHonorarios
                 ? "Honorario/30 (".round($honorarioBruto / 30, 2)." × {$asistenciaParaPago['dias_presentes']} día(s) con asistencia presente"
                     .($asistenciaParaPago['fechas_presentes'] ? ' — '.implode(', ', $asistenciaParaPago['fechas_presentes']) : '')
                 : ($diasNoPagadosPorIngresoTardio > 0
-                    ? "Monto pactado vigente para este período — excluye {$diasNoPagadosPorIngresoTardio} día(s) previos al ingreso ({$colaborador->fecha_ingreso->toDateString()})"
+                    ? "Monto pactado vigente para este período — excluye {$diasNoPagadosPorIngresoTardio} día(s) fuera del vínculo (ingreso {$colaborador->fecha_ingreso->toDateString()}".($colaborador->fecha_cese ? ", cese {$colaborador->fecha_cese->toDateString()}" : '').')'
                     : 'Monto pactado vigente para este período (historial remunerativo del colaborador)'),
         ]];
 

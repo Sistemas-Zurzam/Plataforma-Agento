@@ -36,9 +36,11 @@ class ReprocesarAsistenciaRango
     ): array {
         $this->periodos->asegurarRangoEditable($empresa->id, $fechaDesde, $fechaHasta);
 
+        // Un cesado sigue necesitando su asistencia hasta la fecha de cese:
+        // su último mes se paga en la boleta normal del ciclo.
         $colaboradores = Colaborador::query()
             ->where('empresa_id', $empresa->id)
-            ->where('activo', true)
+            ->where(fn ($query) => $query->where('activo', true)->orWhereDate('fecha_cese', '>=', $fechaDesde))
             ->when($colaboradorIds, fn ($query, $ids) => $query->whereIn('id', $ids))
             ->get();
 
@@ -71,6 +73,9 @@ class ReprocesarAsistenciaRango
             for ($fecha = $inicio->copy(); $fecha->lte($fin); $fecha->addDay()) {
                 if ($fecha->lt($colaborador->fecha_ingreso->copy()->startOfDay())) {
                     continue;
+                }
+                if ($colaborador->fecha_cese && $fecha->gt($colaborador->fecha_cese->copy()->startOfDay())) {
+                    break; // después del último día trabajado no hay jornada
                 }
                 try {
                     $this->procesador->procesar($colaborador, $fecha);

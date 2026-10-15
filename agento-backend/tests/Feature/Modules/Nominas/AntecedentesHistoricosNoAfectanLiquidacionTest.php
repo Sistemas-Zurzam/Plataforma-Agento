@@ -17,7 +17,7 @@ use Tests\TestCase;
  * antecedentes históricos son puramente aditivas y todavía NO son leídas
  * por ningún servicio de cálculo. Este test prueba esa afirmación en vivo:
  * la existencia de filas en las 5 tablas nuevas para el MISMO colaborador
- * no cambia en absoluto el resultado de `LiquidacionCeseService::previsualizar()`
+ * no cambia en absoluto el resultado de `LiquidacionCeseService::propuesta()`
  * — ni LiquidacionCeseService, ni BeneficioSocialService, ni BoletaService,
  * ni CicloRemunerativoService se modificaron en este incremento.
  */
@@ -31,11 +31,9 @@ class AntecedentesHistoricosNoAfectanLiquidacionTest extends TestCase
         $colaborador = $this->crearColaborador();
         app(ParametroLaboralService::class)->inicializarValoresPorDefecto($colaborador->empresa);
 
-        $seleccion = ['incluir_remuneracion' => true, 'incluir_cts' => true, 'incluir_gratificacion' => true, 'incluir_vacaciones' => true];
+        $colaborador->update(['activo' => false, 'fecha_cese' => now()->toDateString(), 'motivo_cese' => 'Renuncia']);
 
-        $resultadoSinAntecedentes = app(LiquidacionCeseService::class)->previsualizar(
-            $colaborador->empresa, $colaborador, now()->toDateString(), $seleccion,
-        );
+        $resultadoSinAntecedentes = app(LiquidacionCeseService::class)->propuesta($colaborador->empresa, $colaborador);
 
         BeneficioSocialHistorico::factory()->pagado()->create([
             'empresa_id' => $colaborador->empresa_id, 'colaborador_id' => $colaborador->id,
@@ -50,9 +48,7 @@ class AntecedentesHistoricosNoAfectanLiquidacionTest extends TestCase
             'fecha_ingreso_vinculo' => $colaborador->fecha_ingreso, 'importe_original' => 500,
         ]);
 
-        $resultadoConAntecedentes = app(LiquidacionCeseService::class)->previsualizar(
-            $colaborador->empresa, $colaborador, now()->toDateString(), $seleccion,
-        );
+        $resultadoConAntecedentes = app(LiquidacionCeseService::class)->propuesta($colaborador->empresa, $colaborador);
 
         $this->assertSame($resultadoSinAntecedentes['total_ingresos'], $resultadoConAntecedentes['total_ingresos']);
         $this->assertSame($resultadoSinAntecedentes['total_egresos'], $resultadoConAntecedentes['total_egresos']);

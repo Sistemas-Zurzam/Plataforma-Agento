@@ -14,6 +14,7 @@ use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Configuracion\Models\ReglaDescuentoTardanza;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
+use App\Modules\Nominas\Support\ProrateoCese;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
@@ -114,15 +115,21 @@ class CalcularBoletaColaborador
         // ingresa a mitad de $fechaInicio cobraba el mes nominal completo.
         // Se muta $basico['linea'] explícitamente (no solo la variable
         // $diasPagados): si no, dias_pagados queda correcto en la boleta
-        // pero el monto de la línea de ingreso sigue sin prorratear. No-op
-        // para LiquidacionCeseService — ver ProrateoIngresoTardio.
+        // pero el monto de la línea de ingreso sigue sin prorratear.
         $diasNoPagadosPorIngresoTardio = ProrateoIngresoTardio::diasNoPagados($colaborador->fecha_ingreso, $fechaInicio);
-        $diasPagados = max(0, $diasPagados - $diasNoPagadosPorIngresoTardio);
-        if ($diasNoPagadosPorIngresoTardio > 0) {
+        // El cese ya no paga el mes dentro de la liquidación: la boleta
+        // normal del ciclo paga hasta la fecha de cese (inclusive).
+        $diasNoPagadosPorCese = ProrateoCese::diasNoPagados($colaborador->fecha_cese, $fechaInicio, $fechaFin);
+        $diasPagados = max(0, $diasPagados - $diasNoPagadosPorIngresoTardio - $diasNoPagadosPorCese);
+        if ($diasNoPagadosPorIngresoTardio > 0 || $diasNoPagadosPorCese > 0) {
             $basico['linea']['monto'] = round(($sueldoBasico / 30) * $diasPagados, 2);
             $basico['linea']['cantidad'] = $diasPagados;
             $basico['linea']['formula_texto'] = "({$sueldoBasico} / 30) × {$diasPagados} días pagados"
-                ." — excluye {$diasNoPagadosPorIngresoTardio} día(s) previos al ingreso ({$colaborador->fecha_ingreso->toDateString()})";
+                .($diasNoPagadosPorIngresoTardio > 0 ? " — excluye {$diasNoPagadosPorIngresoTardio} día(s) previos al ingreso ({$colaborador->fecha_ingreso->toDateString()})" : '')
+                .($diasNoPagadosPorCese > 0 ? " — excluye {$diasNoPagadosPorCese} día(s) posteriores al cese ({$colaborador->fecha_cese->toDateString()})" : '');
+            if ($diasNoPagadosPorCese > 0) {
+                $alertas[] = "Colaborador cesado el {$colaborador->fecha_cese->format('d/m/Y')}: la boleta paga hasta esa fecha. Los beneficios (CTS, gratificación y vacaciones truncas) se liquidan aparte en Liquidaciones.";
+            }
         }
 
         // SUNAT distingue Remuneración Vacacional (Tabla 22: 0118) de

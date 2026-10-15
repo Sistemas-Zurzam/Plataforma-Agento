@@ -118,15 +118,6 @@ export function useColaboradores() {
     return data.data;
   }, []);
 
-  const previsualizarLiquidacionCese = useCallback(async (colaboradorId, values) => {
-    const params = Object.fromEntries(Object.entries(values).map(([key, value]) => [
-      key,
-      typeof value === 'boolean' ? (value ? 1 : 0) : value,
-    ]));
-    const { data } = await api.get(`/colaboradores/${colaboradorId}/liquidacion-cese/previsualizar`, { params });
-    return data.data;
-  }, []);
-
   const eliminarColaborador = useCallback(async (colaboradorId) => {
     await api.delete(`/colaboradores/${colaboradorId}`);
   }, []);
@@ -241,7 +232,6 @@ export function useColaboradores() {
     actualizarRemuneracion,
     cesarColaborador,
     reactivarColaborador,
-    previsualizarLiquidacionCese,
     eliminarColaborador,
     listarVacacionMovimientos,
     crearVacacionMovimiento,

@@ -293,7 +293,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
   const { message, modal } = App.useApp();
   const {
     fetchColaborador, actualizarCalendario, actualizarHorario,
-    actualizarColaborador, actualizarConfiguracionNomina, actualizarRemuneracion, cesarColaborador, reactivarColaborador, previsualizarLiquidacionCese, eliminarColaborador, subirDocumento, verDocumento,
+    actualizarColaborador, actualizarConfiguracionNomina, actualizarRemuneracion, cesarColaborador, reactivarColaborador, eliminarColaborador, subirDocumento, verDocumento,
     subirFotoPerfil, fetchFotoPerfil, listarVacacionMovimientos, crearVacacionMovimiento, eliminarVacacionMovimiento,
   } = useColaboradores();
   const [colaborador, setColaborador] = useState(null);
@@ -651,7 +651,7 @@ export default function FichaColaborador({ colaboradorId, user, onVolver }) {
     <EditarHorarioColaboradorModal open={horarioOpen} colaborador={colaborador} submitting={guardandoHorario} onGuardar={guardarHorario} onCancel={() => setHorarioOpen(false)} />
     <EditarCalendarioModal open={calendarioOpen} colaborador={colaborador} submitting={guardandoCalendario} onGuardar={guardarCalendario} onCancel={() => setCalendarioOpen(false)} />
     <EditarColaboradorModal open={editarOpen} colaborador={colaborador} user={user} submitting={guardandoEdicion} onGuardar={guardarEdicion} onCancel={() => setEditarOpen(false)} />
-    <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onPrevisualizar={(values) => previsualizarLiquidacionCese(colaborador.id, values)} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
+    <CesarColaboradorModal open={ceseOpen} colaborador={colaborador} submitting={guardandoCese} onGuardar={guardarCese} onCancel={() => setCeseOpen(false)} />
     <VerCarnetModal colaborador={carnetOpen ? colaborador : null} onClose={() => setCarnetOpen(false)} />
     <Modal title={documentoVista?.nombre ?? 'Ver documento'} open={Boolean(documentoVista)} onCancel={cerrarDocumento} footer={null} width={{ xs: '95%', sm: '90%', lg: 900 }} centered destroyOnHidden>
       {documentoVista?.mimeType?.startsWith('image/') ? (

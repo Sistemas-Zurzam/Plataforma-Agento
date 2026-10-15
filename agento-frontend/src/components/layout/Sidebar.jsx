@@ -2,6 +2,7 @@ import {
   BarChartOutlined,
   ClockCircleOutlined,
   CustomerServiceOutlined,
+  FileDoneOutlined,
   ScanOutlined,
   SettingOutlined,
   TeamOutlined,
@@ -65,6 +66,12 @@ function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerN
           icon: <ClockCircleOutlined />,
           label: 'Gestión de asistencias',
           disabled: !isAdmin && !puedeVerAsistencia,
+        },
+        {
+          key: 'nominas-liquidaciones',
+          icon: <FileDoneOutlined />,
+          label: 'Liquidaciones',
+          disabled: !isAdmin && !puedeVerNominas,
         },
       ],
     });

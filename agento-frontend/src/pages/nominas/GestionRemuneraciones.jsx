@@ -33,7 +33,6 @@ import BoletasImprimirMasivoModal from '../../modules/remuneraciones/components/
 import ComprobanteRhModal from '../../modules/remuneraciones/components/ComprobanteRhModal';
 import ConfiguracionNominaModal from '../../modules/remuneraciones/components/ConfiguracionNominaModal';
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
-import LiquidacionesCeseTab from '../../modules/remuneraciones/components/LiquidacionesCeseTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
 import AportesPrevisionalesTab from '../../modules/remuneraciones/components/AportesPrevisionalesTab';
 import BbvaNetCashModal from '../../modules/remuneraciones/components/BbvaNetCashModal';
@@ -1329,11 +1328,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                 puedePagar={puedePagar}
               />
             ),
-          },
-          {
-            key: 'liquidaciones',
-            label: 'Liquidaciones',
-            children: <LiquidacionesCeseTab empresaId={user?.empresa?.id} puedeAprobar={puedeAprobar} puedePagar={puedePagar} />,
           },
           {
             key: 'documentacion',

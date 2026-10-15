@@ -789,7 +789,16 @@ class BoletaService
     private function colaboradoresElegibles(Empresa $empresa, string $fechaInicio, string $fechaFin)
     {
         return Colaborador::where('empresa_id', $empresa->id)
-            ->where('activo', true)
+            // Un cesado queda inactivo, pero igual cobra en la planilla del
+            // período de su cese (hasta esa fecha, ver ProrateoCese).
+            ->where(fn ($query) => $query->where('activo', true)->orWhereNotNull('fecha_cese'))
+            // Cesados con el flujo anterior: su último mes ya se pagó dentro
+            // de la liquidación ("legado" con remuneración incluida).
+            ->whereNotExists(fn ($query) => $query->select(DB::raw(1))->from('liquidaciones_cese')
+                ->whereColumn('liquidaciones_cese.colaborador_id', 'colaboradores.id')
+                ->where('liquidaciones_cese.modo', 'legado')
+                ->where('liquidaciones_cese.incluir_remuneracion', true)
+                ->where('liquidaciones_cese.estado', '!=', 'anulada'))
             ->whereDate('fecha_ingreso', '<=', $fechaFin)
             ->where(fn ($query) => $query->whereNull('fecha_cese')->orWhereDate('fecha_cese', '>=', $fechaInicio))
             ->get();
