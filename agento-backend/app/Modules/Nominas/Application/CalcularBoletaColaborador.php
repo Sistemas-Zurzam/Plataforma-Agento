@@ -7,6 +7,7 @@ use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaOperacionService;
+use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Nominas\Domain\RegimenCalculatorFactory;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
@@ -34,7 +35,10 @@ use RuntimeException;
  */
 class CalcularBoletaColaborador
 {
-    public function __construct(private readonly AsistenciaOperacionService $asistenciaOperacion) {}
+    public function __construct(
+        private readonly AsistenciaOperacionService $asistenciaOperacion,
+        private readonly FechaOperativa $fechaOperativa,
+    ) {}
 
     /**
      * @param  int|null  $cicloId  Necesario para recoger comisiones/bonos del período
@@ -718,6 +722,13 @@ class CalcularBoletaColaborador
      * profundidad (el gate de enviar_nomina en AsistenciaPeriodoService ya
      * bloquea el envío con incidencias pendientes, pero un cálculo/
      * recálculo de boleta puede dispararse sobre un ciclo aún no cerrado).
+     *
+     * Pre-cálculo antes del corte: un día de hoy en adelante que TODAVÍA no
+     * tiene resultado no bloquea — aún no ocurrió (o no se procesó), así que
+     * se paga como cualquier día sin incidencias, igual que el resto del
+     * motor. Un día pasado sin resultado, o cualquier día ya procesado como
+     * "sin clasificar", sigue bloqueando. Calculado después del corte, todos
+     * los días son pasados y la verificación es completa.
      */
     private function verificarRolRotativoCompleto(Colaborador $colaborador, string $fechaInicio, string $fechaFin, $resultados): void
     {
@@ -738,11 +749,13 @@ class CalcularBoletaColaborador
         }
 
         $resultadosPorFecha = $resultados->keyBy(fn ($r) => $r->fecha->toDateString());
+        $hoy = $this->fechaOperativa->hoy()->toDateString();
 
         for ($fecha = $desde->copy(); $fecha->lte($hasta); $fecha->addDay()) {
             $fechaTexto = $fecha->toDateString();
             $resultado = $resultadosPorFecha->get($fechaTexto);
-            if ($resultado === null || $resultado->estado === AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR) {
+            $sinOcurrirAun = $resultado === null && $fechaTexto >= $hoy;
+            if (! $sinOcurrirAun && ($resultado === null || $resultado->estado === AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR)) {
                 throw new RuntimeException(
                     "Tiene horario rotativo y le falta declarar el rol de turnos del {$fechaTexto} — no se puede calcular su planilla hasta que se complete.",
                 );
