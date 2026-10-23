@@ -1104,7 +1104,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             label: 'Proyectado de planilla',
             children: (
               <ProyectadoPlanillaTab
-                empresaActivaId={user?.empresa?.id}
                 previsualizacion={previsualizacion}
                 previsualizacionLoading={previsualizacionLoading}
                 fetchPrevisualizacion={fetchPrevisualizacion}

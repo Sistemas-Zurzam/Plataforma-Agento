@@ -105,11 +105,11 @@ const COLUMNAS_EMPRESA = [
  * el Resumen contable) y el detalle por colaborador al desplegar cada una.
  * Solo lectura: no crea ni modifica ciclos.
  */
-export default function ProyectadoPlanillaTab({ empresaActivaId, previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel, fetchPrevisualizacionDatosReporte }) {
+export default function ProyectadoPlanillaTab({ previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel, fetchPrevisualizacionDatosReporte }) {
   const { message } = App.useApp();
   const { empresas, fetchEmpresas } = useEmpresas();
   const [rango, setRango] = useState(() => [dayjs().startOf('month'), dayjs().endOf('month')]);
-  const [empresaId, setEmpresaId] = useState(empresaActivaId ?? TODAS);
+  const [empresaId, setEmpresaId] = useState(TODAS);
   const [busqueda, setBusqueda] = useState('');
   const [exportando, setExportando] = useState(false);
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
