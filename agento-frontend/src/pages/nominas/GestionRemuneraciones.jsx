@@ -227,7 +227,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo, registrarHorasExtraEnBoleta, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
-    previsualizacion, previsualizacionLoading, fetchPrevisualizacion,
+    previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel,
     aportesPrevisionales, aportesPrevisionalesLoading, fetchAportesPrevisionales,
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
@@ -580,6 +580,19 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         }
       },
     });
+  };
+
+  const [exportandoPrevisualizacion, setExportandoPrevisualizacion] = useState(false);
+  const handleExportarPrevisualizacion = async () => {
+    setExportandoPrevisualizacion(true);
+    try {
+      await exportarPrevisualizacionExcel(mesPrevisualizacion.year(), mesPrevisualizacion.month() + 1);
+      message.success('Excel de la planilla aproximada generado');
+    } catch {
+      message.error('No se pudo generar el Excel de la planilla aproximada');
+    } finally {
+      setExportandoPrevisualizacion(false);
+    }
   };
 
   const handleExportarPlanillaPagada = async () => {
@@ -996,7 +1009,24 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     { title: 'Tardanza (min)', key: 'tardanza', width: 110, render: (_, f) => celdaAsistencia(f.minutos_tardanza, f.asistencia_procesada) },
     { title: 'Total ingresos', dataIndex: 'total_ingresos', width: 130, render: (v, f) => (f.estado === 'calculable' ? <span className="text-green-600">{soles(v)}</span> : '—') },
     { title: 'Descuentos', dataIndex: 'total_egresos', width: 120, render: (v, f) => (f.estado === 'calculable' ? <span className="text-red-500">{soles(v)}</span> : '—') },
-    { title: 'Neto estimado', dataIndex: 'neto_a_pagar', width: 130, render: (v, f) => (f.estado === 'calculable' ? <span className="font-semibold text-gray-900">{soles(v)}</span> : '—') },
+    { title: 'Neto estimado (mes completo)', dataIndex: 'neto_a_pagar', width: 150, render: (v, f) => (f.estado === 'calculable' ? <span className="font-semibold text-gray-900">{soles(v)}</span> : '—') },
+    {
+      title: 'Básico devengado a hoy',
+      key: 'basico_devengado',
+      width: 150,
+      render: (_, f) => {
+        if (f.estado !== 'calculable') return '—';
+        if (f.basico_devengado == null) {
+          return <Tooltip title="No aplica a recibos por honorarios">—</Tooltip>;
+        }
+        return (
+          <div>
+            <p className="font-semibold text-gray-900">{soles(f.basico_devengado)}</p>
+            <p className="text-xs text-gray-400">{f.dias_devengados} días</p>
+          </div>
+        );
+      },
+    },
     {
       title: 'Estado',
       key: 'estado',
@@ -1169,8 +1199,16 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                     value={busquedaPrevisualizacion}
                     onChange={(e) => setBusquedaPrevisualizacion(e.target.value)}
                   />
+                  <Button
+                    icon={<FileExcelOutlined />}
+                    loading={exportandoPrevisualizacion}
+                    disabled={previsualizacionLoading || !previsualizacion?.length}
+                    onClick={handleExportarPrevisualizacion}
+                  >
+                    Exportar Excel
+                  </Button>
                   <span className="text-xs text-gray-400">
-                    Vista preliminar del período — no crea ni modifica ningún ciclo. Corrige aquí lo que haga falta antes de calcular/cerrar el ciclo formal.
+                    Vista preliminar del período — no crea ni modifica ningún ciclo. Se recalcula cada vez que la abres con la asistencia procesada hasta hoy. Corrige aquí lo que haga falta antes de calcular/cerrar el ciclo formal.
                   </span>
                 </div>
                 <Table

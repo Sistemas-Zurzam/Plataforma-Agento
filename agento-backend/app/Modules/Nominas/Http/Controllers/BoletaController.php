@@ -3,9 +3,11 @@
 namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Http\Resources\BoletaResource;
 use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
+use App\Modules\Nominas\Infrastructure\PlanillaPagada\Export\PrevisualizacionPlanillaExcelExporter;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaComprobanteRh;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -17,6 +19,8 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
+use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Validation\Rule;
 
 class BoletaController extends Controller
@@ -54,6 +58,32 @@ class BoletaController extends Controller
      */
     public function previsualizar(Request $request): JsonResponse
     {
+        return response()->json(['data' => $this->resolverPrevisualizacion($request)['filas']]);
+    }
+
+    /**
+     * Mismo aproximado que previsualizar(), descargado en Excel.
+     */
+    public function previsualizarExcel(Request $request): Response
+    {
+        $empresa = $request->user('api')->empresa;
+        ['filas' => $filas, 'fecha_inicio' => $fechaInicio, 'fecha_fin' => $fechaFin, 'hoy' => $hoy] = $this->resolverPrevisualizacion($request);
+
+        $contenido = PrevisualizacionPlanillaExcelExporter::generar($empresa, $fechaInicio, $fechaFin, $hoy, $filas);
+        $nombre = sprintf('Planilla_aproximada_%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $hoy);
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
+    }
+
+    /**
+     * @return array{filas: array<int, array<string, mixed>>, fecha_inicio: string, fecha_fin: string, hoy: string}
+     */
+    private function resolverPrevisualizacion(Request $request): array
+    {
         $empresa = $request->user('api')->empresa;
         $datos = $request->validate([
             'anio' => ['required', 'integer', 'min:2020', 'max:2100'],
@@ -63,13 +93,31 @@ class BoletaController extends Controller
         $inicioMes = Carbon::create($datos['anio'], $datos['mes'], 1);
         $fechaInicio = $inicioMes->toDateString();
         $fechaFin = $inicioMes->copy()->endOfMonth()->toDateString();
-        // Un mes en curso se previsualiza "hasta hoy"; un mes ya cerrado se
-        // previsualiza completo — nunca se proyecta hacia el futuro.
-        $fechaCorte = min($fechaFin, now()->toDateString());
+        $hoy = app(FechaOperativa::class)->hoy()->toDateString();
+        $fechaCorte = $fechaFin;
+        $finPeriodo = $fechaFin;
 
-        return response()->json([
-            'data' => $this->boletas->previsualizarPlanilla($empresa, $fechaInicio, $fechaFin, $fechaCorte),
-        ]);
+        // Si el mes ya tiene un ciclo con corte de asistencia diferido (p. ej.
+        // el 27), se usa ese mismo corte para coincidir con la planilla real.
+        $ciclo = CicloRemunerativo::where('empresa_id', $empresa->id)
+            ->whereDate('fecha_inicio', '<=', $fechaFin)->whereDate('fecha_fin', '>=', $fechaInicio)
+            ->orderBy('fecha_inicio')->first();
+        if ($ciclo && $ciclo->fecha_corte_asistencia->lt($ciclo->fecha_fin)) {
+            [$fechaInicio, $fechaFin, $fechaCorte] = [$ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString()];
+            $finPeriodo = $fechaFin;
+        } elseif ($hoy < $fechaFin) {
+            // Mes en curso: asistencia del día 1 hasta hoy. Pasar hoy solo
+            // como corte haría que el motor lo tome como un corte diferido y
+            // leyera asistencia desde el mes anterior (24/09–23/10).
+            $fechaFin = $fechaCorte = max($fechaInicio, $hoy);
+        }
+
+        return [
+            'filas' => $this->boletas->previsualizarPlanilla($empresa, $fechaInicio, $fechaFin, $fechaCorte, Carbon::parse($hoy), $finPeriodo),
+            'fecha_inicio' => $fechaInicio,
+            'fecha_fin' => $fechaFin,
+            'hoy' => $hoy,
+        ];
     }
 
     public function index(Request $request, CicloRemunerativo $ciclo): AnonymousResourceCollection

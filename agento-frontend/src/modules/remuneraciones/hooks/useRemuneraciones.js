@@ -682,6 +682,20 @@ export function useRemuneraciones() {
     }
   }, []);
 
+  const exportarPrevisualizacionExcel = useCallback(async (anio, mes) => {
+    const response = await api.get('/planilla/previsualizar/excel', { params: { anio, mes }, responseType: 'blob' });
+    const disposicion = response.headers?.['content-disposition'] ?? '';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Planilla_aproximada.xlsx';
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombreArchivo;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
   return {
     ciclos,
     ciclosLoading,
@@ -759,6 +773,7 @@ export function useRemuneraciones() {
     previsualizacion,
     previsualizacionLoading,
     fetchPrevisualizacion,
+    exportarPrevisualizacionExcel,
     aportesPrevisionales,
     aportesPrevisionalesLoading,
     fetchAportesPrevisionales,

@@ -23,6 +23,7 @@ use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -817,11 +818,24 @@ class BoletaService
      *
      * @return array<int, array{colaborador_id:int, nombre:string, cargo:?string, sueldo_basico:?float,
      *   asistencia_procesada:bool, dias_falta:?float, minutos_tardanza:?int,
-     *   total_ingresos:?float, total_egresos:?float, neto_a_pagar:?float, estado:string, motivo:?string}>
+     *   total_ingresos:?float, total_egresos:?float, neto_a_pagar:?float, estado:string, motivo:?string,
+     *   dias_devengados:?float, basico_devengado:?float}>
+     *
+     * $hoy / $finPeriodo: con un mes en curso, además del neto proyectado a
+     * mes completo se informa el básico devengado a la fecha (días ya
+     * transcurridos menos faltas). Solo planilla dependiente.
      */
-    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte): array
+    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte, ?Carbon $hoy = null, ?string $finPeriodo = null): array
     {
         $filas = [];
+        $finPeriodo ??= $fechaFin;
+        // Días del período que todavía no ocurren (mes de 30 días). Un
+        // período ya terminado no tiene días por devengar.
+        $diasPorTranscurrir = 0;
+        if ($hoy && $hoy->lt(Carbon::parse($finPeriodo))) {
+            $transcurridos = min(30, (int) round(Carbon::parse($fechaInicio)->diffInDays($hoy)) + 1);
+            $diasPorTranscurrir = max(0, 30 - $transcurridos);
+        }
 
         foreach ($this->colaboradoresElegibles($empresa, $fechaInicio, $fechaFin) as $colaborador) {
             $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios'
@@ -837,6 +851,16 @@ class BoletaService
             try {
                 $resultado = $calculador->calcular($colaborador, $fechaInicio, $fechaFin, $fechaCorte, null);
 
+                $diasDevengados = null;
+                $basicoDevengado = null;
+                if (! $esHonorarios) {
+                    // dias_pagados ya descuenta faltas, ingreso tardío y cese;
+                    // un cesado no tiene días futuros que restar.
+                    $porTranscurrir = $colaborador->fecha_cese && $hoy && $colaborador->fecha_cese->lt($hoy) ? 0 : $diasPorTranscurrir;
+                    $diasDevengados = max(0, (float) $resultado['dias_pagados'] - $porTranscurrir);
+                    $basicoDevengado = round((float) $resultado['sueldo_basico'] / 30 * $diasDevengados, 2);
+                }
+
                 $filas[] = [
                     ...$fila,
                     'sueldo_basico' => $resultado['sueldo_basico'],
@@ -846,6 +870,8 @@ class BoletaService
                     'total_ingresos' => $resultado['total_ingresos'],
                     'total_egresos' => $resultado['total_egresos'],
                     'neto_a_pagar' => $resultado['neto_a_pagar'],
+                    'dias_devengados' => $diasDevengados,
+                    'basico_devengado' => $basicoDevengado,
                     'estado' => 'calculable',
                     'motivo' => null,
                 ];
@@ -859,6 +885,8 @@ class BoletaService
                     'total_ingresos' => null,
                     'total_egresos' => null,
                     'neto_a_pagar' => null,
+                    'dias_devengados' => null,
+                    'basico_devengado' => null,
                     'estado' => 'no_calculable',
                     'motivo' => $e->getMessage(),
                 ];
