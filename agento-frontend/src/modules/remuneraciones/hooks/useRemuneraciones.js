@@ -18,7 +18,8 @@ export function useRemuneraciones() {
   const [resumenBeneficio, setResumenBeneficio] = useState(null);
   const [resumenBeneficioLoading, setResumenBeneficioLoading] = useState(false);
 
-  const [previsualizacion, setPrevisualizacion] = useState([]);
+  // { fecha_desde, fecha_hasta, dias, empresas, totales, filas } — ver BoletaController::previsualizar().
+  const [previsualizacion, setPrevisualizacion] = useState(null);
   const [previsualizacionLoading, setPrevisualizacionLoading] = useState(false);
 
   const [aportesPrevisionales, setAportesPrevisionales] = useState(null);
@@ -671,10 +672,10 @@ export function useRemuneraciones() {
    * Previsualización mensual continua — no requiere ciclo (Sección 5/32 de
    * la documentación funcional). Nunca persiste nada en el backend.
    */
-  const fetchPrevisualizacion = useCallback(async (anio, mes) => {
+  const fetchPrevisualizacion = useCallback(async (params) => {
     setPrevisualizacionLoading(true);
     try {
-      const { data } = await api.get('/planilla/previsualizar', { params: { anio, mes } });
+      const { data } = await api.get('/planilla/previsualizar', { params });
       setPrevisualizacion(data.data);
       return data.data;
     } finally {
@@ -682,8 +683,14 @@ export function useRemuneraciones() {
     }
   }, []);
 
-  const exportarPrevisualizacionExcel = useCallback(async (anio, mes) => {
-    const response = await api.get('/planilla/previsualizar/excel', { params: { anio, mes }, responseType: 'blob' });
+  /** Datos del Proyectado para la vista imprimible en PDF (misma forma que fetchReporteEjecutivoDatos). */
+  const fetchPrevisualizacionDatosReporte = useCallback(async (params) => {
+    const { data } = await api.get('/planilla/previsualizar/datos-reporte', { params });
+    return data;
+  }, []);
+
+  const exportarPrevisualizacionExcel = useCallback(async (params) => {
+    const response = await api.get('/planilla/previsualizar/excel', { params, responseType: 'blob' });
     const disposicion = response.headers?.['content-disposition'] ?? '';
     const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Proyectado_planilla.xlsx';
     const url = window.URL.createObjectURL(response.data);
@@ -774,6 +781,7 @@ export function useRemuneraciones() {
     previsualizacionLoading,
     fetchPrevisualizacion,
     exportarPrevisualizacionExcel,
+    fetchPrevisualizacionDatosReporte,
     aportesPrevisionales,
     aportesPrevisionalesLoading,
     fetchAportesPrevisionales,

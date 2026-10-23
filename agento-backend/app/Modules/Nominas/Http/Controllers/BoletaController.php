@@ -3,9 +3,11 @@
 namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\ReporteEjecutivo\ConceptosEfectivosPorBoleta;
+use App\Modules\Nominas\Application\ReporteEjecutivo\ReporteEjecutivoRemuneracionesCalculador;
 use App\Modules\Nominas\Http\Resources\BoletaResource;
 use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
 use App\Modules\Nominas\Infrastructure\ReporteEjecutivo\Export\ReporteEjecutivoRemuneracionesExcelExporter;
@@ -14,15 +16,18 @@ use App\Modules\Nominas\Models\BoletaComprobanteRh;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Services\AportesPrevisionalesService;
 use App\Modules\Nominas\Services\BoletaService;
+use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Symfony\Component\HttpFoundation\Response;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class BoletaController extends Controller
 {
@@ -59,12 +64,38 @@ class BoletaController extends Controller
      */
     public function previsualizar(Request $request): JsonResponse
     {
-        $filas = array_map(
-            fn (array $fila) => array_diff_key($fila, ['lineas' => true]),
-            $this->resolverPrevisualizacion($request)['filas'],
-        );
+        ['filas' => $filas, 'fecha_desde' => $desde, 'fecha_hasta' => $hasta] = $this->resolverPrevisualizacion($request);
 
-        return response()->json(['data' => $filas]);
+        $porEmpresa = collect($filas)->groupBy('empresa_id')->map(function ($grupo) {
+            $calculables = $grupo->where('estado', 'calculable');
+
+            return [
+                'empresa_id' => $grupo->first()['empresa_id'],
+                'empresa' => $grupo->first()['empresa'],
+                'colaboradores' => $grupo->count(),
+                'no_calculables' => $grupo->count() - $calculables->count(),
+                'total_ingresos' => round((float) $calculables->sum('total_ingresos'), 2),
+                'total_egresos' => round((float) $calculables->sum('total_egresos'), 2),
+                'total_aportaciones' => round((float) $calculables->sum('total_aportaciones'), 2),
+                'neto_a_pagar' => round((float) $calculables->sum('neto_a_pagar'), 2),
+            ];
+        })->values();
+
+        return response()->json(['data' => [
+            'fecha_desde' => $desde,
+            'fecha_hasta' => $hasta,
+            'dias' => ProrateoRango::diasDelRango($desde, $hasta),
+            'empresas' => $porEmpresa,
+            'totales' => [
+                'empresas' => $porEmpresa->count(),
+                'colaboradores' => $porEmpresa->sum('colaboradores'),
+                'total_ingresos' => round($porEmpresa->sum('total_ingresos'), 2),
+                'total_egresos' => round($porEmpresa->sum('total_egresos'), 2),
+                'total_aportaciones' => round($porEmpresa->sum('total_aportaciones'), 2),
+                'neto_a_pagar' => round($porEmpresa->sum('neto_a_pagar'), 2),
+            ],
+            'filas' => array_map(fn (array $fila) => array_diff_key($fila, ['lineas' => true]), $filas),
+        ]]);
     }
 
     /**
@@ -74,19 +105,71 @@ class BoletaController extends Controller
      */
     public function previsualizarExcel(Request $request): Response
     {
-        $empresa = $request->user('api')->empresa;
-        ['filas' => $filas, 'fecha_inicio' => $fechaInicio, 'hoy' => $hoy] = $this->resolverPrevisualizacion($request);
+        $reporte = $this->armarReporteProyectado($request);
 
-        $mes = Carbon::parse($fechaInicio);
-        $periodo = ucfirst(mb_strtolower($mes->translatedFormat('F'), 'UTF-8')).' '.$mes->format('Y')
+        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generarDesdeFilas(
+            $reporte['periodo'], $reporte['filas'], $reporte['conceptos'], 'PROYECTADO DE PLANILLA', $reporte['no_calculables'],
+        );
+        $sufijo = $reporte['empresas']->count() === 1 ? Str::slug($reporte['empresas']->first()->nombre_comercial) : 'todas';
+        $nombre = sprintf('Proyectado_planilla_%s_%s_%s.xlsx', $sufijo, $reporte['fecha_desde'], $reporte['fecha_hasta']);
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
+    }
+
+    /**
+     * Mismos datos que previsualizarExcel() en JSON, con la misma forma que
+     * CicloRemunerativoController::datosReporteEjecutivo(), para la vista
+     * imprimible en PDF (ReporteEjecutivoImprimibleModal).
+     */
+    public function previsualizarDatosReporte(Request $request): JsonResponse
+    {
+        $reporte = $this->armarReporteProyectado($request);
+
+        ['columnas' => $columnas, 'filas' => $filas] = ReporteEjecutivoRemuneracionesCalculador::detalle($reporte['filas'], $reporte['conceptos']);
+        $claves = array_column($columnas, 'clave');
+
+        return response()->json([
+            'titulo' => 'PROYECTADO DE PLANILLA',
+            'periodo' => $reporte['periodo'],
+            'columnas' => $columnas,
+            'empresas' => $filas->groupBy('empresa')
+                ->map(fn ($grupo, $empresa) => [
+                    'empresa' => $empresa,
+                    'colaboradores' => $grupo->count(),
+                    'filas' => $grupo->values(),
+                    'subtotal' => ReporteEjecutivoRemuneracionesCalculador::sumarMontos($grupo, $claves),
+                ])
+                ->values(),
+            'total_general' => ReporteEjecutivoRemuneracionesCalculador::sumarMontos($filas, $claves),
+            'total_colaboradores' => $filas->count(),
+            'no_calculables' => $reporte['no_calculables'],
+        ]);
+    }
+
+    /**
+     * Filas del Proyectado con la forma de ReporteEjecutivoRemuneracionesCalculador::filas()
+     * — compartido entre el Excel y el PDF para que nunca diverjan.
+     *
+     * @return array{periodo: string, filas: Collection<int, array<string, mixed>>, conceptos: Collection<int, Collection<int, array<string, mixed>>>,
+     *   no_calculables: list<array{nombre: string, cargo: ?string, motivo: string}>, fecha_desde: string, fecha_hasta: string, empresas: Collection<int, Empresa>}
+     */
+    private function armarReporteProyectado(Request $request): array
+    {
+        ['filas' => $filas, 'fecha_desde' => $desde, 'fecha_hasta' => $hasta, 'hoy' => $hoy, 'empresas' => $empresas] = $this->resolverPrevisualizacion($request);
+
+        $periodo = Carbon::parse($desde)->format('d/m/Y').' al '.Carbon::parse($hasta)->format('d/m/Y')
             .' (proyectado al '.Carbon::parse($hoy)->format('d/m/Y').')';
 
         $calculables = collect($filas)->where('estado', 'calculable');
         $filasReporte = $calculables->map(fn (array $fila) => [
             // detalle() indexa los conceptos por `boleta_id`; aquí no hay
-            // boleta, se usa el colaborador.
+            // boleta, se usa el colaborador (único entre empresas).
             'boleta_id' => $fila['colaborador_id'],
-            'empresa' => $empresa->nombre_comercial,
+            'empresa' => $fila['empresa'],
             'periodo' => $periodo,
             'dni' => $fila['dni'],
             'nombre' => $fila['nombre'],
@@ -97,58 +180,98 @@ class BoletaController extends Controller
                 ? 'Asistencia al '.Carbon::parse($fila['fecha_corte_asistencia'])->format('d/m')
                 : 'Sin asistencia procesada',
         ])->values();
-        $conceptos = ConceptosEfectivosPorBoleta::desdeResultados(
-            $calculables->mapWithKeys(fn (array $fila) => [$fila['colaborador_id'] => $fila['lineas']])
-        );
-        $noCalculables = collect($filas)->where('estado', 'no_calculable')
-            ->map(fn (array $fila) => ['nombre' => $fila['nombre'], 'cargo' => $fila['cargo'], 'motivo' => (string) $fila['motivo']])
-            ->values()->all();
 
-        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generarDesdeFilas($periodo, $filasReporte, $conceptos, 'PROYECTADO DE PLANILLA', $noCalculables);
-        $nombre = sprintf('Proyectado_planilla_%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $hoy);
-
-        return response($contenido, 200, [
-            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
-            'Content-Length' => (string) strlen($contenido),
-        ]);
+        return [
+            'periodo' => $periodo,
+            'filas' => $filasReporte,
+            'conceptos' => ConceptosEfectivosPorBoleta::desdeResultados(
+                $calculables->mapWithKeys(fn (array $fila) => [$fila['colaborador_id'] => $fila['lineas']])
+            ),
+            'no_calculables' => collect($filas)->where('estado', 'no_calculable')
+                ->map(fn (array $fila) => ['nombre' => "{$fila['nombre']} ({$fila['empresa']})", 'cargo' => $fila['cargo'], 'motivo' => (string) $fila['motivo']])
+                ->values()->all(),
+            'fecha_desde' => $desde,
+            'fecha_hasta' => $hasta,
+            'empresas' => $empresas,
+        ];
     }
 
     /**
-     * @return array{filas: array<int, array<string, mixed>>, fecha_inicio: string, fecha_fin: string, hoy: string}
+     * Proyectado de planilla por rango de fechas (máx. 31 días) y por
+     * empresa: una empresa autorizada o, sin empresa_id, todas las activas
+     * que el usuario administra. Se paga sueldo/30 × días del rango (un mes
+     * calendario completo = 30, ver ProrateoRango); la asistencia se lee
+     * hasta el último día procesado de cada colaborador y el resto se
+     * proyecta al sueldo (ver BoletaService::previsualizarPlanilla()).
+     *
+     * @return array{filas: array<int, array<string, mixed>>, fecha_desde: string, fecha_hasta: string, hoy: string, empresas: Collection<int, Empresa>}
      */
     private function resolverPrevisualizacion(Request $request): array
     {
-        $empresa = $request->user('api')->empresa;
         $datos = $request->validate([
-            'anio' => ['required', 'integer', 'min:2020', 'max:2100'],
-            'mes' => ['required', 'integer', 'min:1', 'max:12'],
+            'fecha_desde' => ['required', 'date_format:Y-m-d'],
+            'fecha_hasta' => ['required', 'date_format:Y-m-d', 'after_or_equal:fecha_desde'],
+            'empresa_id' => ['nullable', 'integer'],
         ]);
-
-        $inicioMes = Carbon::create($datos['anio'], $datos['mes'], 1);
-        $fechaInicio = $inicioMes->toDateString();
-        $fechaFin = $inicioMes->copy()->endOfMonth()->toDateString();
-        $hoy = app(FechaOperativa::class)->hoy()->toDateString();
-        $fechaCorte = $fechaFin;
-
-        // Si el mes ya tiene un ciclo se usan sus mismas fechas (incluido un
-        // corte diferido, p. ej. el 27) y sus bonos/descuentos registrados,
-        // para coincidir con la planilla real. La asistencia se lee solo
-        // hasta el último día procesado de cada colaborador; el resto del
-        // mes se proyecta al sueldo (ver BoletaService::previsualizarPlanilla()).
-        $ciclo = CicloRemunerativo::where('empresa_id', $empresa->id)
-            ->whereDate('fecha_inicio', '<=', $fechaFin)->whereDate('fecha_fin', '>=', $fechaInicio)
-            ->orderBy('fecha_inicio')->first();
-        if ($ciclo) {
-            [$fechaInicio, $fechaFin, $fechaCorte] = [$ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString()];
+        if (Carbon::parse($datos['fecha_desde'])->diffInDays(Carbon::parse($datos['fecha_hasta'])) > 30) {
+            throw ValidationException::withMessages(['fecha_hasta' => 'El rango no puede superar 31 días.']);
         }
 
-        return [
-            'filas' => $this->boletas->previsualizarPlanilla($empresa, $fechaInicio, $fechaFin, $fechaCorte, Carbon::parse($hoy), $fechaFin, $ciclo?->id),
-            'fecha_inicio' => $fechaInicio,
-            'fecha_fin' => $fechaFin,
-            'hoy' => $hoy,
-        ];
+        $usuario = $request->user('api');
+        $empresaIds = $usuario->empresaIdsAutorizadas();
+        if (! empty($datos['empresa_id'])) {
+            // empresa_id del request nunca autoriza por sí solo: solo acota
+            // dentro de las empresas que el usuario ya administra.
+            abort_unless(in_array((int) $datos['empresa_id'], $empresaIds, true), 403, 'No tienes acceso a esa empresa.');
+            $empresaIds = [(int) $datos['empresa_id']];
+        }
+        $empresas = Empresa::whereIn('id', $empresaIds)
+            ->when(empty($datos['empresa_id']), fn ($query) => $query->where('activa', true))
+            ->orderBy('nombre_comercial')
+            ->get();
+
+        [$desde, $hasta] = [$datos['fecha_desde'], $datos['fecha_hasta']];
+        $hoy = app(FechaOperativa::class)->hoy();
+
+        $filas = [];
+        foreach ($empresas as $empresa) {
+            $filasEmpresa = $this->enContextoDeEmpresa($usuario, $empresa, function () use ($empresa, $desde, $hasta, $hoy) {
+                // Bonos/descuentos registrados en el ciclo solo si el rango
+                // cubre el ciclo completo (no se proyecta un bono mensual
+                // entero en una quincena).
+                $ciclo = CicloRemunerativo::where('empresa_id', $empresa->id)
+                    ->whereDate('fecha_inicio', '>=', $desde)->whereDate('fecha_fin', '<=', $hasta)
+                    ->orderBy('fecha_inicio')->first();
+
+                return $this->boletas->previsualizarPlanilla($empresa, $desde, $hasta, $hasta, $hoy->copy(), $ciclo?->id, prorratearRango: true);
+            });
+
+            foreach ($filasEmpresa as $fila) {
+                $filas[] = ['empresa_id' => $empresa->id, 'empresa' => $empresa->nombre_comercial, ...$fila];
+            }
+        }
+
+        return ['filas' => $filas, 'fecha_desde' => $desde, 'fecha_hasta' => $hasta, 'hoy' => $hoy->toDateString(), 'empresas' => $empresas];
+    }
+
+    /**
+     * El motor de planilla consulta modelos con EmpresaScope (asistencia,
+     * horarios, parámetros laborales…), que filtran por la empresa ACTIVA
+     * del usuario. La planilla oficial de otra empresa corre en cola (sin
+     * usuario, sin scope); aquí, en una petición HTTP, se fija en memoria
+     * —nunca se guarda— la empresa ya autorizada como contexto, para que
+     * cada consulta quede acotada a ESA empresa, y se restaura al terminar.
+     */
+    private function enContextoDeEmpresa(User $usuario, Empresa $empresa, callable $calculo): mixed
+    {
+        $empresaOriginal = $usuario->getAttribute('empresa_id');
+        $usuario->setAttribute('empresa_id', $empresa->id);
+
+        try {
+            return $calculo();
+        } finally {
+            $usuario->setAttribute('empresa_id', $empresaOriginal);
+        }
     }
 
     public function index(Request $request, CicloRemunerativo $ciclo): AnonymousResourceCollection

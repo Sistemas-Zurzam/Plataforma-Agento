@@ -24,8 +24,7 @@ import {
   UploadOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
-import { App, Avatar, Button, DatePicker, Empty, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
-import dayjs from 'dayjs';
+import { App, Avatar, Button, Empty, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import BoletaImprimibleModal from '../../modules/remuneraciones/components/BoletaImprimibleModal';
@@ -41,6 +40,7 @@ import EditarCorteAsistenciaModal from '../../modules/remuneraciones/components/
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
 import ImportarComprobantesRhModal from '../../modules/remuneraciones/components/ImportarComprobantesRhModal';
 import PlanillasComplementariasModal from '../../modules/remuneraciones/components/PlanillasComplementariasModal';
+import ProyectadoPlanillaTab from '../../modules/remuneraciones/components/ProyectadoPlanillaTab';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
 import AgregarHorasExtraBoletaModal from '../../modules/remuneraciones/components/AgregarHorasExtraBoletaModal';
 import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
@@ -227,7 +227,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo, registrarHorasExtraEnBoleta, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
-    previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel,
+    previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel, fetchPrevisualizacionDatosReporte,
     aportesPrevisionales, aportesPrevisionalesLoading, fetchAportesPrevisionales,
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
@@ -242,8 +242,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
 
   const [cicloId, setCicloId] = useState(null);
   const [tabActiva, setTabActiva] = useState('previsualizacion');
-  const [mesPrevisualizacion, setMesPrevisualizacion] = useState(() => dayjs());
-  const [busquedaPrevisualizacion, setBusquedaPrevisualizacion] = useState('');
   const [nuevoCicloOpen, setNuevoCicloOpen] = useState(false);
   const [cicloEditar, setCicloEditar] = useState(null);
   const [cicloCorteEditar, setCicloCorteEditar] = useState(null);
@@ -327,12 +325,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     setBoletasSeleccionadas([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cicloId, tipoFiltro, busquedaPlanilla]);
-
-  useEffect(() => {
-    if (!puedeVer) return;
-    fetchPrevisualizacion(mesPrevisualizacion.year(), mesPrevisualizacion.month() + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [puedeVer, mesPrevisualizacion, user?.empresa?.id]);
 
   const cicloActivo = ciclos.find((c) => c.id === cicloId);
 
@@ -580,19 +572,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         }
       },
     });
-  };
-
-  const [exportandoPrevisualizacion, setExportandoPrevisualizacion] = useState(false);
-  const handleExportarPrevisualizacion = async () => {
-    setExportandoPrevisualizacion(true);
-    try {
-      await exportarPrevisualizacionExcel(mesPrevisualizacion.year(), mesPrevisualizacion.month() + 1);
-      message.success('Excel del proyectado de planilla generado');
-    } catch {
-      message.error('No se pudo generar el Excel del proyectado de planilla');
-    } finally {
-      setExportandoPrevisualizacion(false);
-    }
   };
 
   const handleExportarPlanillaPagada = async () => {
@@ -989,74 +968,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [puedeGestionarCiclos, puedeCalcular, puedeAprobar, puedePagar]);
 
-  const columnasPrevisualizacion = useMemo(() => [
-    {
-      title: 'Colaborador',
-      key: 'colaborador',
-      width: 220,
-      render: (_, fila) => (
-        <div className="flex items-center gap-3">
-          <Avatar style={{ backgroundColor: colorForName(fila.nombre) }}>{initialsForName(fila.nombre)}</Avatar>
-          <div className="min-w-0">
-            <p className="truncate font-semibold text-gray-900">{fila.nombre}</p>
-            <p className="truncate text-xs text-gray-400">{fila.cargo ?? '—'}</p>
-          </div>
-        </div>
-      ),
-    },
-    { title: 'Sueldo base', dataIndex: 'sueldo_basico', width: 120, render: (v, f) => (f.estado === 'calculable' ? soles(v) : '—') },
-    { title: 'Faltas', key: 'faltas', width: 90, render: (_, f) => celdaAsistencia(f.dias_falta, f.asistencia_procesada) },
-    { title: 'Tardanza (min)', key: 'tardanza', width: 110, render: (_, f) => celdaAsistencia(f.minutos_tardanza, f.asistencia_procesada) },
-    {
-      title: 'Asistencia al',
-      dataIndex: 'fecha_corte_asistencia',
-      width: 110,
-      render: (v) => (v
-        ? <Tooltip title="Hasta esta fecha se usan los resultados de asistencia; los días siguientes se proyectan al sueldo.">{dayjs(v).format('DD/MM')}</Tooltip>
-        : <span className="text-gray-400">Sin procesar</span>),
-    },
-    { title: 'Ingresos', dataIndex: 'total_ingresos', width: 130, render: (v, f) => (f.estado === 'calculable' ? <span className="text-green-600">{soles(v)}</span> : '—') },
-    { title: 'Descuentos', dataIndex: 'total_egresos', width: 120, render: (v, f) => (f.estado === 'calculable' ? <span className="text-red-500">{soles(v)}</span> : '—') },
-    { title: 'Aportaciones', dataIndex: 'total_aportaciones', width: 120, render: (v, f) => (f.estado === 'calculable' ? soles(v) : '—') },
-    { title: 'Neto proyectado', dataIndex: 'neto_a_pagar', width: 140, render: (v, f) => (f.estado === 'calculable' ? <span className="font-semibold text-gray-900">{soles(v)}</span> : '—') },
-    {
-      title: 'Básico devengado a hoy',
-      key: 'basico_devengado',
-      width: 150,
-      render: (_, f) => {
-        if (f.estado !== 'calculable') return '—';
-        if (f.basico_devengado == null) {
-          return <Tooltip title="No aplica a recibos por honorarios">—</Tooltip>;
-        }
-        return (
-          <div>
-            <p className="font-semibold text-gray-900">{soles(f.basico_devengado)}</p>
-            <p className="text-xs text-gray-400">{f.dias_devengados} días</p>
-          </div>
-        );
-      },
-    },
-    {
-      title: 'Estado',
-      key: 'estado',
-      width: 220,
-      render: (_, f) => (
-        f.estado === 'calculable'
-          ? <Tag color="blue">Calculable</Tag>
-          : <Tooltip title={f.motivo}><Tag color="red">No calculable</Tag></Tooltip>
-      ),
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], []);
-
-  const previsualizacionFiltrada = useMemo(() => {
-    const texto = busquedaPrevisualizacion.trim().toLowerCase();
-    if (!texto) return previsualizacion;
-    return (previsualizacion ?? []).filter((fila) => (
-      fila.nombre?.toLowerCase().includes(texto) || fila.cargo?.toLowerCase().includes(texto)
-    ));
-  }, [previsualizacion, busquedaPrevisualizacion]);
-
   if (!puedeVer) {
     return <Empty description="No tienes permiso para ver Gestión de Remuneraciones" className="mt-16" />;
   }
@@ -1192,44 +1103,14 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             key: 'previsualizacion',
             label: 'Proyectado de planilla',
             children: (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <DatePicker
-                    picker="month"
-                    format="MMMM YYYY"
-                    allowClear={false}
-                    value={mesPrevisualizacion}
-                    onChange={(valor) => setMesPrevisualizacion(valor ?? dayjs())}
-                  />
-                  <Input.Search
-                    allowClear
-                    placeholder="Buscar colaborador por nombre o cargo"
-                    className="w-72"
-                    value={busquedaPrevisualizacion}
-                    onChange={(e) => setBusquedaPrevisualizacion(e.target.value)}
-                  />
-                  <Button
-                    icon={<FileExcelOutlined />}
-                    loading={exportandoPrevisualizacion}
-                    disabled={previsualizacionLoading || !previsualizacion?.length}
-                    onClick={handleExportarPrevisualizacion}
-                  >
-                    Exportar Excel
-                  </Button>
-                  <span className="text-xs text-gray-400">
-                    Proyección del período — no crea ni modifica ningún ciclo. Usa la asistencia procesada hasta la fecha de cada colaborador y proyecta el resto del mes con su sueldo. Corrige aquí lo que haga falta antes de calcular/cerrar el ciclo formal.
-                  </span>
-                </div>
-                <Table
-                  rowKey="colaborador_id"
-                  loading={previsualizacionLoading}
-                  dataSource={previsualizacionFiltrada}
-                  columns={columnasPrevisualizacion}
-                  scroll={{ x: 1000 }}
-                  pagination={false}
-                  locale={{ emptyText: 'No hay colaboradores elegibles para este período' }}
-                />
-              </div>
+              <ProyectadoPlanillaTab
+                empresaActivaId={user?.empresa?.id}
+                previsualizacion={previsualizacion}
+                previsualizacionLoading={previsualizacionLoading}
+                fetchPrevisualizacion={fetchPrevisualizacion}
+                exportarPrevisualizacionExcel={exportarPrevisualizacionExcel}
+                fetchPrevisualizacionDatosReporte={fetchPrevisualizacionDatosReporte}
+              />
             ),
           },
           {

@@ -9,6 +9,7 @@ use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ProrateoCese;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
+use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
@@ -35,7 +36,7 @@ use RuntimeException;
  */
 class CalcularReciboHonorarios
 {
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?float $salarioBaseOverride = null, ?string $finAsistencia = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?float $salarioBaseOverride = null, ?string $finAsistencia = null, bool $prorratearRango = false): array
     {
         $parametros = ParametrosVigentesResolver::paraHonorarios($colaborador->empresa, $fechaCorte);
 
@@ -87,7 +88,10 @@ class CalcularReciboHonorarios
         // CalcularBoletaColaborador. No-op si ya estaba activo antes del
         // período — ver ProrateoIngresoTardio.
         $diasNoPagadosPorIngresoTardio = ProrateoIngresoTardio::diasNoPagados($colaborador->fecha_ingreso, $fechaInicio)
-            + ProrateoCese::diasNoPagados($colaborador->fecha_cese, $fechaInicio, $fechaFin);
+            + ProrateoCese::diasNoPagados($colaborador->fecha_cese, $fechaInicio, $fechaFin)
+            // Solo el Proyectado por rango (ej. una quincena); la planilla
+            // real nunca lo activa. Por días presentes ya se acota al rango.
+            + ($prorratearRango ? ProrateoRango::diasNoPagados($fechaInicio, $fechaFin, $colaborador->fecha_cese) : 0.0);
         $honorarioDelPeriodo = $pagoPorDiasPresentes
             ? round(($honorarioBruto / 30) * $asistenciaParaPago['dias_presentes'], 2)
             : ($diasNoPagadosPorIngresoTardio > 0

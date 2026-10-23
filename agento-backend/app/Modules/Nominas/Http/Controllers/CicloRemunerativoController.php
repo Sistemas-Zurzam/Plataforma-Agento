@@ -286,11 +286,7 @@ class CicloRemunerativoController extends Controller
      */
     private function empresaIdsAutorizadas(Request $request): array
     {
-        $usuario = $request->user('api');
-
-        return $usuario->esAdministradorGlobal()
-            ? Empresa::pluck('id')->all()
-            : $usuario->empresas()->pluck('empresas.id')->all();
+        return $request->user('api')->empresaIdsAutorizadas();
     }
 
     /**

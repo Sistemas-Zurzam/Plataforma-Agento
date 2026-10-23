@@ -44,36 +44,33 @@ function gruposDeColumnas(columnas) {
 }
 
 /**
- * Vista imprimible del Reporte Ejecutivo de Remuneraciones — mismo detalle
+ * Vista imprimible del Reporte Ejecutivo de Remuneraciones (y del Proyectado
+ * de planilla, con la misma forma de datos) — mismo detalle
  * por concepto y agrupado por empresa que el Excel
  * (ReporteEjecutivoRemuneracionesExcelExporter), con las mismas columnas que
  * calcula ReporteEjecutivoRemuneracionesCalculador::detalle() vía
- * /reporte-ejecutivo/datos. "Imprimir" usa window.print() (ver
+ * /reporte-ejecutivo/datos (o /planilla/previsualizar/datos-reporte).
+ * `cargarDatos(parametros)` trae esos datos — `parametros` debe estar
+ * memoizado por quien lo pasa. "Imprimir" usa window.print() (ver
  * EstilosImpresionReporteEjecutivo, que ajusta el zoom al ancho de la hoja)
  * para que el usuario elija "Guardar como PDF" desde el diálogo del navegador.
  */
-export default function ReporteEjecutivoImprimibleModal({ open, onCancel, periodo, estado, categoria, empresaId, cargos, fetchReporteEjecutivoDatos }) {
+export default function ReporteEjecutivoImprimibleModal({ open, onCancel, titulo = 'Reporte ejecutivo de remuneraciones', parametros, cargarDatos }) {
   const [datos, setDatos] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!open || !periodo) return;
+    if (!open || !parametros) return;
     let activo = true;
     setLoading(true);
     setError(null);
-    fetchReporteEjecutivoDatos({
-      periodo,
-      estado,
-      categoria,
-      empresa_id: empresaId || undefined,
-      cargos: cargos?.length ? cargos : undefined,
-    })
+    cargarDatos(parametros)
       .then((data) => { if (activo) setDatos(data); })
-      .catch((err) => { if (activo) setError(err.response?.data?.message ?? 'No hay boletas calculadas para el período y filtros seleccionados.'); })
+      .catch((err) => { if (activo) setError(err.response?.data?.message ?? 'No hay datos para el período y filtros seleccionados.'); })
       .finally(() => { if (activo) setLoading(false); });
     return () => { activo = false; };
-  }, [open, periodo, estado, categoria, empresaId, cargos, fetchReporteEjecutivoDatos]);
+  }, [open, parametros, cargarDatos]);
 
   const columnas = useMemo(() => datos?.columnas ?? [], [datos]);
   const grupos = useMemo(() => gruposDeColumnas(columnas), [columnas]);
@@ -93,7 +90,7 @@ export default function ReporteEjecutivoImprimibleModal({ open, onCancel, period
 
   return (
     <Modal
-      title="Reporte ejecutivo de remuneraciones"
+      title={titulo}
       open={open}
       onCancel={onCancel}
       rootClassName="reporte-ejecutivo-print-root"
@@ -112,7 +109,7 @@ export default function ReporteEjecutivoImprimibleModal({ open, onCancel, period
       {!loading && !error && datos && (
         <div id="reporte-ejecutivo-imprimible" className="space-y-3">
           <div>
-            <h2 className="text-lg font-bold text-agento-blue">REPORTE EJECUTIVO DE REMUNERACIONES</h2>
+            <h2 className="text-lg font-bold text-agento-blue">{(datos.titulo ?? titulo).toUpperCase()}</h2>
             <p className="text-sm text-gray-600">
               Periodo: <strong>{datos.periodo}</strong> · Empresas incluidas: <strong>{datos.empresas.length}</strong> · Colaboradores: <strong>{datos.total_colaboradores}</strong>
             </p>
@@ -166,6 +163,17 @@ export default function ReporteEjecutivoImprimibleModal({ open, onCancel, period
               </tbody>
             </table>
           </div>
+
+          {datos.no_calculables?.length > 0 && (
+            <div className="text-xs text-gray-600">
+              <p className="font-semibold text-red-600">No calculables ({datos.no_calculables.length}) — no suman en los totales:</p>
+              <ul className="list-disc pl-5">
+                {datos.no_calculables.map((fila) => (
+                  <li key={fila.nombre}>{fila.nombre}{fila.cargo ? ` · ${fila.cargo}` : ''}: {fila.motivo}</li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

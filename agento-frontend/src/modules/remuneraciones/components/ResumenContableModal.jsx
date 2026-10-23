@@ -57,6 +57,14 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
     return () => { activo = false; };
   }, [open, periodo, estado, categoria, fetchResumenContable]);
 
+  const parametrosPdf = useMemo(() => (periodo ? {
+    periodo: periodo.format('YYYY-MM'),
+    estado: estado || undefined,
+    categoria: categoria || undefined,
+    empresa_id: empresaExport || undefined,
+    cargos: cargosExport?.length ? cargosExport : undefined,
+  } : null), [periodo, estado, categoria, empresaExport, cargosExport]);
+
   const columnas = useMemo(() => [
     {
       title: 'Empresa',
@@ -247,12 +255,8 @@ export default function ResumenContableModal({ open, onCancel, ciclo, fetchResum
       <ReporteEjecutivoImprimibleModal
         open={pdfModalOpen}
         onCancel={() => setPdfModalOpen(false)}
-        periodo={periodo?.format('YYYY-MM')}
-        estado={estado || undefined}
-        categoria={categoria || undefined}
-        empresaId={empresaExport || undefined}
-        cargos={cargosExport}
-        fetchReporteEjecutivoDatos={fetchReporteEjecutivoDatos}
+        parametros={parametrosPdf}
+        cargarDatos={fetchReporteEjecutivoDatos}
       />
     </Modal>
   );

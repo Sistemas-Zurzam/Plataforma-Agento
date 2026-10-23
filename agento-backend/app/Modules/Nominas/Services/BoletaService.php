@@ -12,6 +12,7 @@ use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
 use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
+use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -830,20 +831,23 @@ class BoletaService
      * (ingresos/egresos/aportaciones) para el Excel con formato de Resumen
      * contable.
      *
-     * $hoy / $finPeriodo: con un mes en curso, además del neto proyectado a
-     * mes completo se informa el básico devengado a la fecha (días ya
+     * $hoy: con un período en curso, además del neto proyectado al período
+     * completo se informa el básico devengado a la fecha (días ya
      * transcurridos menos faltas). Solo planilla dependiente.
+     *
+     * $prorratearRango: el período es un rango libre (ej. una quincena) y se
+     * paga sueldo/30 × días del rango — ver ProrateoRango.
      */
-    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte, ?Carbon $hoy = null, ?string $finPeriodo = null, ?int $cicloId = null): array
+    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte, ?Carbon $hoy = null, ?int $cicloId = null, bool $prorratearRango = false): array
     {
         $filas = [];
-        $finPeriodo ??= $fechaFin;
-        // Días del período que todavía no ocurren (mes de 30 días). Un
-        // período ya terminado no tiene días por devengar.
+        // Días del período (de 30, o los del rango) que todavía no ocurren.
+        // Un período ya terminado no tiene días por devengar.
         $diasPorTranscurrir = 0;
-        if ($hoy && $hoy->lt(Carbon::parse($finPeriodo))) {
-            $transcurridos = min(30, (int) round(Carbon::parse($fechaInicio)->diffInDays($hoy)) + 1);
-            $diasPorTranscurrir = max(0, 30 - $transcurridos);
+        if ($hoy && $hoy->lt(Carbon::parse($fechaFin))) {
+            $diasPeriodo = $prorratearRango ? ProrateoRango::diasDelRango($fechaInicio, $fechaFin) : 30;
+            $transcurridos = $hoy->lt(Carbon::parse($fechaInicio)) ? 0 : (int) round(Carbon::parse($fechaInicio)->diffInDays($hoy)) + 1;
+            $diasPorTranscurrir = max(0, $diasPeriodo - min($diasPeriodo, $transcurridos));
         }
 
         $colaboradores = $this->colaboradoresElegibles($empresa, $fechaInicio, $fechaFin)->load('area:id,nombre');
@@ -877,7 +881,7 @@ class BoletaService
             ];
 
             try {
-                $resultado = $calculador->calcular($colaborador, $fechaInicio, $fechaFin, $fechaCorte, $cicloId, finAsistencia: $finAsistencia);
+                $resultado = $calculador->calcular($colaborador, $fechaInicio, $fechaFin, $fechaCorte, $cicloId, finAsistencia: $finAsistencia, prorratearRango: $prorratearRango);
 
                 $diasDevengados = null;
                 $basicoDevengado = null;

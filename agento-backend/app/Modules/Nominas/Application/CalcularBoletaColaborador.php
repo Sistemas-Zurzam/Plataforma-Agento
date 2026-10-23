@@ -16,6 +16,7 @@ use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ProrateoCese;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
+use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
@@ -56,7 +57,7 @@ class CalcularBoletaColaborador
      *   snapshot_parametros_version: string, snapshot_reglas_version: string, alertas: array<int, string>,
      * }
      */
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?string $fechaPago = null, ?float $salarioBaseOverride = null, ?string $finAsistencia = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?string $fechaPago = null, ?float $salarioBaseOverride = null, ?string $finAsistencia = null, bool $prorratearRango = false): array
     {
         $regimen = $colaborador->regimen_laboral ?: 'General';
         $calculadora = RegimenCalculatorFactory::paraRegimen($regimen);
@@ -122,13 +123,17 @@ class CalcularBoletaColaborador
         // El cese ya no paga el mes dentro de la liquidación: la boleta
         // normal del ciclo paga hasta la fecha de cese (inclusive).
         $diasNoPagadosPorCese = ProrateoCese::diasNoPagados($colaborador->fecha_cese, $fechaInicio, $fechaFin);
-        $diasPagados = max(0, $diasPagados - $diasNoPagadosPorIngresoTardio - $diasNoPagadosPorCese);
-        if ($diasNoPagadosPorIngresoTardio > 0 || $diasNoPagadosPorCese > 0) {
+        // Solo el Proyectado de planilla por rango (ej. una quincena); la
+        // planilla real nunca lo activa.
+        $diasNoPagadosPorRango = $prorratearRango ? ProrateoRango::diasNoPagados($fechaInicio, $fechaFin, $colaborador->fecha_cese) : 0.0;
+        $diasPagados = max(0, $diasPagados - $diasNoPagadosPorIngresoTardio - $diasNoPagadosPorCese - $diasNoPagadosPorRango);
+        if ($diasNoPagadosPorIngresoTardio > 0 || $diasNoPagadosPorCese > 0 || $diasNoPagadosPorRango > 0) {
             $basico['linea']['monto'] = round(($sueldoBasico / 30) * $diasPagados, 2);
             $basico['linea']['cantidad'] = $diasPagados;
             $basico['linea']['formula_texto'] = "({$sueldoBasico} / 30) × {$diasPagados} días pagados"
                 .($diasNoPagadosPorIngresoTardio > 0 ? " — excluye {$diasNoPagadosPorIngresoTardio} día(s) previos al ingreso ({$colaborador->fecha_ingreso->toDateString()})" : '')
-                .($diasNoPagadosPorCese > 0 ? " — excluye {$diasNoPagadosPorCese} día(s) posteriores al cese ({$colaborador->fecha_cese->toDateString()})" : '');
+                .($diasNoPagadosPorCese > 0 ? " — excluye {$diasNoPagadosPorCese} día(s) posteriores al cese ({$colaborador->fecha_cese->toDateString()})" : '')
+                .($diasNoPagadosPorRango > 0 ? " — excluye {$diasNoPagadosPorRango} día(s) fuera del rango {$fechaInicio} a {$fechaFin}" : '');
             if ($diasNoPagadosPorCese > 0) {
                 $alertas[] = "Colaborador cesado el {$colaborador->fecha_cese->format('d/m/Y')}: la boleta paga hasta esa fecha. Los beneficios (CTS, gratificación y vacaciones truncas) se liquidan aparte en Liquidaciones.";
             }
