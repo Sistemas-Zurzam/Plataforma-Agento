@@ -267,6 +267,23 @@ final class ReporteEjecutivoRemuneracionesCalculador
         return ['columnas' => $columnas, 'filas' => $filasDetalle];
     }
 
+    /**
+     * Suma por columna de filas de detalle() — subtotal por empresa y total general.
+     *
+     * @param  Collection<int, array<string, mixed>>  $filas
+     * @param  list<string>  $claves
+     * @return array<string, float>
+     */
+    public static function sumarMontos(Collection $filas, array $claves): array
+    {
+        $totales = [];
+        foreach ($claves as $clave) {
+            $totales[$clave] = round((float) $filas->sum(fn (array $fila) => $fila['montos'][$clave]), 2);
+        }
+
+        return $totales;
+    }
+
     /** Bonos: los conceptos con definición concreta (Bono de productividad, de puntualidad…) y cualquier BONO_*. */
     private static function esBono(string $codigo): bool
     {

@@ -1,6 +1,6 @@
 import { PrinterOutlined } from '@ant-design/icons';
 import { Button, Modal } from 'antd';
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import EstilosImpresionReporteEjecutivo from './EstilosImpresionReporteEjecutivo';
 
 // Mismo criterio de color que ReporteEjecutivoRemuneracionesExcelExporter::PALETA_EMPRESAS
@@ -13,40 +13,44 @@ const PALETA_EMPRESAS = [
   { claro: '#EAE0F5', oscuro: '#5B2C87' },
   { claro: '#D9F0EE', oscuro: '#007A6E' },
 ];
+const AZUL = '#0B4F94';
+const AZUL_TOTAL = '#083A6E';
 
-const COLUMNAS = [
-  { titulo: 'DNI', clave: 'dni', align: 'left' },
-  { titulo: 'Colaborador', clave: 'nombre', align: 'left' },
-  { titulo: 'Tipo', clave: 'tipo', align: 'left' },
-  { titulo: 'Sueldo bruto', clave: 'sueldo_bruto' },
-  { titulo: 'Bonos / HE', clave: 'bonos' },
-  { titulo: 'Base AFP', clave: 'base_afp' },
-  { titulo: 'AFP 10%', clave: 'aporte_obligatorio' },
-  { titulo: 'Prima seguro', clave: 'prima_seguro' },
-  { titulo: 'Comisión AFP', clave: 'comision_afp' },
-  { titulo: 'Total AFP', clave: 'total_afp' },
-  { titulo: 'Otros descuentos', clave: 'otros_descuentos' },
-  { titulo: 'Reintegros', clave: 'reintegros' },
-  { titulo: 'Neto a pagar', clave: 'neto' },
-  { titulo: 'ESSALUD', clave: 'essalud' },
-  { titulo: 'Costo empresa', clave: 'costo_empresa' },
-  { titulo: 'Estado', clave: 'estado', align: 'left' },
+// Columnas fijas antes de los montos (Empresa y Periodo ya van en el
+// encabezado y en las filas de subtotal).
+const COLUMNAS_FIJAS = [
+  { titulo: 'DNI', clave: 'dni' },
+  { titulo: 'Colaborador', clave: 'nombre' },
+  { titulo: 'Área', clave: 'area' },
+  { titulo: 'Cargo', clave: 'cargo' },
+  { titulo: 'Tipo', clave: 'tipo' },
 ];
-
-const COLUMNAS_MONTO = COLUMNAS.filter((c) => !c.align).map((c) => c.clave);
 
 function soles(valor) {
   return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** Agrupa columnas contiguas del mismo grupo para la fila superior del encabezado (Ingresos, Bonos, Horas extra…). */
+function gruposDeColumnas(columnas) {
+  return columnas.reduce((grupos, columna) => {
+    const ultimo = grupos[grupos.length - 1];
+    if (ultimo && ultimo.grupo === columna.grupo) {
+      ultimo.span += 1;
+    } else {
+      grupos.push({ grupo: columna.grupo, span: 1, clave: columna.clave });
+    }
+    return grupos;
+  }, []);
+}
+
 /**
  * Vista imprimible del Reporte Ejecutivo de Remuneraciones — mismo detalle
- * agrupado por empresa que el Excel (ReporteEjecutivoRemuneracionesExcelExporter),
- * consumiendo los mismos datos ya calculados por
- * ReporteEjecutivoRemuneracionesCalculador vía /reporte-ejecutivo/datos.
- * "Imprimir" usa window.print() (ver EstilosImpresionReporteEjecutivo) para
- * que el usuario elija "Guardar como PDF" desde el diálogo del navegador —
- * mismo mecanismo que la boleta, sin agregar una librería de PDF al backend.
+ * por concepto y agrupado por empresa que el Excel
+ * (ReporteEjecutivoRemuneracionesExcelExporter), con las mismas columnas que
+ * calcula ReporteEjecutivoRemuneracionesCalculador::detalle() vía
+ * /reporte-ejecutivo/datos. "Imprimir" usa window.print() (ver
+ * EstilosImpresionReporteEjecutivo, que ajusta el zoom al ancho de la hoja)
+ * para que el usuario elija "Guardar como PDF" desde el diálogo del navegador.
  */
 export default function ReporteEjecutivoImprimibleModal({ open, onCancel, periodo, estado, categoria, empresaId, cargos, fetchReporteEjecutivoDatos }) {
   const [datos, setDatos] = useState(null);
@@ -70,6 +74,22 @@ export default function ReporteEjecutivoImprimibleModal({ open, onCancel, period
       .finally(() => { if (activo) setLoading(false); });
     return () => { activo = false; };
   }, [open, periodo, estado, categoria, empresaId, cargos, fetchReporteEjecutivoDatos]);
+
+  const columnas = useMemo(() => datos?.columnas ?? [], [datos]);
+  const grupos = useMemo(() => gruposDeColumnas(columnas), [columnas]);
+
+  const celdaEncabezado = 'whitespace-nowrap px-2 py-1 font-semibold';
+  const celda = 'whitespace-nowrap px-2 py-1';
+
+  const filaTotales = (etiqueta, totales, color) => (
+    <tr style={{ backgroundColor: color }} className="font-semibold text-white">
+      <td colSpan={COLUMNAS_FIJAS.length} className={celda}>{etiqueta}</td>
+      {columnas.map((columna) => (
+        <td key={columna.clave} className={`${celda} text-right`}>{soles(totales[columna.clave])}</td>
+      ))}
+      <td />
+    </tr>
+  );
 
   return (
     <Modal
@@ -98,15 +118,26 @@ export default function ReporteEjecutivoImprimibleModal({ open, onCancel, period
             </p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse text-xs">
+          <div className="reporte-ejecutivo-scroll overflow-x-auto">
+            <table className="reporte-ejecutivo-tabla w-full border-collapse text-xs">
               <thead>
-                <tr style={{ backgroundColor: '#0B4F94' }} className="text-white">
-                  {COLUMNAS.map((columna) => (
-                    <th key={columna.clave} className="whitespace-nowrap px-2 py-1 font-semibold" style={{ textAlign: columna.align ?? 'right' }}>
+                <tr style={{ backgroundColor: AZUL }} className="text-white">
+                  <th colSpan={COLUMNAS_FIJAS.length} className={`${celdaEncabezado} text-left`}>Colaborador</th>
+                  {grupos.map((g) => (
+                    <th key={g.clave} colSpan={g.span} className={`${celdaEncabezado} border-l border-white/30 text-center`}>{g.grupo}</th>
+                  ))}
+                  <th />
+                </tr>
+                <tr style={{ backgroundColor: AZUL }} className="text-white">
+                  {COLUMNAS_FIJAS.map((columna) => (
+                    <th key={columna.clave} className={`${celdaEncabezado} text-left`}>{columna.titulo}</th>
+                  ))}
+                  {columnas.map((columna) => (
+                    <th key={columna.clave} className={`${celdaEncabezado} text-right`} style={columna.total ? { backgroundColor: AZUL_TOTAL } : undefined}>
                       {columna.titulo}
                     </th>
                   ))}
+                  <th className={`${celdaEncabezado} text-left`}>Estado</th>
                 </tr>
               </thead>
               <tbody>
@@ -115,35 +146,23 @@ export default function ReporteEjecutivoImprimibleModal({ open, onCancel, period
                   return (
                     <Fragment key={grupo.empresa}>
                       {grupo.filas.map((fila) => (
-                        <tr key={`${grupo.empresa}-${fila.dni}`} style={{ backgroundColor: colores.claro }}>
-                          {COLUMNAS.map((columna) => (
-                            <td key={columna.clave} className="whitespace-nowrap px-2 py-1" style={{ textAlign: columna.align ?? 'right' }}>
-                              {columna.align ? fila[columna.clave] : soles(fila[columna.clave])}
+                        <tr key={`${grupo.empresa}-${fila.boleta_id}`} style={{ backgroundColor: colores.claro }}>
+                          {COLUMNAS_FIJAS.map((columna) => (
+                            <td key={columna.clave} className={celda}>{fila[columna.clave]}</td>
+                          ))}
+                          {columnas.map((columna) => (
+                            <td key={columna.clave} className={`${celda} text-right ${columna.total ? 'font-semibold' : ''}`}>
+                              {soles(fila.montos[columna.clave])}
                             </td>
                           ))}
+                          <td className={celda}>{fila.estado}</td>
                         </tr>
                       ))}
-                      <tr style={{ backgroundColor: colores.oscuro }} className="font-semibold text-white">
-                        <td colSpan={3} className="whitespace-nowrap px-2 py-1">
-                          Total {grupo.empresa} ({grupo.colaboradores} colaboradores)
-                        </td>
-                        {COLUMNAS_MONTO.map((clave) => (
-                          <td key={clave} className="whitespace-nowrap px-2 py-1 text-right">{soles(grupo.subtotal[clave])}</td>
-                        ))}
-                        <td />
-                      </tr>
+                      {filaTotales(`Total ${grupo.empresa} (${grupo.colaboradores} colaboradores)`, grupo.subtotal, colores.oscuro)}
                     </Fragment>
                   );
                 })}
-                <tr style={{ backgroundColor: '#0B4F94' }} className="font-semibold text-white">
-                  <td colSpan={3} className="whitespace-nowrap px-2 py-1">
-                    Total general ({datos.total_colaboradores} colaboradores)
-                  </td>
-                  {COLUMNAS_MONTO.map((clave) => (
-                    <td key={clave} className="whitespace-nowrap px-2 py-1 text-right">{soles(datos.total_general[clave])}</td>
-                  ))}
-                  <td />
-                </tr>
+                {filaTotales(`Total general (${datos.total_colaboradores} colaboradores)`, datos.total_general, AZUL)}
               </tbody>
             </table>
           </div>

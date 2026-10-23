@@ -171,7 +171,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
                 'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => $colores['claro']]],
             ]);
 
-            self::escribirFilaTotales($hoja, $numeroFila, "Total {$empresa} ({$grupo->count()} colaboradores)", $claves, self::sumar($grupo, $claves));
+            self::escribirFilaTotales($hoja, $numeroFila, "Total {$empresa} ({$grupo->count()} colaboradores)", $claves, ReporteEjecutivoRemuneracionesCalculador::sumarMontos($grupo, $claves));
             $hoja->getStyle("A{$numeroFila}:{$columnaEstado}{$numeroFila}")->applyFromArray([
                 'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
                 'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => $colores['oscuro']]],
@@ -181,7 +181,7 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
             $indiceEmpresa++;
         }
 
-        $totalGeneral = self::sumar($filas, $claves);
+        $totalGeneral = ReporteEjecutivoRemuneracionesCalculador::sumarMontos($filas, $claves);
         $filaTotalGeneral = $numeroFila;
         self::escribirFilaTotales($hoja, $filaTotalGeneral, 'Total general ('.$filas->count().' colaboradores)', $claves, $totalGeneral);
         $hoja->getStyle("A{$filaTotalGeneral}:{$columnaEstado}{$filaTotalGeneral}")->applyFromArray([
@@ -210,21 +210,6 @@ final class ReporteEjecutivoRemuneracionesExcelExporter
     private static function letra(int $indice): string
     {
         return Coordinate::stringFromColumnIndex($indice);
-    }
-
-    /**
-     * @param  Collection<int, array<string, mixed>>  $filas
-     * @param  list<string>  $claves
-     * @return array<string, float>
-     */
-    private static function sumar(Collection $filas, array $claves): array
-    {
-        $totales = [];
-        foreach ($claves as $clave) {
-            $totales[$clave] = round((float) $filas->sum(fn (array $fila) => $fila['montos'][$clave]), 2);
-        }
-
-        return $totales;
     }
 
     /**
