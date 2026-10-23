@@ -16,6 +16,7 @@ use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashExportService;
 use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashValidator;
 use App\Modules\Nominas\Application\Plame\PlameExportService;
 use App\Modules\Nominas\Application\Plame\PlameValidator;
+use App\Modules\Nominas\Application\ReporteEjecutivo\ConceptosEfectivosPorBoleta;
 use App\Modules\Nominas\Application\ReporteEjecutivo\ReporteEjecutivoRemuneracionesCalculador;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpExportService;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpValidator;
@@ -139,9 +140,9 @@ class CicloRemunerativoController extends Controller
      */
     public function exportarReporteEjecutivoExcel(Request $request): Response
     {
-        [$datos, $boletas, $periodoLabel, $reintegrosPorBoleta] = $this->resolverReporteEjecutivo($request);
+        [$datos, $boletas, $periodoLabel] = $this->resolverReporteEjecutivo($request);
 
-        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas, $reintegrosPorBoleta);
+        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas, ConceptosEfectivosPorBoleta::resolver($boletas));
         $sufijo = match ($datos['categoria'] ?? null) {
             'planilla' => '_planilla',
             'honorarios' => '_rh',
@@ -236,7 +237,13 @@ class CicloRemunerativoController extends Controller
             ->when(($datos['categoria'] ?? null) === 'honorarios', fn ($query) => $query->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
             ->when(($datos['categoria'] ?? null) === 'planilla', fn ($query) => $query->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
             ->when($datos['cargos'] ?? null, fn ($query, $cargos) => $query->whereHas('colaborador', fn ($colaborador) => $colaborador->whereIn('cargo', $cargos)))
-            ->with(['colaborador:id,nombres,apellidos,numero_documento', 'conceptos.concepto:id,codigo', 'empresa:id,nombre_comercial'])
+            ->with([
+                'colaborador:id,nombres,apellidos,numero_documento,cargo,area_id',
+                'colaborador.area:id,nombre',
+                'conceptos.concepto:id,codigo,nombre',
+                'conceptos.conceptoDefinicion:id,nombre',
+                'empresa:id,nombre_comercial',
+            ])
             ->get()
             // Orden estable en dos pasadas: por colaborador primero y luego por
             // empresa, para que el resultado final quede agrupado por empresa

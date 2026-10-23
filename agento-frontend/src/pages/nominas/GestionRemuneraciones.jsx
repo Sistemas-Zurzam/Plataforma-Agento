@@ -587,9 +587,9 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     setExportandoPrevisualizacion(true);
     try {
       await exportarPrevisualizacionExcel(mesPrevisualizacion.year(), mesPrevisualizacion.month() + 1);
-      message.success('Excel de la planilla aproximada generado');
+      message.success('Excel del proyectado de planilla generado');
     } catch {
-      message.error('No se pudo generar el Excel de la planilla aproximada');
+      message.error('No se pudo generar el Excel del proyectado de planilla');
     } finally {
       setExportandoPrevisualizacion(false);
     }
@@ -1007,9 +1007,18 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     { title: 'Sueldo base', dataIndex: 'sueldo_basico', width: 120, render: (v, f) => (f.estado === 'calculable' ? soles(v) : '—') },
     { title: 'Faltas', key: 'faltas', width: 90, render: (_, f) => celdaAsistencia(f.dias_falta, f.asistencia_procesada) },
     { title: 'Tardanza (min)', key: 'tardanza', width: 110, render: (_, f) => celdaAsistencia(f.minutos_tardanza, f.asistencia_procesada) },
-    { title: 'Total ingresos', dataIndex: 'total_ingresos', width: 130, render: (v, f) => (f.estado === 'calculable' ? <span className="text-green-600">{soles(v)}</span> : '—') },
+    {
+      title: 'Asistencia al',
+      dataIndex: 'fecha_corte_asistencia',
+      width: 110,
+      render: (v) => (v
+        ? <Tooltip title="Hasta esta fecha se usan los resultados de asistencia; los días siguientes se proyectan al sueldo.">{dayjs(v).format('DD/MM')}</Tooltip>
+        : <span className="text-gray-400">Sin procesar</span>),
+    },
+    { title: 'Ingresos', dataIndex: 'total_ingresos', width: 130, render: (v, f) => (f.estado === 'calculable' ? <span className="text-green-600">{soles(v)}</span> : '—') },
     { title: 'Descuentos', dataIndex: 'total_egresos', width: 120, render: (v, f) => (f.estado === 'calculable' ? <span className="text-red-500">{soles(v)}</span> : '—') },
-    { title: 'Neto estimado (mes completo)', dataIndex: 'neto_a_pagar', width: 150, render: (v, f) => (f.estado === 'calculable' ? <span className="font-semibold text-gray-900">{soles(v)}</span> : '—') },
+    { title: 'Aportaciones', dataIndex: 'total_aportaciones', width: 120, render: (v, f) => (f.estado === 'calculable' ? soles(v) : '—') },
+    { title: 'Neto proyectado', dataIndex: 'neto_a_pagar', width: 140, render: (v, f) => (f.estado === 'calculable' ? <span className="font-semibold text-gray-900">{soles(v)}</span> : '—') },
     {
       title: 'Básico devengado a hoy',
       key: 'basico_devengado',
@@ -1181,7 +1190,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         items={[
           {
             key: 'previsualizacion',
-            label: 'Previsualización mensual',
+            label: 'Proyectado de planilla',
             children: (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1208,7 +1217,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                     Exportar Excel
                   </Button>
                   <span className="text-xs text-gray-400">
-                    Vista preliminar del período — no crea ni modifica ningún ciclo. Se recalcula cada vez que la abres con la asistencia procesada hasta hoy. Corrige aquí lo que haga falta antes de calcular/cerrar el ciclo formal.
+                    Proyección del período — no crea ni modifica ningún ciclo. Usa la asistencia procesada hasta la fecha de cada colaborador y proyecta el resto del mes con su sueldo. Corrige aquí lo que haga falta antes de calcular/cerrar el ciclo formal.
                   </span>
                 </div>
                 <Table

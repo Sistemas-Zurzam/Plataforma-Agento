@@ -2,6 +2,7 @@
 
 namespace App\Modules\Nominas\Application\ReporteEjecutivo;
 
+use App\Modules\Nominas\Domain\Plame\ConceptosPlame;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use Illuminate\Support\Collection;
@@ -29,6 +30,8 @@ final class ReporteEjecutivoRemuneracionesCalculador
 
     /** Ingreso base según motor: SUELDO_BASICO (planilla dependiente) u HONORARIO_BRUTO (recibos por honorarios). */
     private const CODIGOS_INGRESO_BASE = ['SUELDO_BASICO', 'HONORARIO_BRUTO'];
+
+    private const CODIGOS_HORAS_EXTRA = ['HE_25', 'HE_35', 'HE_100'];
 
     /** Columnas monetarias sumables de una fila (misma clave que fila()), usadas para subtotales y total general. */
     public const COLUMNAS_MONTO = [
@@ -112,10 +115,13 @@ final class ReporteEjecutivoRemuneracionesCalculador
         $essalud = self::sumarConceptos($conceptos, self::CODIGOS_APORTACION_SALUD);
 
         return [
+            'boleta_id' => $boleta->id,
             'empresa' => $boleta->empresa?->nombre_comercial ?? 'Sin empresa',
             'periodo' => $periodo,
             'dni' => (string) $colaborador?->numero_documento,
             'nombre' => trim(($colaborador?->nombres ?? '').' '.($colaborador?->apellidos ?? '')),
+            'area' => $colaborador?->area?->nombre ?? '',
+            'cargo' => (string) ($colaborador?->cargo ?? ''),
             'tipo' => $boleta->regimen_laboral_snapshot === 'Locacion de Servicios' ? 'RH' : 'Planilla',
             'sueldo_bruto' => $sueldoBruto,
             'bonos' => round($totalIngresos - $sueldoBruto, 2),
@@ -137,6 +143,134 @@ final class ReporteEjecutivoRemuneracionesCalculador
             'costo_empresa' => round($totalIngresos + $essalud, 2),
             'estado' => $boleta->estado === 'pagada' ? 'Pagado' : ucfirst((string) $boleta->estado),
         ];
+    }
+
+    /**
+     * Planilla pagada a detalle: una columna por concepto efectivamente
+     * pagado (ver ConceptosEfectivosPorBoleta — los reintegros ya vienen
+     * repartidos en sus conceptos). Bonos y HE van separados por concepto
+     * con su total; los descuentos que no son AFP/ONP se segmentan según el
+     * concepto registrado (adelanto, error operativo, falta, …). Solo se
+     * incluyen las columnas dinámicas con algún monto en el reporte.
+     *
+     * @param  Collection<int, array<string, mixed>>  $filas  Resultado de filas().
+     * @param  Collection<int, Collection<int, array<string, mixed>>>  $conceptosPorBoleta  ConceptosEfectivosPorBoleta::resolver().
+     * @return array{columnas: list<array{clave: string, titulo: string, grupo: string, total: bool}>,
+     *   filas: Collection<int, array<string, mixed>>}
+     */
+    public static function detalle(Collection $filas, Collection $conceptosPorBoleta): array
+    {
+        $dinamicas = ['ingreso' => [], 'bono' => [], 'descuento' => []];
+
+        $filasDetalle = $filas->map(function (array $fila) use ($conceptosPorBoleta, &$dinamicas) {
+            $montos = array_fill_keys([
+                'sueldo_basico', 'HE_25', 'HE_35', 'HE_100', 'aporte_obligatorio', 'prima_seguro', 'comision_afp', 'essalud',
+            ], 0.0);
+            $totalIngresos = 0.0;
+            $totalDescuentos = 0.0;
+
+            foreach ($conceptosPorBoleta->get($fila['boleta_id'], collect()) as $linea) {
+                $codigo = $linea['codigo'];
+                $monto = (float) $linea['monto'];
+
+                if ($linea['tipo'] === 'aportacion') {
+                    if (in_array($codigo, self::CODIGOS_APORTACION_SALUD, true)) {
+                        $montos['essalud'] += $monto;
+                    }
+
+                    continue;
+                }
+
+                if ($linea['tipo'] === 'ingreso') {
+                    $totalIngresos += $monto;
+                    $clave = match (true) {
+                        in_array($codigo, self::CODIGOS_INGRESO_BASE, true) => 'sueldo_basico',
+                        in_array($codigo, self::CODIGOS_HORAS_EXTRA, true) => $codigo,
+                        default => null,
+                    };
+                    $grupo = self::esBono($codigo) ? 'bono' : 'ingreso';
+                } else {
+                    $totalDescuentos += $monto;
+                    $clave = match (true) {
+                        in_array($codigo, self::CODIGOS_APORTE_OBLIGATORIO, true) => 'aporte_obligatorio',
+                        $codigo === 'AFP_PRIMA_SEGURO' => 'prima_seguro',
+                        $codigo === 'AFP_COMISION' => 'comision_afp',
+                        default => null,
+                    };
+                    $grupo = 'descuento';
+                }
+
+                if ($clave === null) {
+                    // Bono de productividad, de puntualidad, adelanto, error
+                    // operativo…: la definición concreta manda sobre el
+                    // concepto genérico (BONIFICACION, etc.).
+                    $clave = $linea['definicion_id'] ? "def:{$linea['definicion_id']}" : "cod:{$codigo}";
+                    $dinamicas[$grupo][$clave] = $linea['definicion'] ?: $linea['nombre'];
+                }
+                $montos[$clave] = ($montos[$clave] ?? 0.0) + $monto;
+            }
+
+            return [...$fila, 'montos' => array_map(fn ($v) => round($v, 2), [
+                ...$montos,
+                'total_ingresos' => $totalIngresos,
+                'total_descuentos' => $totalDescuentos,
+                'neto' => $totalIngresos - $totalDescuentos,
+                'costo_empresa' => $totalIngresos + $montos['essalud'],
+            ])];
+        })->values();
+
+        $ordenar = function (array $columnas): array {
+            asort($columnas, SORT_NATURAL | SORT_FLAG_CASE);
+
+            return $columnas;
+        };
+        $columnas = [['clave' => 'sueldo_basico', 'titulo' => 'Sueldo básico', 'grupo' => 'Ingresos', 'total' => false]];
+        foreach ($ordenar($dinamicas['ingreso']) as $clave => $titulo) {
+            $columnas[] = ['clave' => $clave, 'titulo' => $titulo, 'grupo' => 'Ingresos', 'total' => false];
+        }
+        foreach ($ordenar($dinamicas['bono']) as $clave => $titulo) {
+            $columnas[] = ['clave' => $clave, 'titulo' => $titulo, 'grupo' => 'Bonos', 'total' => false];
+        }
+        $columnas[] = ['clave' => 'total_bonos', 'titulo' => 'Total bonos', 'grupo' => 'Bonos', 'total' => true];
+        $columnas[] = ['clave' => 'HE_25', 'titulo' => 'HE 25%', 'grupo' => 'Horas extra', 'total' => false];
+        $columnas[] = ['clave' => 'HE_35', 'titulo' => 'HE 35%', 'grupo' => 'Horas extra', 'total' => false];
+        $columnas[] = ['clave' => 'HE_100', 'titulo' => 'HE 100%', 'grupo' => 'Horas extra', 'total' => false];
+        $columnas[] = ['clave' => 'total_he', 'titulo' => 'Total horas extra', 'grupo' => 'Horas extra', 'total' => true];
+        $columnas[] = ['clave' => 'total_ingresos', 'titulo' => 'Total ingresos', 'grupo' => 'Ingresos', 'total' => true];
+        $columnas[] = ['clave' => 'aporte_obligatorio', 'titulo' => 'Aporte AFP / ONP', 'grupo' => 'AFP / ONP', 'total' => false];
+        $columnas[] = ['clave' => 'prima_seguro', 'titulo' => 'Prima seguro', 'grupo' => 'AFP / ONP', 'total' => false];
+        $columnas[] = ['clave' => 'comision_afp', 'titulo' => 'Comisión AFP', 'grupo' => 'AFP / ONP', 'total' => false];
+        $columnas[] = ['clave' => 'total_afp', 'titulo' => 'Total AFP / ONP', 'grupo' => 'AFP / ONP', 'total' => true];
+        foreach ($ordenar($dinamicas['descuento']) as $clave => $titulo) {
+            $columnas[] = ['clave' => $clave, 'titulo' => $titulo, 'grupo' => 'Otros descuentos', 'total' => false];
+        }
+        $columnas[] = ['clave' => 'total_otros_descuentos', 'titulo' => 'Total otros descuentos', 'grupo' => 'Otros descuentos', 'total' => true];
+        $columnas[] = ['clave' => 'total_descuentos', 'titulo' => 'Total descuentos', 'grupo' => 'Resultado', 'total' => true];
+        $columnas[] = ['clave' => 'neto', 'titulo' => 'Neto a pagar', 'grupo' => 'Resultado', 'total' => true];
+        $columnas[] = ['clave' => 'essalud', 'titulo' => 'ESSALUD', 'grupo' => 'Empleador', 'total' => false];
+        $columnas[] = ['clave' => 'costo_empresa', 'titulo' => 'Costo empresa', 'grupo' => 'Empleador', 'total' => true];
+
+        $clavesBono = array_keys($dinamicas['bono']);
+        $clavesDescuento = array_keys($dinamicas['descuento']);
+        $filasDetalle = $filasDetalle->map(function (array $fila) use ($columnas, $clavesBono, $clavesDescuento) {
+            $m = $fila['montos'];
+            $suma = fn (array $claves) => round(array_sum(array_map(fn ($c) => $m[$c] ?? 0.0, $claves)), 2);
+            $m['total_bonos'] = $suma($clavesBono);
+            $m['total_he'] = $suma(self::CODIGOS_HORAS_EXTRA);
+            $m['total_afp'] = $suma(['aporte_obligatorio', 'prima_seguro', 'comision_afp']);
+            $m['total_otros_descuentos'] = $suma($clavesDescuento);
+            $fila['montos'] = array_map(fn (array $col) => $m[$col['clave']] ?? 0.0, array_column($columnas, null, 'clave'));
+
+            return $fila;
+        });
+
+        return ['columnas' => $columnas, 'filas' => $filasDetalle];
+    }
+
+    /** Bonos: los conceptos con definición concreta (Bono de productividad, de puntualidad…) y cualquier BONO_*. */
+    private static function esBono(string $codigo): bool
+    {
+        return in_array($codigo, ConceptosPlame::CON_DEFINICION, true) || str_starts_with($codigo, 'BONO_');
     }
 
     /** @param  Collection<int, BoletaConcepto>  $conceptos */

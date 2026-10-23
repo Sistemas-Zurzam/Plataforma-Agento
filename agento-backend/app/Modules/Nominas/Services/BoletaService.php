@@ -3,6 +3,7 @@
 namespace App\Modules\Nominas\Services;
 
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Configuracion\Models\Empresa;
@@ -818,14 +819,22 @@ class BoletaService
      *
      * @return array<int, array{colaborador_id:int, nombre:string, cargo:?string, sueldo_basico:?float,
      *   asistencia_procesada:bool, dias_falta:?float, minutos_tardanza:?int,
-     *   total_ingresos:?float, total_egresos:?float, neto_a_pagar:?float, estado:string, motivo:?string,
-     *   dias_devengados:?float, basico_devengado:?float}>
+     *   total_ingresos:?float, total_egresos:?float, total_aportaciones:?float, neto_a_pagar:?float,
+     *   estado:string, motivo:?string, dias_devengados:?float, basico_devengado:?float,
+     *   dni:string, area:string, tipo:string, fecha_corte_asistencia:?string, lineas:?array}>
+     *
+     * Proyectado de planilla: la asistencia de cada colaborador se lee solo
+     * hasta su último día ya procesado (`fecha_corte_asistencia`, nunca
+     * después de $hoy); desde ahí hasta el fin del período se proyecta al
+     * sueldo, sin incidencias. `lineas` trae los conceptos calculados
+     * (ingresos/egresos/aportaciones) para el Excel con formato de Resumen
+     * contable.
      *
      * $hoy / $finPeriodo: con un mes en curso, además del neto proyectado a
      * mes completo se informa el básico devengado a la fecha (días ya
      * transcurridos menos faltas). Solo planilla dependiente.
      */
-    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte, ?Carbon $hoy = null, ?string $finPeriodo = null): array
+    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte, ?Carbon $hoy = null, ?string $finPeriodo = null, ?int $cicloId = null): array
     {
         $filas = [];
         $finPeriodo ??= $fechaFin;
@@ -837,19 +846,38 @@ class BoletaService
             $diasPorTranscurrir = max(0, 30 - $transcurridos);
         }
 
-        foreach ($this->colaboradoresElegibles($empresa, $fechaInicio, $fechaFin) as $colaborador) {
+        $colaboradores = $this->colaboradoresElegibles($empresa, $fechaInicio, $fechaFin)->load('area:id,nombre');
+
+        // Último día con asistencia procesada por colaborador, dentro del
+        // rango que lee la planilla real (incluye corte diferido).
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
+        $limiteLectura = $hoy ? min($periodoAsistencia['fin'], $hoy->toDateString()) : $periodoAsistencia['fin'];
+        $ultimoDiaProcesado = AsistenciaResultadoDiario::whereIn('colaborador_id', $colaboradores->pluck('id'))
+            ->whereBetween('fecha', [$periodoAsistencia['inicio'], $limiteLectura])
+            ->groupBy('colaborador_id')
+            ->selectRaw('colaborador_id, MAX(fecha) as ultima')
+            ->pluck('ultima', 'colaborador_id');
+        $sinAsistencia = Carbon::parse($periodoAsistencia['inicio'])->subDay()->toDateString();
+
+        foreach ($colaboradores as $colaborador) {
             $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios'
                 || $colaborador->regimen_laboral === 'Locacion de Servicios';
             $calculador = $esHonorarios ? $this->calculadorHonorarios : $this->calculador;
+            $ultima = $ultimoDiaProcesado->get($colaborador->id);
+            $finAsistencia = $ultima ? substr((string) $ultima, 0, 10) : $sinAsistencia;
 
             $fila = [
                 'colaborador_id' => $colaborador->id,
                 'nombre' => trim("{$colaborador->nombres} {$colaborador->apellidos}"),
                 'cargo' => $colaborador->cargo,
+                'dni' => (string) $colaborador->numero_documento,
+                'area' => $colaborador->area?->nombre ?? '',
+                'tipo' => $esHonorarios ? 'RH' : 'Planilla',
+                'fecha_corte_asistencia' => $ultima ? $finAsistencia : null,
             ];
 
             try {
-                $resultado = $calculador->calcular($colaborador, $fechaInicio, $fechaFin, $fechaCorte, null);
+                $resultado = $calculador->calcular($colaborador, $fechaInicio, $fechaFin, $fechaCorte, $cicloId, finAsistencia: $finAsistencia);
 
                 $diasDevengados = null;
                 $basicoDevengado = null;
@@ -869,11 +897,17 @@ class BoletaService
                     'minutos_tardanza' => $resultado['minutos_tardanza'],
                     'total_ingresos' => $resultado['total_ingresos'],
                     'total_egresos' => $resultado['total_egresos'],
+                    'total_aportaciones' => $resultado['total_aportaciones'],
                     'neto_a_pagar' => $resultado['neto_a_pagar'],
                     'dias_devengados' => $diasDevengados,
                     'basico_devengado' => $basicoDevengado,
                     'estado' => 'calculable',
                     'motivo' => null,
+                    'lineas' => [
+                        'ingresos' => $resultado['ingresos'],
+                        'egresos' => $resultado['egresos'],
+                        'aportaciones' => $resultado['aportaciones'],
+                    ],
                 ];
             } catch (Throwable $e) {
                 $filas[] = [
@@ -884,11 +918,13 @@ class BoletaService
                     'minutos_tardanza' => null,
                     'total_ingresos' => null,
                     'total_egresos' => null,
+                    'total_aportaciones' => null,
                     'neto_a_pagar' => null,
                     'dias_devengados' => null,
                     'basico_devengado' => null,
                     'estado' => 'no_calculable',
                     'motivo' => $e->getMessage(),
+                    'lineas' => null,
                 ];
             }
         }

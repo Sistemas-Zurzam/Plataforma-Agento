@@ -56,7 +56,7 @@ class CalcularBoletaColaborador
      *   snapshot_parametros_version: string, snapshot_reglas_version: string, alertas: array<int, string>,
      * }
      */
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?string $fechaPago = null, ?float $salarioBaseOverride = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?string $fechaPago = null, ?float $salarioBaseOverride = null, ?string $finAsistencia = null): array
     {
         $regimen = $colaborador->regimen_laboral ?: 'General';
         $calculadora = RegimenCalculatorFactory::paraRegimen($regimen);
@@ -80,7 +80,9 @@ class CalcularBoletaColaborador
         // solo booleano para todo el período): un cambio de condición a
         // mitad de mes solo debe neutralizar los días posteriores a su
         // vigencia real, nunca el mes completo retroactivamente.
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
+        // $finAsistencia solo lo usa el Proyectado de planilla (ver
+        // PeriodoAsistenciaCiclo::acotar()); la planilla real nunca lo pasa.
+        $periodoAsistencia = PeriodoAsistenciaCiclo::acotar(PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte), $finAsistencia);
         $asistencia = $this->obtenerAsistenciaDelPeriodo(
             $colaborador, $periodoAsistencia['inicio'], $periodoAsistencia['fin']
         );

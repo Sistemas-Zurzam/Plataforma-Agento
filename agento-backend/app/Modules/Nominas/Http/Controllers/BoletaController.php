@@ -5,9 +5,10 @@ namespace App\Modules\Nominas\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Nominas\Application\ReporteEjecutivo\ConceptosEfectivosPorBoleta;
 use App\Modules\Nominas\Http\Resources\BoletaResource;
 use App\Modules\Nominas\Http\Resources\IncidenciaPendienteResource;
-use App\Modules\Nominas\Infrastructure\PlanillaPagada\Export\PrevisualizacionPlanillaExcelExporter;
+use App\Modules\Nominas\Infrastructure\ReporteEjecutivo\Export\ReporteEjecutivoRemuneracionesExcelExporter;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaComprobanteRh;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -58,19 +59,53 @@ class BoletaController extends Controller
      */
     public function previsualizar(Request $request): JsonResponse
     {
-        return response()->json(['data' => $this->resolverPrevisualizacion($request)['filas']]);
+        $filas = array_map(
+            fn (array $fila) => array_diff_key($fila, ['lineas' => true]),
+            $this->resolverPrevisualizacion($request)['filas'],
+        );
+
+        return response()->json(['data' => $filas]);
     }
 
     /**
-     * Mismo aproximado que previsualizar(), descargado en Excel.
+     * Proyectado de planilla en Excel, con el mismo formato que el Excel
+     * del Resumen contable (una columna por concepto, bonos/HE/descuentos
+     * separados, subtotales y hoja de resumen ejecutivo).
      */
     public function previsualizarExcel(Request $request): Response
     {
         $empresa = $request->user('api')->empresa;
-        ['filas' => $filas, 'fecha_inicio' => $fechaInicio, 'fecha_fin' => $fechaFin, 'hoy' => $hoy] = $this->resolverPrevisualizacion($request);
+        ['filas' => $filas, 'fecha_inicio' => $fechaInicio, 'hoy' => $hoy] = $this->resolverPrevisualizacion($request);
 
-        $contenido = PrevisualizacionPlanillaExcelExporter::generar($empresa, $fechaInicio, $fechaFin, $hoy, $filas);
-        $nombre = sprintf('Planilla_aproximada_%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $hoy);
+        $mes = Carbon::parse($fechaInicio);
+        $periodo = ucfirst(mb_strtolower($mes->translatedFormat('F'), 'UTF-8')).' '.$mes->format('Y')
+            .' (proyectado al '.Carbon::parse($hoy)->format('d/m/Y').')';
+
+        $calculables = collect($filas)->where('estado', 'calculable');
+        $filasReporte = $calculables->map(fn (array $fila) => [
+            // detalle() indexa los conceptos por `boleta_id`; aquí no hay
+            // boleta, se usa el colaborador.
+            'boleta_id' => $fila['colaborador_id'],
+            'empresa' => $empresa->nombre_comercial,
+            'periodo' => $periodo,
+            'dni' => $fila['dni'],
+            'nombre' => $fila['nombre'],
+            'area' => $fila['area'],
+            'cargo' => (string) ($fila['cargo'] ?? ''),
+            'tipo' => $fila['tipo'],
+            'estado' => $fila['fecha_corte_asistencia']
+                ? 'Asistencia al '.Carbon::parse($fila['fecha_corte_asistencia'])->format('d/m')
+                : 'Sin asistencia procesada',
+        ])->values();
+        $conceptos = ConceptosEfectivosPorBoleta::desdeResultados(
+            $calculables->mapWithKeys(fn (array $fila) => [$fila['colaborador_id'] => $fila['lineas']])
+        );
+        $noCalculables = collect($filas)->where('estado', 'no_calculable')
+            ->map(fn (array $fila) => ['nombre' => $fila['nombre'], 'cargo' => $fila['cargo'], 'motivo' => (string) $fila['motivo']])
+            ->values()->all();
+
+        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generarDesdeFilas($periodo, $filasReporte, $conceptos, 'PROYECTADO DE PLANILLA', $noCalculables);
+        $nombre = sprintf('Proyectado_planilla_%s_%s.xlsx', Str::slug($empresa->nombre_comercial), $hoy);
 
         return response($contenido, 200, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -95,25 +130,21 @@ class BoletaController extends Controller
         $fechaFin = $inicioMes->copy()->endOfMonth()->toDateString();
         $hoy = app(FechaOperativa::class)->hoy()->toDateString();
         $fechaCorte = $fechaFin;
-        $finPeriodo = $fechaFin;
 
-        // Si el mes ya tiene un ciclo con corte de asistencia diferido (p. ej.
-        // el 27), se usa ese mismo corte para coincidir con la planilla real.
+        // Si el mes ya tiene un ciclo se usan sus mismas fechas (incluido un
+        // corte diferido, p. ej. el 27) y sus bonos/descuentos registrados,
+        // para coincidir con la planilla real. La asistencia se lee solo
+        // hasta el último día procesado de cada colaborador; el resto del
+        // mes se proyecta al sueldo (ver BoletaService::previsualizarPlanilla()).
         $ciclo = CicloRemunerativo::where('empresa_id', $empresa->id)
             ->whereDate('fecha_inicio', '<=', $fechaFin)->whereDate('fecha_fin', '>=', $fechaInicio)
             ->orderBy('fecha_inicio')->first();
-        if ($ciclo && $ciclo->fecha_corte_asistencia->lt($ciclo->fecha_fin)) {
+        if ($ciclo) {
             [$fechaInicio, $fechaFin, $fechaCorte] = [$ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString()];
-            $finPeriodo = $fechaFin;
-        } elseif ($hoy < $fechaFin) {
-            // Mes en curso: asistencia del día 1 hasta hoy. Pasar hoy solo
-            // como corte haría que el motor lo tome como un corte diferido y
-            // leyera asistencia desde el mes anterior (24/09–23/10).
-            $fechaFin = $fechaCorte = max($fechaInicio, $hoy);
         }
 
         return [
-            'filas' => $this->boletas->previsualizarPlanilla($empresa, $fechaInicio, $fechaFin, $fechaCorte, Carbon::parse($hoy), $finPeriodo),
+            'filas' => $this->boletas->previsualizarPlanilla($empresa, $fechaInicio, $fechaFin, $fechaCorte, Carbon::parse($hoy), $fechaFin, $ciclo?->id),
             'fecha_inicio' => $fechaInicio,
             'fecha_fin' => $fechaFin,
             'hoy' => $hoy,

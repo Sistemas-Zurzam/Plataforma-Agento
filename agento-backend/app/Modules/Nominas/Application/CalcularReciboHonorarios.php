@@ -12,6 +12,7 @@ use App\Modules\Nominas\Support\ProrateoIngresoTardio;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use RuntimeException;
 
@@ -34,7 +35,7 @@ use RuntimeException;
  */
 class CalcularReciboHonorarios
 {
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?float $salarioBaseOverride = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?float $salarioBaseOverride = null, ?string $finAsistencia = null): array
     {
         $parametros = ParametrosVigentesResolver::paraHonorarios($colaborador->empresa, $fechaCorte);
 
@@ -49,16 +50,31 @@ class CalcularReciboHonorarios
         }
 
         $honorarioBruto = (float) ($remuneracion?->salario ?? $salarioBaseOverride);
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
+        // $finAsistencia solo lo usa el Proyectado de planilla (ver
+        // PeriodoAsistenciaCiclo::acotar()); la planilla real nunca lo pasa.
+        $periodoAsistencia = PeriodoAsistenciaCiclo::acotar(PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte), $finAsistencia);
         $asistencia = $this->obtenerAsistenciaConfigurada(
             $colaborador, $periodoAsistencia['inicio'], $periodoAsistencia['fin']
         );
         $pagoPorDiasPresentes = $remuneracion?->modo_calculo_honorarios === 'por_dias_presentes';
         // Esta modalidad paga exactamente el período mostrado en la
         // planilla; el corte diferido no arrastra presentes de otro mes.
+        $finPresentes = $finAsistencia !== null ? min($fechaFin, $finAsistencia) : $fechaFin;
         $asistenciaParaPago = $pagoPorDiasPresentes
-            ? $this->obtenerAsistenciaConfigurada($colaborador, $fechaInicio, $fechaFin)
+            ? $this->obtenerAsistenciaConfigurada($colaborador, $fechaInicio, $finPresentes)
             : $asistencia;
+        // Proyectado: los días aún sin asistencia procesada se proyectan
+        // como presentes, dentro del vínculo (ingreso/cese) y hasta 30.
+        $diasProyectados = 0;
+        if ($pagoPorDiasPresentes && $finPresentes < $fechaFin) {
+            $desde = Carbon::parse(max($fechaInicio, $colaborador->fecha_ingreso->toDateString()))
+                ->max(Carbon::parse($finPresentes)->addDay());
+            $hasta = Carbon::parse($fechaFin)->min($colaborador->fecha_cese ?? Carbon::parse($fechaFin));
+            if ($desde->lte($hasta)) {
+                $diasProyectados = (int) min(30 - $asistenciaParaPago['dias_presentes'], $desde->diffInDays($hasta) + 1);
+                $asistenciaParaPago['dias_presentes'] += max(0, $diasProyectados);
+            }
+        }
 
         // Un locador que ingresa a mitad de $fechaInicio no debe facturar el
         // honorario pactado completo — el recibo real de ese período es
@@ -99,6 +115,7 @@ class CalcularReciboHonorarios
             'formula_texto' => $pagoPorDiasPresentes
                 ? "Honorario/30 (".round($honorarioBruto / 30, 2)." × {$asistenciaParaPago['dias_presentes']} día(s) con asistencia presente"
                     .($asistenciaParaPago['fechas_presentes'] ? ' — '.implode(', ', $asistenciaParaPago['fechas_presentes']) : '')
+                    .($diasProyectados > 0 ? " — incluye {$diasProyectados} día(s) proyectados sin asistencia procesada" : '')
                 : ($diasNoPagadosPorIngresoTardio > 0
                     ? "Monto pactado vigente para este período — excluye {$diasNoPagadosPorIngresoTardio} día(s) fuera del vínculo (ingreso {$colaborador->fecha_ingreso->toDateString()}".($colaborador->fecha_cese ? ", cese {$colaborador->fecha_cese->toDateString()}" : '').')'
                     : 'Monto pactado vigente para este período (historial remunerativo del colaborador)'),

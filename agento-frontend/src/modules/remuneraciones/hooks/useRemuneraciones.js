@@ -685,7 +685,7 @@ export function useRemuneraciones() {
   const exportarPrevisualizacionExcel = useCallback(async (anio, mes) => {
     const response = await api.get('/planilla/previsualizar/excel', { params: { anio, mes }, responseType: 'blob' });
     const disposicion = response.headers?.['content-disposition'] ?? '';
-    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Planilla_aproximada.xlsx';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Proyectado_planilla.xlsx';
     const url = window.URL.createObjectURL(response.data);
     const enlace = document.createElement('a');
     enlace.href = url;
