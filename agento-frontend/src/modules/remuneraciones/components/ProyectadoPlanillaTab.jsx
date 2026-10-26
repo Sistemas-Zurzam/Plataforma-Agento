@@ -1,5 +1,5 @@
 import { FileExcelOutlined, FilePdfOutlined } from '@ant-design/icons';
-import { App, Avatar, Button, DatePicker, Input, Select, Table, Tag, Tooltip } from 'antd';
+import { App, Avatar, Button, DatePicker, Input, Modal, Select, Table, Tag, Tooltip } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 import { useEmpresas } from '../../configuracion/hooks/useEmpresas';
@@ -102,42 +102,25 @@ const COLUMNAS_EMPRESA = [
 const fecha = (valor) => (valor ? dayjs(valor).format('DD/MM/YYYY') : '—');
 
 /**
- * Detalle del modal de exportación: rango, fecha del proyectado y, por
- * empresa, hasta qué día se usó asistencia real (fecha de corte) — los
- * días posteriores del rango se proyectaron al sueldo.
+ * Tramos del Excel según la fecha de corte: asistencia real desde el inicio
+ * del rango hasta el corte (inclusive); proyección con el sueldo desde el día
+ * siguiente hasta el fin del rango.
  */
-function ResumenExportacion({ datos, archivo }) {
-  const cortes = (datos?.empresas ?? []).map((empresa) => {
-    const filas = (datos.filas ?? []).filter((fila) => fila.empresa_id === empresa.empresa_id);
-    const fechas = filas.map((fila) => fila.fecha_corte_asistencia).filter(Boolean).sort();
-    return {
-      empresa: empresa.empresa,
-      corte: fechas[fechas.length - 1] ?? null,
-      sinProcesar: filas.length - fechas.length,
-    };
-  });
-
+function TramosCorte({ rango, corte }) {
+  const finRango = rango[1];
+  const hayProyeccion = corte.isBefore(finRango, 'day');
   return (
-    <div className="space-y-2 text-sm">
-      <p>
-        Rango: <strong>{fecha(datos?.fecha_desde)} al {fecha(datos?.fecha_hasta)}</strong> ({datos?.dias ?? '—'} días de 30)
-        <br />
-        Proyectado al: <strong>{dayjs().format('DD/MM/YYYY')}</strong>
-      </p>
-      <div>
-        <p className="font-semibold">Fecha de corte de asistencia</p>
-        <ul className="list-disc pl-5">
-          {cortes.map((c) => (
-            <li key={c.empresa}>
-              {c.empresa}: <strong>{c.corte ? fecha(c.corte) : 'sin asistencia procesada'}</strong>
-              {c.corte && c.sinProcesar > 0 && <span className="text-gray-500"> · {c.sinProcesar} colaborador(es) sin procesar</span>}
-            </li>
-          ))}
-        </ul>
-        <p className="mt-1 text-xs text-gray-500">Hasta esa fecha se usaron las faltas y tardanzas reales; desde el día siguiente el rango se proyectó con el sueldo.</p>
-      </div>
-      {archivo && <p className="text-xs text-gray-500">Archivo: {archivo}</p>}
-    </div>
+    <ul className="list-disc pl-5 text-sm">
+      <li>
+        <strong>Asistencia real:</strong> {fecha(rango[0])} al {fecha(corte)} — se descuentan faltas, tardanzas, horas incompletas y permisos.
+      </li>
+      <li>
+        <strong>Proyectado:</strong>{' '}
+        {hayProyeccion
+          ? <>{fecha(corte.add(1, 'day'))} al {fecha(finRango)} — se paga con el sueldo, sin descuentos.</>
+          : 'ninguno (el corte cubre todo el rango).'}
+      </li>
+    </ul>
   );
 }
 
@@ -152,10 +135,11 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
   const { empresas, fetchEmpresas } = useEmpresas();
   const [rango, setRango] = useState(() => [dayjs().startOf('month'), dayjs().endOf('month')]);
   const [empresaId, setEmpresaId] = useState(TODAS);
-  // null = automático: el último día procesado de cada colaborador.
-  const [corteAsistencia, setCorteAsistencia] = useState(null);
   const [busqueda, setBusqueda] = useState('');
   const [exportando, setExportando] = useState(false);
+  // Modal previo al Excel: la fecha de corte de asistencia se elige al exportar.
+  const [corteModalOpen, setCorteModalOpen] = useState(false);
+  const [corteExport, setCorteExport] = useState(null);
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
 
   useEffect(() => {
@@ -166,8 +150,7 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
     fecha_desde: rango[0].format('YYYY-MM-DD'),
     fecha_hasta: rango[1].format('YYYY-MM-DD'),
     empresa_id: empresaId === TODAS ? undefined : empresaId,
-    fecha_corte_asistencia: corteAsistencia ? corteAsistencia.format('YYYY-MM-DD') : undefined,
-  }), [rango, empresaId, corteAsistencia]);
+  }), [rango, empresaId]);
 
   useEffect(() => {
     fetchPrevisualizacion(parametros).catch((err) => {
@@ -187,14 +170,30 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
     return (previsualizacion?.empresas ?? []).filter((empresa) => ids.has(empresa.empresa_id));
   }, [previsualizacion, filasFiltradas]);
 
+  const abrirModalCorte = () => {
+    // Sugerencia: ayer (último día que puede estar procesado), dentro del rango.
+    const ayer = dayjs().subtract(1, 'day');
+    const sugerido = ayer.isBefore(rango[0], 'day') ? rango[0] : (ayer.isAfter(rango[1], 'day') ? rango[1] : ayer);
+    setCorteExport(sugerido);
+    setCorteModalOpen(true);
+  };
+
   const handleExportar = async () => {
+    const corte = corteExport;
     setExportando(true);
     try {
-      const archivo = await exportarPrevisualizacionExcel(parametros);
+      const archivo = await exportarPrevisualizacionExcel({ ...parametros, fecha_corte_asistencia: corte.format('YYYY-MM-DD') });
+      setCorteModalOpen(false);
       modal.success({
         title: 'Exportación exitosa',
-        width: 520,
-        content: <ResumenExportacion datos={previsualizacion} archivo={archivo} />,
+        width: 560,
+        content: (
+          <div className="space-y-2 text-sm">
+            <p>Fecha de corte de asistencia: <strong>{fecha(corte)}</strong></p>
+            <TramosCorte rango={rango} corte={corte} />
+            {archivo && <p className="text-xs text-gray-500">Archivo: {archivo}</p>}
+          </div>
+        ),
       });
     } catch {
       message.error('No se pudo generar el Excel del proyectado de planilla');
@@ -212,26 +211,9 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
           format="DD/MM/YYYY"
           allowClear={false}
           value={rango}
-          onChange={(valores) => {
-            if (!valores) return;
-            setRango(valores);
-            // El corte siempre debe caer dentro del rango.
-            if (corteAsistencia && (corteAsistencia.isBefore(valores[0], 'day') || corteAsistencia.isAfter(valores[1], 'day'))) {
-              setCorteAsistencia(null);
-            }
-          }}
+          onChange={(valores) => valores && setRango(valores)}
           disabledDate={(fecha, { from }) => Boolean(from) && Math.abs(fecha.diff(from, 'day')) >= MAX_DIAS_RANGO}
         />
-        <Tooltip title="Hasta este día se cuentan faltas, tardanzas y demás incidencias reales; desde el día siguiente se proyecta con el sueldo. Vacío: el último día con asistencia procesada de cada colaborador.">
-          <DatePicker
-            format="DD/MM/YYYY"
-            placeholder="Corte de asistencia: automático"
-            className="w-60"
-            value={corteAsistencia}
-            onChange={setCorteAsistencia}
-            disabledDate={(fecha) => fecha.isBefore(rango[0], 'day') || fecha.isAfter(rango[1], 'day')}
-          />
-        </Tooltip>
         <Select
           className="w-56"
           showSearch
@@ -252,9 +234,8 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
         />
         <Button
           icon={<FileExcelOutlined />}
-          loading={exportando}
           disabled={previsualizacionLoading || !previsualizacion?.filas?.length}
-          onClick={handleExportar}
+          onClick={abrirModalCorte}
         >
           Exportar Excel
         </Button>
@@ -267,9 +248,9 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
         </Button>
       </div>
       <p className="text-xs text-gray-400">
-        Proyección del rango ({previsualizacion?.dias ?? '—'} días de 30) — no crea ni modifica ningún ciclo. Hasta el corte de asistencia
-        {corteAsistencia ? ` (${corteAsistencia.format('DD/MM/YYYY')})` : ' (automático: último día procesado de cada colaborador)'} cuenta
-        faltas, tardanzas y demás incidencias reales; desde el día siguiente proyecta con el sueldo (sueldo/30 × días). Los bonos y descuentos
+        Proyección del rango ({previsualizacion?.dias ?? '—'} días de 30) — no crea ni modifica ningún ciclo. En pantalla usa la asistencia
+        procesada hasta la fecha de cada colaborador; al exportar el Excel eliges la fecha de corte de asistencia. Desde el día siguiente
+        al corte se proyecta con el sueldo (sueldo/30 × días). Los bonos y descuentos
         registrados en un ciclo se incluyen solo si el rango cubre el ciclo completo.
       </p>
 
@@ -306,6 +287,36 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
           </Table.Summary.Row>
         ) : null)}
       />
+
+      <Modal
+        title="Exportar proyectado de planilla"
+        open={corteModalOpen}
+        onCancel={() => !exportando && setCorteModalOpen(false)}
+        onOk={handleExportar}
+        okText="Exportar Excel"
+        cancelText="Cancelar"
+        confirmLoading={exportando}
+        okButtonProps={{ disabled: !corteExport }}
+        destroyOnHidden
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            Rango a proyectar: <strong>{fecha(rango[0])} al {fecha(rango[1])}</strong>
+          </p>
+          <div>
+            <p className="mb-1 text-sm font-medium">Fecha de corte de asistencia</p>
+            <DatePicker
+              format="DD/MM/YYYY"
+              className="w-full"
+              allowClear={false}
+              value={corteExport}
+              onChange={setCorteExport}
+              disabledDate={(dia) => dia.isBefore(rango[0], 'day') || dia.isAfter(rango[1], 'day')}
+            />
+          </div>
+          {corteExport && <TramosCorte rango={rango} corte={corteExport} />}
+        </div>
+      </Modal>
 
       <ReporteEjecutivoImprimibleModal
         open={pdfModalOpen}
