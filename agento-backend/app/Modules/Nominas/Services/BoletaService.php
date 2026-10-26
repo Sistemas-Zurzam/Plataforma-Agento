@@ -837,8 +837,13 @@ class BoletaService
      *
      * $prorratearRango: el período es un rango libre (ej. una quincena) y se
      * paga sueldo/30 × días del rango — ver ProrateoRango.
+     *
+     * $corteAsistencia: fecha de corte elegida por el usuario — hasta ese día
+     * se usan los resultados reales de asistencia (faltas, tardanzas…) y
+     * desde el día siguiente se proyecta al sueldo, igual para todos. Null =
+     * automático: el último día procesado de cada colaborador.
      */
-    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte, ?Carbon $hoy = null, ?int $cicloId = null, bool $prorratearRango = false): array
+    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte, ?Carbon $hoy = null, ?int $cicloId = null, bool $prorratearRango = false, ?string $corteAsistencia = null): array
     {
         $filas = [];
         // Días del período (de 30, o los del rango) que todavía no ocurren.
@@ -867,7 +872,7 @@ class BoletaService
             $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios'
                 || $colaborador->regimen_laboral === 'Locacion de Servicios';
             $calculador = $esHonorarios ? $this->calculadorHonorarios : $this->calculador;
-            $ultima = $ultimoDiaProcesado->get($colaborador->id);
+            $ultima = $corteAsistencia ?? $ultimoDiaProcesado->get($colaborador->id);
             $finAsistencia = $ultima ? substr((string) $ultima, 0, 10) : $sinAsistencia;
 
             $fila = [

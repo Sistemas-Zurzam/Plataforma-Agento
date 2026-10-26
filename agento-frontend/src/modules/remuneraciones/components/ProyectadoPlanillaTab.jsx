@@ -99,6 +99,48 @@ const COLUMNAS_EMPRESA = [
   { title: 'Neto proyectado', dataIndex: 'neto_a_pagar', align: 'right', render: (v) => <strong>{soles(v)}</strong> },
 ];
 
+const fecha = (valor) => (valor ? dayjs(valor).format('DD/MM/YYYY') : '—');
+
+/**
+ * Detalle del modal de exportación: rango, fecha del proyectado y, por
+ * empresa, hasta qué día se usó asistencia real (fecha de corte) — los
+ * días posteriores del rango se proyectaron al sueldo.
+ */
+function ResumenExportacion({ datos, archivo }) {
+  const cortes = (datos?.empresas ?? []).map((empresa) => {
+    const filas = (datos.filas ?? []).filter((fila) => fila.empresa_id === empresa.empresa_id);
+    const fechas = filas.map((fila) => fila.fecha_corte_asistencia).filter(Boolean).sort();
+    return {
+      empresa: empresa.empresa,
+      corte: fechas[fechas.length - 1] ?? null,
+      sinProcesar: filas.length - fechas.length,
+    };
+  });
+
+  return (
+    <div className="space-y-2 text-sm">
+      <p>
+        Rango: <strong>{fecha(datos?.fecha_desde)} al {fecha(datos?.fecha_hasta)}</strong> ({datos?.dias ?? '—'} días de 30)
+        <br />
+        Proyectado al: <strong>{dayjs().format('DD/MM/YYYY')}</strong>
+      </p>
+      <div>
+        <p className="font-semibold">Fecha de corte de asistencia</p>
+        <ul className="list-disc pl-5">
+          {cortes.map((c) => (
+            <li key={c.empresa}>
+              {c.empresa}: <strong>{c.corte ? fecha(c.corte) : 'sin asistencia procesada'}</strong>
+              {c.corte && c.sinProcesar > 0 && <span className="text-gray-500"> · {c.sinProcesar} colaborador(es) sin procesar</span>}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-1 text-xs text-gray-500">Hasta esa fecha se usaron las faltas y tardanzas reales; desde el día siguiente el rango se proyectó con el sueldo.</p>
+      </div>
+      {archivo && <p className="text-xs text-gray-500">Archivo: {archivo}</p>}
+    </div>
+  );
+}
+
 /**
  * Proyectado de planilla por rango de fechas (máx. 31 días) y por empresa —
  * una empresa autorizada o todas, con totales por empresa (mismos campos que
@@ -106,10 +148,12 @@ const COLUMNAS_EMPRESA = [
  * Solo lectura: no crea ni modifica ciclos.
  */
 export default function ProyectadoPlanillaTab({ previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel, fetchPrevisualizacionDatosReporte }) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { empresas, fetchEmpresas } = useEmpresas();
   const [rango, setRango] = useState(() => [dayjs().startOf('month'), dayjs().endOf('month')]);
   const [empresaId, setEmpresaId] = useState(TODAS);
+  // null = automático: el último día procesado de cada colaborador.
+  const [corteAsistencia, setCorteAsistencia] = useState(null);
   const [busqueda, setBusqueda] = useState('');
   const [exportando, setExportando] = useState(false);
   const [pdfModalOpen, setPdfModalOpen] = useState(false);
@@ -122,7 +166,8 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
     fecha_desde: rango[0].format('YYYY-MM-DD'),
     fecha_hasta: rango[1].format('YYYY-MM-DD'),
     empresa_id: empresaId === TODAS ? undefined : empresaId,
-  }), [rango, empresaId]);
+    fecha_corte_asistencia: corteAsistencia ? corteAsistencia.format('YYYY-MM-DD') : undefined,
+  }), [rango, empresaId, corteAsistencia]);
 
   useEffect(() => {
     fetchPrevisualizacion(parametros).catch((err) => {
@@ -145,8 +190,12 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
   const handleExportar = async () => {
     setExportando(true);
     try {
-      await exportarPrevisualizacionExcel(parametros);
-      message.success('Excel del proyectado de planilla generado');
+      const archivo = await exportarPrevisualizacionExcel(parametros);
+      modal.success({
+        title: 'Exportación exitosa',
+        width: 520,
+        content: <ResumenExportacion datos={previsualizacion} archivo={archivo} />,
+      });
     } catch {
       message.error('No se pudo generar el Excel del proyectado de planilla');
     } finally {
@@ -163,9 +212,26 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
           format="DD/MM/YYYY"
           allowClear={false}
           value={rango}
-          onChange={(valores) => valores && setRango(valores)}
+          onChange={(valores) => {
+            if (!valores) return;
+            setRango(valores);
+            // El corte siempre debe caer dentro del rango.
+            if (corteAsistencia && (corteAsistencia.isBefore(valores[0], 'day') || corteAsistencia.isAfter(valores[1], 'day'))) {
+              setCorteAsistencia(null);
+            }
+          }}
           disabledDate={(fecha, { from }) => Boolean(from) && Math.abs(fecha.diff(from, 'day')) >= MAX_DIAS_RANGO}
         />
+        <Tooltip title="Hasta este día se cuentan faltas, tardanzas y demás incidencias reales; desde el día siguiente se proyecta con el sueldo. Vacío: el último día con asistencia procesada de cada colaborador.">
+          <DatePicker
+            format="DD/MM/YYYY"
+            placeholder="Corte de asistencia: automático"
+            className="w-60"
+            value={corteAsistencia}
+            onChange={setCorteAsistencia}
+            disabledDate={(fecha) => fecha.isBefore(rango[0], 'day') || fecha.isAfter(rango[1], 'day')}
+          />
+        </Tooltip>
         <Select
           className="w-56"
           showSearch
@@ -201,8 +267,9 @@ export default function ProyectadoPlanillaTab({ previsualizacion, previsualizaci
         </Button>
       </div>
       <p className="text-xs text-gray-400">
-        Proyección del rango ({previsualizacion?.dias ?? '—'} días de 30) — no crea ni modifica ningún ciclo. Usa la asistencia procesada
-        hasta la fecha de cada colaborador y proyecta el resto del rango con su sueldo (sueldo/30 × días). Los bonos y descuentos
+        Proyección del rango ({previsualizacion?.dias ?? '—'} días de 30) — no crea ni modifica ningún ciclo. Hasta el corte de asistencia
+        {corteAsistencia ? ` (${corteAsistencia.format('DD/MM/YYYY')})` : ' (automático: último día procesado de cada colaborador)'} cuenta
+        faltas, tardanzas y demás incidencias reales; desde el día siguiente proyecta con el sueldo (sueldo/30 × días). Los bonos y descuentos
         registrados en un ciclo se incluyen solo si el rango cubre el ciclo completo.
       </p>
 

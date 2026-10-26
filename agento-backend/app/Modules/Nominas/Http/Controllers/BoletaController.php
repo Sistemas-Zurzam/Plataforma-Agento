@@ -212,6 +212,8 @@ class BoletaController extends Controller
             'fecha_desde' => ['required', 'date_format:Y-m-d'],
             'fecha_hasta' => ['required', 'date_format:Y-m-d', 'after_or_equal:fecha_desde'],
             'empresa_id' => ['nullable', 'integer'],
+            // Opcional: hasta este día asistencia real, después proyección.
+            'fecha_corte_asistencia' => ['nullable', 'date_format:Y-m-d', 'after_or_equal:fecha_desde', 'before_or_equal:fecha_hasta'],
         ]);
         if (Carbon::parse($datos['fecha_desde'])->diffInDays(Carbon::parse($datos['fecha_hasta'])) > 30) {
             throw ValidationException::withMessages(['fecha_hasta' => 'El rango no puede superar 31 días.']);
@@ -231,11 +233,12 @@ class BoletaController extends Controller
             ->get();
 
         [$desde, $hasta] = [$datos['fecha_desde'], $datos['fecha_hasta']];
+        $corteAsistencia = $datos['fecha_corte_asistencia'] ?? null;
         $hoy = app(FechaOperativa::class)->hoy();
 
         $filas = [];
         foreach ($empresas as $empresa) {
-            $filasEmpresa = $this->enContextoDeEmpresa($usuario, $empresa, function () use ($empresa, $desde, $hasta, $hoy) {
+            $filasEmpresa = $this->enContextoDeEmpresa($usuario, $empresa, function () use ($empresa, $desde, $hasta, $hoy, $corteAsistencia) {
                 // Bonos/descuentos registrados en el ciclo solo si el rango
                 // cubre el ciclo completo (no se proyecta un bono mensual
                 // entero en una quincena).
@@ -243,7 +246,7 @@ class BoletaController extends Controller
                     ->whereDate('fecha_inicio', '>=', $desde)->whereDate('fecha_fin', '<=', $hasta)
                     ->orderBy('fecha_inicio')->first();
 
-                return $this->boletas->previsualizarPlanilla($empresa, $desde, $hasta, $hasta, $hoy->copy(), $ciclo?->id, prorratearRango: true);
+                return $this->boletas->previsualizarPlanilla($empresa, $desde, $hasta, $hasta, $hoy->copy(), $ciclo?->id, prorratearRango: true, corteAsistencia: $corteAsistencia);
             });
 
             foreach ($filasEmpresa as $fila) {

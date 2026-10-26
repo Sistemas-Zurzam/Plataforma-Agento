@@ -701,6 +701,7 @@ export function useRemuneraciones() {
     enlace.click();
     enlace.remove();
     window.URL.revokeObjectURL(url);
+    return nombreArchivo;
   }, []);
 
   return {
