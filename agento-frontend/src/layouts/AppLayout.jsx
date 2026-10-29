@@ -8,6 +8,7 @@ import GestionLiquidaciones from '../pages/nominas/GestionLiquidaciones';
 import GestionRemuneraciones from '../pages/nominas/GestionRemuneraciones';
 import GestionAsistencias from '../modules/asistencia/pages/GestionAsistencias';
 import GestionTickets from '../pages/soporte/GestionTickets';
+import GestionSeleccion from '../modules/reclutamiento/pages/GestionSeleccion';
 
 const { Content } = Layout;
 
@@ -18,7 +19,11 @@ const SECCIONES = {
   'nominas-asistencias': { title: 'Nóminas', subtitle: 'Gestión de asistencias' },
   'nominas-liquidaciones': { title: 'Nóminas', subtitle: 'Liquidaciones' },
   'soporte-tickets': { title: 'Soporte', subtitle: 'Gestión de tickets' },
+  seleccion: { title: 'Selección y reclutamiento', subtitle: 'Solicitudes, procesos y candidatos' },
 };
+
+// Vistas de Selección: /seleccion, /seleccion/<vista> y /seleccion/procesos/:id.
+const VISTAS_SELECCION = ['solicitudes', 'procesos', 'candidatos', 'banco-talentos', 'evaluaciones'];
 
 const CONFIG_PATHS = {
   'mi-perfil': '/mi-perfil',
@@ -50,6 +55,19 @@ function routeFromPath(pathname) {
 
   if (normalizedPath === '/nominas/asistencias/planificacion') {
     return { section: 'nominas-asistencias', tab: null, colaboradorId: null, asistenciaColaboradorId: null, asistenciaTab: 'planificacion' };
+  }
+
+  if (normalizedPath === '/seleccion') {
+    return { section: 'seleccion', seleccionVista: 'dashboard', procesoId: null };
+  }
+
+  const rutaSeleccion = normalizedPath.match(/^\/seleccion\/([a-z-]+)(?:\/(\d+))?$/);
+  if (rutaSeleccion && VISTAS_SELECCION.includes(rutaSeleccion[1])) {
+    return {
+      section: 'seleccion',
+      seleccionVista: rutaSeleccion[1],
+      procesoId: rutaSeleccion[2] ? Number(rutaSeleccion[2]) : null,
+    };
   }
 
   if (normalizedPath === '/soporte/tickets') {
@@ -100,6 +118,11 @@ export default function AppLayout({
   };
 
   const handleSectionSelect = (key) => {
+    if (key.startsWith('seleccion-')) {
+      const vista = key.replace('seleccion-', '');
+      navigate(vista === 'dashboard' ? '/seleccion' : `/seleccion/${vista}`);
+      return;
+    }
     const paths = {
       'nominas-personas': '/nominas/personas',
       'nominas-remuneraciones': '/nominas/remuneraciones',
@@ -119,7 +142,7 @@ export default function AppLayout({
       <Sidebar
         collapsed={collapsed}
         onCollapse={setCollapsed}
-        selectedKey={route.section}
+        selectedKey={route.section === 'seleccion' ? `seleccion-${route.seleccionVista}` : route.section}
         onSelect={handleSectionSelect}
         user={user}
       />
@@ -165,6 +188,14 @@ export default function AppLayout({
           )}
           {route.section === 'nominas-liquidaciones' && <GestionLiquidaciones user={user} />}
           {route.section === 'soporte-tickets' && <GestionTickets />}
+          {route.section === 'seleccion' && (
+            <GestionSeleccion
+              user={user}
+              vista={route.seleccionVista}
+              procesoId={route.procesoId}
+              navigate={navigate}
+            />
+          )}
         </Content>
       </Layout>
     </Layout>

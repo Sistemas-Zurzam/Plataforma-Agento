@@ -6,6 +6,7 @@ import AppLayout from './layouts/AppLayout';
 import PortalClienteApp from './modules/portal-cliente/PortalClienteApp';
 import PortalNoHabilitadoScreen from './modules/portal-cliente/PortalNoHabilitadoScreen';
 import ControlAcceso from './modules/asistencia/pages/ControlAcceso';
+import PortalEmpleosApp from './modules/reclutamiento/portal/PortalEmpleosApp';
 
 function App() {
   const { logout } = useAuth();
@@ -16,6 +17,12 @@ function App() {
     await logout();
     clearCurrentUser();
   };
+
+  // Portal público de empleos: accesible sin sesión y sin el layout
+  // administrativo; nunca usa el JWT del personal interno.
+  if (window.location.pathname.toLowerCase().startsWith('/empleos')) {
+    return <PortalEmpleosApp />;
+  }
 
   if (initializing) {
     return (

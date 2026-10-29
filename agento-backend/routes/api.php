@@ -344,3 +344,6 @@ Route::middleware('jwt')->group(function () {
         Route::put('/permisos', [PermissionController::class, 'update']);
     });
 });
+
+// Selección y Reclutamiento (/api/seleccion y portal público /api/publico).
+require __DIR__.'/seleccion.php';
