@@ -2,6 +2,7 @@
 
 namespace App\Modules\Asistencia\Services;
 
+use App\Modules\Asistencia\Application\AsignarDescansoFlexibleSemanal;
 use App\Modules\Asistencia\Application\ProcesarAsistenciaDiaria;
 use App\Modules\Asistencia\Infrastructure\TransactionXlsxReader;
 use App\Modules\Asistencia\Models\AsistenciaImportacion;
@@ -22,6 +23,7 @@ class ImportarMarcacionesService
         private readonly TransactionXlsxReader $lector,
         private readonly ProcesarAsistenciaDiaria $procesador,
         private readonly AsistenciaAuditoriaService $auditoria,
+        private readonly AsignarDescansoFlexibleSemanal $descansoFlexible,
     ) {}
 
     public function previsualizar(Empresa $empresa, UploadedFile $archivo): array
@@ -160,6 +162,15 @@ class ImportarMarcacionesService
                         continue;
                     }
                 }
+            }
+
+            // Las marcaciones que llegan tarde pueden caer en un día que el
+            // descanso flexible ya había elegido como descanso: se vuelve a
+            // clasificar la semana importada (mismo período efímero que usa
+            // ReprocesarAsistenciaRango) para no dejarlo como descanso trabajado.
+            if ($empresa->descanso_flexible_automatico && $colaboradoresAfectados->isNotEmpty()) {
+                $periodoEfimero = new AsistenciaPeriodo(['fecha_inicio' => $fechaDesde, 'fecha_fin' => $fechaHasta]);
+                $this->descansoFlexible->procesarPeriodo($empresa, $periodoEfimero, $usuarioId, $colaboradoresAfectados->pluck('id')->all());
             }
         }
 

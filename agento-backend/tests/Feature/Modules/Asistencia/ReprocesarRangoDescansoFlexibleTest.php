@@ -4,6 +4,7 @@ namespace Tests\Feature\Modules\Asistencia;
 
 use App\Models\User;
 use App\Modules\Asistencia\Application\ReprocesarAsistenciaRango;
+use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Models\AsistenciaMarcacion;
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
@@ -78,5 +79,62 @@ class ReprocesarRangoDescansoFlexibleTest extends TestCase
         $this->assertSame('descanso', $lunesResultado->estado);
 
         $this->assertSame(0, AsistenciaPeriodo::query()->where('empresa_id', $empresa->id)->count(), 'Tampoco debe crear ningún período como efecto secundario.');
+    }
+
+    /**
+     * Caso Zazu: el lunes se eligió como descanso porque al reprocesar aún
+     * no tenía marcaciones; cuando llegan, el siguiente reproceso debe
+     * reclasificarlo como laborable en vez de dejar HE al 100%.
+     */
+    public function test_descanso_flexible_se_reclasifica_si_llegan_marcaciones_despues(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $empresa = Empresa::firstOrFail();
+        $empresa->update(['descanso_flexible_automatico' => true]);
+
+        $lunes = Carbon::parse('2026-06-01')->startOfWeek(Carbon::MONDAY);
+        $horarioRotativo = Horario::create([
+            'empresa_id' => $empresa->id, 'nombre' => 'Rotativo Test', 'tipo_turno' => 'rotativo',
+            'vigencia_desde' => $lunes->copy()->subYear(), 'activo' => true,
+        ]);
+        $colaborador = $this->crearColaborador($empresa, [
+            'fecha_ingreso' => $lunes->copy()->subYear()->toDateString(),
+            'es_trabajador_confianza' => false,
+        ]);
+        ColaboradorHorarioAsignacion::create([
+            'empresa_id' => $empresa->id, 'colaborador_id' => $colaborador->id, 'horario_id' => $horarioRotativo->id,
+            'dias_descanso_rotativo_por_semana' => 1, 'vigencia_desde' => $lunes->copy()->subYear(), 'vigencia_hasta' => null,
+        ]);
+        $marcar = function (Carbon $fecha) use ($empresa, $colaborador) {
+            foreach (['08:00', '17:00'] as $hora) {
+                AsistenciaMarcacion::create([
+                    'empresa_id' => $empresa->id, 'colaborador_id' => $colaborador->id,
+                    'person_id' => $colaborador->numero_documento,
+                    'marcado_at' => Carbon::parse("{$fecha->toDateString()} {$hora}"),
+                    'origen' => 'Attendance Device', 'dispositivo' => 'Test',
+                ]);
+            }
+        };
+        for ($fecha = $lunes->copy()->addDay(); $fecha->lte($lunes->copy()->addDays(6)); $fecha->addDay()) {
+            $marcar($fecha);
+        }
+
+        $usuarioId = User::factory()->create()->id;
+        $reprocesar = fn () => app(ReprocesarAsistenciaRango::class)->ejecutar(
+            $empresa, $usuarioId, $lunes->toDateString(), $lunes->copy()->addDays(6)->toDateString(),
+            [$colaborador->id], 'Reprocesamiento de prueba',
+        );
+        $reprocesar();
+        $calendarioLunes = fn () => ColaboradorCalendarioDia::query()->where('colaborador_id', $colaborador->id)->whereDate('fecha', $lunes->toDateString())->first();
+        $this->assertSame('descanso', $calendarioLunes()?->tipo);
+
+        $marcar($lunes);
+        $reprocesar();
+
+        $this->assertSame('laborable_presencial', $calendarioLunes()?->tipo);
+        $resultadoLunes = AsistenciaResultadoDiario::query()->where('colaborador_id', $colaborador->id)->whereDate('fecha', $lunes->toDateString())->firstOrFail();
+        $this->assertSame('laborable_presencial', $resultadoLunes->tipo_dia);
+        $this->assertSame(0, $resultadoLunes->minutos_extra_100);
+        $this->assertFalse(AsistenciaHoraExtra::query()->where('resultado_diario_id', $resultadoLunes->id)->where('tasa', '100')->exists());
     }
 }
