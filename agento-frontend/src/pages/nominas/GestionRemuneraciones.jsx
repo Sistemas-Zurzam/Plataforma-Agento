@@ -31,6 +31,7 @@ import BoletaImprimibleModal from '../../modules/remuneraciones/components/Bolet
 import BoletasImprimirMasivoModal from '../../modules/remuneraciones/components/BoletasImprimirMasivoModal';
 import ComprobanteRhModal from '../../modules/remuneraciones/components/ComprobanteRhModal';
 import ConfiguracionNominaModal from '../../modules/remuneraciones/components/ConfiguracionNominaModal';
+import ConsumoComidaTab from '../../modules/remuneraciones/components/ConsumoComidaTab';
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
 import AportesPrevisionalesTab from '../../modules/remuneraciones/components/AportesPrevisionalesTab';
@@ -1241,6 +1242,15 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
               <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
             ),
           },
+          ...(puedeVer ? [{
+            key: 'consumo-comida',
+            label: 'Consumo de comida',
+            children: cicloId ? (
+              <ConsumoComidaTab key={cicloId} ciclo={cicloActivo} puedeGestionar={puedeGestionarCiclos} />
+            ) : (
+              <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
+            ),
+          }] : []),
           {
             key: 'cts-gratificaciones',
             label: 'CTS y gratificaciones',

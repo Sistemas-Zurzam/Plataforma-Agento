@@ -18,6 +18,7 @@ use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoDefinicionPlame;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Models\ConsumoComidaAplicacion;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Jobs\CalcularPlanillaJob;
 use App\Modules\Personas\Models\Colaborador;
@@ -548,6 +549,7 @@ class BoletaService
     private function calcularBoletaColaborador(CicloRemunerativo $ciclo, Colaborador $colaborador, int $usuarioId, ?string $motivoRecalculo, ?float $salarioBaseOverride = null): Boleta
     {
         return DB::transaction(function () use ($ciclo, $colaborador, $usuarioId, $motivoRecalculo, $salarioBaseOverride) {
+            $inicioCalculo = now();
             // Único punto de bifurcación entre los dos motores (Sección de
             // Recibos por Honorarios acordada con el usuario): un locador
             // nunca entra a CalcularBoletaColaborador ni a
@@ -664,6 +666,10 @@ class BoletaService
                 }
             }
 
+            // Vínculo consumo de comida → versión de boleta (ver
+            // ConsumoComidaImportacionService).
+            ConsumoComidaAplicacion::registrarIncorporacion($ciclo->id, $colaborador->id, $boleta->id, $inicioCalculo);
+
             return $boleta->load('conceptos.concepto');
         });
     }
@@ -706,6 +712,23 @@ class BoletaService
         if ($boleta->estado !== 'calculada') {
             throw ValidationException::withMessages([
                 'estado' => 'Solo se puede aprobar una boleta en estado "calculada".',
+            ]);
+        }
+
+        // No existe una regla de saldo negativo (recortar, trasladar o
+        // generar deuda): un neto negativo es un conflicto que RR.HH. debe
+        // resolver antes de aprobar.
+        if ((float) $boleta->neto_a_pagar < 0) {
+            throw ValidationException::withMessages([
+                'neto_a_pagar' => 'El neto a pagar de esta boleta es negativo: los descuentos superan los ingresos. Resuelve el conflicto antes de aprobarla.',
+            ]);
+        }
+
+        $consumosPendientes = ConsumoComidaAplicacion::where('ciclo_id', $boleta->ciclo_id)
+            ->where('colaborador_id', $boleta->colaborador_id)->pendientesDeRecalculo()->exists();
+        if ($consumosPendientes) {
+            throw ValidationException::withMessages([
+                'estado' => 'Hay descuentos por consumo de comida que esta boleta todavía no incorpora. Recalcula la planilla antes de aprobarla.',
             ]);
         }
 
@@ -787,9 +810,10 @@ class BoletaService
      * Recibe fechas planas (no un CicloRemunerativo) para poder reutilizarse
      * también desde previsualizarPlanilla(), que no tiene ni necesita un
      * ciclo persistido — evita una segunda copia de este filtro (Sección 98,
-     * "no duplicar motores").
+     * "no duplicar motores"). Público para que la importación de consumos de
+     * comida valide contra los mismos colaboradores que tendrán boleta.
      */
-    private function colaboradoresElegibles(Empresa $empresa, string $fechaInicio, string $fechaFin)
+    public function colaboradoresElegibles(Empresa $empresa, string $fechaInicio, string $fechaFin)
     {
         return Colaborador::where('empresa_id', $empresa->id)
             // Un cesado queda inactivo, pero igual cobra en la planilla del

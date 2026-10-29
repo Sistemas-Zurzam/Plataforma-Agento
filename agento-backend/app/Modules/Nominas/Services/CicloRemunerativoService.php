@@ -10,6 +10,7 @@ use App\Modules\Nominas\Models\BoletaDatosPago;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Models\ConsumoComidaAplicacion;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -192,11 +193,24 @@ class CicloRemunerativoService
             ]);
         }
 
-        $this->congelarDatosPago($ciclo);
+        // Con el ciclo bloqueado: una importación de consumos de comida que se
+        // esté aplicando (también bloquea el ciclo) termina antes de que esta
+        // verificación la vea, y no puede aplicarse después del cierre.
+        return DB::transaction(function () use ($ciclo) {
+            $ciclo = CicloRemunerativo::query()->lockForUpdate()->findOrFail($ciclo->id);
 
-        $ciclo->update(['estado' => 'cerrado']);
+            if (ConsumoComidaAplicacion::where('ciclo_id', $ciclo->id)->pendientesDeRecalculo()->exists()) {
+                throw ValidationException::withMessages([
+                    'estado' => 'No se puede cerrar el período: hay descuentos por consumo de comida aplicados o anulados que las boletas todavía no reflejan. Recalcula la planilla primero.',
+                ]);
+            }
 
-        return $ciclo;
+            $this->congelarDatosPago($ciclo);
+
+            $ciclo->update(['estado' => 'cerrado']);
+
+            return $ciclo;
+        });
     }
 
     /**
@@ -459,6 +473,14 @@ class CicloRemunerativoService
     {
         if ($item->ciclo_id !== $ciclo->id || $item->colaborador_id !== $colaborador->id) {
             throw new AuthorizationException('Este concepto no pertenece a este colaborador/ciclo.');
+        }
+
+        // El descuento de una importación de consumos solo se retira anulando
+        // la importación: editarlo aquí rompería su trazabilidad.
+        if (ConsumoComidaAplicacion::where('colaborador_concepto_periodo_id', $item->id)->exists()) {
+            throw ValidationException::withMessages([
+                'concepto_id' => 'Este descuento proviene de una importación de consumo de comida: gestiónalo (o anúlalo) desde "Consumo de comida".',
+            ]);
         }
     }
 

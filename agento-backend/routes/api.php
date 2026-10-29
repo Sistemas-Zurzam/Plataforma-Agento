@@ -24,6 +24,7 @@ use App\Modules\Nominas\Http\Controllers\BonoAsistenciaController;
 use App\Modules\Nominas\Http\Controllers\CicloRemunerativoController;
 use App\Modules\Nominas\Http\Controllers\ConceptoDefinicionPlameController;
 use App\Modules\Nominas\Http\Controllers\ConceptoRemuneracionController;
+use App\Modules\Nominas\Http\Controllers\ConsumoComidaController;
 use App\Modules\Nominas\Http\Controllers\LiquidacionCeseController;
 use App\Modules\Nominas\Http\Controllers\NominaImportacionHistoricaController;
 use App\Modules\Nominas\Http\Controllers\PlanillaComplementariaController;
@@ -315,6 +316,20 @@ Route::middleware('jwt')->group(function () {
     Route::post('/bono-asistencia-lotes/{lote}/importar', [BonoAsistenciaController::class, 'importar'])->middleware('permiso:nominas.calcular');
     Route::post('/bono-asistencia-lotes/{lote}/aplicar', [BonoAsistenciaController::class, 'aplicar'])->middleware('permiso:nominas.aprobar');
     Route::delete('/bono-asistencia-lotes/{lote}', [BonoAsistenciaController::class, 'anular'])->middleware('permiso:nominas.calcular');
+    // Consumo de comida: importación de consumos desde la plantilla oficial,
+    // aplicados como descuento del ciclo (ConsumoComidaImportacionService).
+    // Mismos permisos que los conceptos manuales del período.
+    Route::get('/consumos-comida/plantilla', [ConsumoComidaController::class, 'plantilla'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos/{ciclo}/consumos-comida', [ConsumoComidaController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos/{ciclo}/consumos-comida/colaboradores/{colaboradorId}', [ConsumoComidaController::class, 'consumosColaborador'])->whereNumber('colaboradorId')->middleware('permiso:nominas.ver');
+    Route::post('/ciclos-remunerativos/{ciclo}/consumos-comida/importaciones', [ConsumoComidaController::class, 'importar'])->middleware(['permiso:nominas.gestionar_ciclos', 'throttle:20,1']);
+    Route::get('/consumos-comida/importaciones/{consumoImportacion}', [ConsumoComidaController::class, 'show'])->middleware('permiso:nominas.ver');
+    Route::get('/consumos-comida/importaciones/{consumoImportacion}/archivo', [ConsumoComidaController::class, 'archivo'])->middleware('permiso:nominas.ver');
+    Route::get('/consumos-comida/importaciones/{consumoImportacion}/errores', [ConsumoComidaController::class, 'errores'])->middleware('permiso:nominas.ver');
+    Route::post('/consumos-comida/importaciones/{consumoImportacion}/admitir-duplicados', [ConsumoComidaController::class, 'admitirDuplicados'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::post('/consumos-comida/importaciones/{consumoImportacion}/aplicar', [ConsumoComidaController::class, 'aplicar'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::post('/consumos-comida/importaciones/{consumoImportacion}/anular', [ConsumoComidaController::class, 'anular'])->middleware('permiso:nominas.gestionar_ciclos');
+
     Route::get('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'listarConceptos'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'registrarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos/{conceptoPeriodo}', [CicloRemunerativoController::class, 'actualizarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
