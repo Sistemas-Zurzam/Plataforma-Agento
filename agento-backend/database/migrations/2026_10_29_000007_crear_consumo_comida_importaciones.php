@@ -20,6 +20,13 @@ return new class extends Migration
 {
     public function up(): void
     {
+        // Un primer intento falló en MySQL a mitad de camino (nombre de
+        // clave foránea de más de 64 caracteres) y, como el DDL de MySQL no
+        // es transaccional, dejó tablas creadas sin registrar la migración.
+        // Estas tablas solo las crea esta migración y no pudieron recibir
+        // datos, así que se eliminan antes de crearlas de nuevo.
+        $this->down();
+
         Schema::create('consumo_comida_importaciones', function (Blueprint $table) {
             $table->id();
             $table->foreignId('empresa_id')->constrained('empresas')->cascadeOnDelete();
@@ -36,7 +43,8 @@ return new class extends Migration
             $table->unsignedInteger('filas_posible_duplicado')->default(0);
             $table->unsignedInteger('colaboradores_total')->default(0);
             $table->decimal('monto_total', 12, 2)->default(0);
-            $table->foreignId('reemplaza_importacion_id')->nullable()->constrained('consumo_comida_importaciones')->nullOnDelete();
+            // Nombres explícitos y cortos: MySQL admite hasta 64 caracteres.
+            $table->foreignId('reemplaza_importacion_id')->nullable()->constrained('consumo_comida_importaciones', 'id', 'cc_importaciones_reemplaza_fk')->nullOnDelete();
             $table->foreignId('importado_por')->nullable()->constrained('users')->nullOnDelete();
             $table->foreignId('aplicado_por')->nullable()->constrained('users')->nullOnDelete();
             $table->timestamp('aplicado_at')->nullable();
@@ -45,7 +53,7 @@ return new class extends Migration
             $table->text('motivo_anulacion')->nullable();
             $table->timestamps();
 
-            $table->index(['empresa_id', 'ciclo_id', 'estado']);
+            $table->index(['empresa_id', 'ciclo_id', 'estado'], 'cc_importaciones_empresa_ciclo_estado_idx');
             $table->index(['ciclo_id', 'archivo_hash']);
             $table->index(['ciclo_id', 'contenido_hash']);
         });
@@ -75,7 +83,7 @@ return new class extends Migration
 
             $table->unique(['empresa_id', 'sistema_origen', 'referencia_activa'], 'consumo_comida_referencia_activa_unique');
             $table->index(['importacion_id', 'fila']);
-            $table->index(['empresa_id', 'documento', 'fecha_consumo']);
+            $table->index(['empresa_id', 'documento', 'fecha_consumo'], 'cc_detalles_empresa_documento_fecha_idx');
         });
 
         Schema::create('consumo_comida_aplicaciones', function (Blueprint $table) {
@@ -86,7 +94,7 @@ return new class extends Migration
             $table->foreignId('colaborador_id')->constrained('colaboradores')->cascadeOnDelete();
             $table->decimal('monto', 12, 2);
             $table->unsignedInteger('consumos');
-            $table->foreignId('colaborador_concepto_periodo_id')->nullable()->constrained('colaborador_conceptos_periodo')->nullOnDelete();
+            $table->foreignId('colaborador_concepto_periodo_id')->nullable()->constrained('colaborador_conceptos_periodo', 'id', 'cc_aplicaciones_concepto_periodo_fk')->nullOnDelete();
             $table->string('estado', 20);
             $table->timestamp('aplicado_at');
             $table->timestamp('anulado_at')->nullable();
@@ -96,8 +104,8 @@ return new class extends Migration
             $table->foreignId('boleta_retiro_id')->nullable()->constrained('boletas')->nullOnDelete();
             $table->timestamps();
 
-            $table->unique(['importacion_id', 'colaborador_id']);
-            $table->index(['ciclo_id', 'colaborador_id', 'estado']);
+            $table->unique(['importacion_id', 'colaborador_id'], 'cc_aplicaciones_importacion_colaborador_unique');
+            $table->index(['ciclo_id', 'colaborador_id', 'estado'], 'cc_aplicaciones_ciclo_colaborador_estado_idx');
         });
 
         Schema::create('consumo_comida_eventos', function (Blueprint $table) {
