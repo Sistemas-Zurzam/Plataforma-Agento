@@ -2,6 +2,7 @@
 
 namespace App\Modules\Asistencia\Application;
 
+use App\Modules\Asistencia\Models\AsistenciaImportacion;
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
@@ -20,11 +21,43 @@ class ReprocesarAsistenciaRango
         private readonly AsistenciaAuditoriaService $auditoria,
         private readonly AsignarDescansoFlexibleSemanal $descansoFlexible,
         private readonly FechaOperativa $fechaOperativa,
+        private readonly DescartarCambiosManualesAsistencia $descartarCambiosManuales,
     ) {}
 
     /**
+     * Rango de fechas y colaboradores de la última importación de
+     * marcaciones completada — lo que recalcula "Recalcular última
+     * importación". Igual que la importación, solo incluye a los
+     * colaboradores presentes en ese archivo: a uno cuyo archivo aún no se
+     * cargó no se le deben generar faltas.
+     *
+     * @return array{fecha_desde: string, fecha_hasta: string, colaborador_ids: list<int>}|null
+     */
+    public function rangoUltimaImportacion(Empresa $empresa): ?array
+    {
+        $importacion = AsistenciaImportacion::query()
+            ->where('empresa_id', $empresa->id)
+            ->where('estado', 'completada')
+            ->whereNotNull('fecha_minima')
+            ->latest('id')
+            ->first();
+
+        return $importacion ? [
+            'fecha_desde' => $importacion->fecha_minima->toDateString(),
+            'fecha_hasta' => $importacion->fecha_maxima->toDateString(),
+            'colaborador_ids' => $importacion->marcaciones()->whereNotNull('colaborador_id')
+                ->distinct()->pluck('asistencia_marcaciones.colaborador_id')->map(fn ($id) => (int) $id)->values()->all(),
+        ] : null;
+    }
+
+    /**
+     * Sin $descartarCambiosManuales el reproceso conserva las decisiones de
+     * RR.HH. (marcaciones manuales, estados forzados, planificación,
+     * incidencias y horas extra resueltas). Con él ("Reprocesar todo"),
+     * DescartarCambiosManualesAsistencia las revierte antes de reprocesar.
+     *
      * @param  array<int, int>|null  $colaboradorIds
-     * @return array{procesados: int, eliminados_anteriores_ingreso: int, omitidos_sin_rol_rotativo: int}
+     * @return array{procesados: int, eliminados_anteriores_ingreso: int, omitidos_sin_rol_rotativo: int, conservados_por_ajuste_manual: int, cambios_descartados: ?array}
      */
     public function ejecutar(
         Empresa $empresa,
@@ -33,6 +66,7 @@ class ReprocesarAsistenciaRango
         string $fechaHasta,
         ?array $colaboradorIds,
         ?string $motivo,
+        bool $descartarCambiosManuales = false,
     ): array {
         $this->periodos->asegurarRangoEditable($empresa->id, $fechaDesde, $fechaHasta);
 
@@ -52,6 +86,24 @@ class ReprocesarAsistenciaRango
         $procesados = 0;
         $eliminadosAnterioresIngreso = 0;
         $omitidosSinRolRotativo = 0;
+
+        $cambiosDescartados = $descartarCambiosManuales
+            ? $this->descartarCambiosManuales->ejecutar(
+                $empresa, $usuarioId, $colaboradores->modelKeys(), $fechaDesde, $fechaHasta, $motivo ?? 'Reprocesar todo',
+            )
+            : null;
+
+        // Días ajustados manualmente: procesar() los conserva; aquí solo se
+        // cuentan para informarlo (después de Restablecer ya no quedan).
+        $ajustados = AsistenciaResultadoDiario::query()
+            ->where('empresa_id', $empresa->id)
+            ->whereIn('colaborador_id', $colaboradores->modelKeys())
+            ->whereDate('fecha', '>=', $inicio->toDateString())->whereDate('fecha', '<=', $fin->toDateString())
+            ->whereNotNull('ajustado_manualmente_at')
+            ->get(['colaborador_id', 'fecha'])
+            ->map(fn (AsistenciaResultadoDiario $r) => $r->colaborador_id.'|'.$r->fecha->toDateString())
+            ->flip();
+        $conservadosPorAjusteManual = 0;
 
         foreach ($colaboradores as $colaborador) {
             // Si RR.HH. corrigió la fecha de ingreso hacia adelante, los
@@ -79,13 +131,31 @@ class ReprocesarAsistenciaRango
                 }
                 try {
                     $this->procesador->procesar($colaborador, $fecha);
-                    $procesados++;
+                    $ajustados->has($colaborador->id.'|'.$fecha->toDateString()) ? $conservadosPorAjusteManual++ : $procesados++;
                 } catch (HttpExceptionInterface $e) {
                     // Horario rotativo sin rol declarado para esta fecha —
                     // se omite ese día puntual, no se aborta el resto del
                     // reprocesamiento (Sección: rotativos, cero inferencia).
                     $omitidosSinRolRotativo++;
                 }
+            }
+        }
+
+        // Días fuera del rango cuya salida de madrugada se desvinculó al
+        // descartar cambios manuales: deben recuperar esa marcación.
+        $hoy = $this->fechaOperativa->hoy();
+        foreach ($cambiosDescartados['fechas_adicionales'] ?? [] as $adicional) {
+            $fecha = Carbon::parse($adicional['fecha']);
+            $colaborador = $colaboradores->firstWhere('id', $adicional['colaborador_id']);
+            if (! $colaborador || $fecha->gt($hoy) || ($colaborador->fecha_cese && $fecha->gt($colaborador->fecha_cese->copy()->startOfDay()))) {
+                continue;
+            }
+            try {
+                $this->procesador->procesar($colaborador, $fecha);
+                $procesados++;
+            } catch (HttpExceptionInterface $e) {
+                // Período protegido o rotativo sin rol: el día conserva su
+                // resultado anterior hasta un próximo reproceso.
             }
         }
 
@@ -103,15 +173,21 @@ class ReprocesarAsistenciaRango
         }
 
         $this->auditoria->registrar(
-            $empresa->id, $usuarioId, 'asistencia_reprocesada', 'rango_asistencia',
+            $empresa->id, $usuarioId, $descartarCambiosManuales ? 'asistencia_reprocesada_total' : 'asistencia_reprocesada', 'rango_asistencia',
             $motivo ?? 'Reprocesamiento manual', null,
             ['fecha_desde' => $fechaDesde, 'fecha_hasta' => $fechaHasta, 'colaborador_ids' => $colaboradorIds],
         );
+
+        if ($cambiosDescartados !== null) {
+            unset($cambiosDescartados['fechas_adicionales']);
+        }
 
         return [
             'procesados' => $procesados,
             'eliminados_anteriores_ingreso' => $eliminadosAnterioresIngreso,
             'omitidos_sin_rol_rotativo' => $omitidosSinRolRotativo,
+            'conservados_por_ajuste_manual' => $conservadosPorAjusteManual,
+            'cambios_descartados' => $cambiosDescartados,
         ];
     }
 }

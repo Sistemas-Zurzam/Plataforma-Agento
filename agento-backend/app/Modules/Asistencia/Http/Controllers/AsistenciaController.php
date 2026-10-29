@@ -14,6 +14,7 @@ use App\Modules\Asistencia\Http\Requests\StoreAsistenciaPermisoRequest;
 use App\Modules\Asistencia\Http\Requests\StoreSolicitudAreaRequest;
 use App\Modules\Asistencia\Http\Requests\StoreAsistenciaPeriodoRequest;
 use App\Modules\Asistencia\Http\Requests\TransicionarAsistenciaRequest;
+use App\Modules\Configuracion\Models\Role;
 use App\Modules\Asistencia\Http\Requests\AsociarPersonIdRequest;
 use App\Modules\Asistencia\Http\Requests\EditarAsistenciaDiaRequest;
 use App\Modules\Asistencia\Http\Requests\ResolverAsistenciaMasivaRequest;
@@ -440,23 +441,75 @@ class AsistenciaController extends Controller
     public function reprocesar(ReprocesarAsistenciaRequest $request): JsonResponse
     {
         $datos = $request->validated();
+        $empresa = $request->user('api')->empresa;
+        $modo = $datos['modo'] ?? null;
+
+        // Restablecer (descartar ajustes manuales) es destructivo: solo el
+        // Administrador, aunque otro rol tenga asistencia.procesar.
+        abort_if(
+            $modo === 'total' && $request->user('api')->currentRole()?->clave !== Role::ADMINISTRADOR,
+            403,
+            'Solo un Administrador puede restablecer los ajustes manuales de asistencia.',
+        );
+
+        if ($modo === 'parcial') {
+            $rango = $this->reprocesador->rangoUltimaImportacion($empresa);
+            abort_if($rango === null, 422, 'No hay una importación de marcaciones completada para reprocesar.');
+            abort_if(
+                Carbon::parse($rango['fecha_desde'])->diffInDays(Carbon::parse($rango['fecha_hasta'])) > 62, 422,
+                'La última importación abarca más de 63 días; usa "Recalcular rango seleccionado" con un rango menor.',
+            );
+            // Solo los colaboradores del archivo (y, desde el perfil, solo
+            // ese colaborador si venía en él). Una lista vacía significaría
+            // "todos", así que se rechaza explícitamente.
+            $colaboradorIds = isset($datos['colaborador_ids'])
+                ? array_values(array_intersect($rango['colaborador_ids'], array_map('intval', $datos['colaborador_ids'])))
+                : $rango['colaborador_ids'];
+            abort_if($colaboradorIds === [], 422, 'La última importación no incluye marcaciones asociadas a este colaborador.');
+            $datos = [...$datos, ...$rango, 'colaborador_ids' => $colaboradorIds];
+        }
 
         $resultado = $this->reprocesador->ejecutar(
-            $request->user('api')->empresa,
+            $empresa,
             $request->user('api')->id,
             $datos['fecha_desde'],
             $datos['fecha_hasta'],
             $datos['colaborador_ids'] ?? null,
             $datos['motivo'] ?? null,
+            $modo === 'total',
         );
 
         return response()->json([
             'message' => $resultado['omitidos_sin_rol_rotativo'] > 0
                 ? "Asistencia reprocesada. {$resultado['omitidos_sin_rol_rotativo']} día(s) omitidos por horario rotativo sin rol declarado."
                 : 'Asistencia reprocesada correctamente.',
+            'fecha_desde' => $datos['fecha_desde'],
+            'fecha_hasta' => $datos['fecha_hasta'],
             'resultados_procesados' => $resultado['procesados'],
             'resultados_eliminados_anteriores_ingreso' => $resultado['eliminados_anteriores_ingreso'],
             'omitidos_sin_rol_rotativo' => $resultado['omitidos_sin_rol_rotativo'],
+            'conservados_por_ajuste_manual' => $resultado['conservados_por_ajuste_manual'],
+            'cambios_descartados' => $resultado['cambios_descartados'],
         ]);
+    }
+
+    /**
+     * Cuántos días ajustados manualmente hay en el rango: lo muestra la
+     * confirmación de "Recalcular" antes de ejecutarlo (se conservarán).
+     */
+    public function diasAjustados(ResumenAsistenciaRequest $request): JsonResponse
+    {
+        $datos = $request->validated();
+        $colaboradorId = $request->integer('colaborador_id') ?: null;
+
+        $total = AsistenciaResultadoDiario::query()
+            ->where('empresa_id', $request->user('api')->empresa->id)
+            ->when($colaboradorId, fn ($query, $id) => $query->where('colaborador_id', $id))
+            ->whereDate('fecha', '>=', $datos['fecha_desde'])
+            ->whereDate('fecha', '<=', $datos['fecha_hasta'])
+            ->whereNotNull('ajustado_manualmente_at')
+            ->count();
+
+        return response()->json(['data' => ['dias_ajustados' => $total]]);
     }
 }

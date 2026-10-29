@@ -148,6 +148,7 @@ Route::middleware('jwt')->group(function () {
     Route::get('/asistencia/marcaciones-no-asociadas', [AsistenciaController::class, 'marcacionesNoAsociadas'])->middleware('permiso:asistencia.ver');
     Route::post('/asistencia/marcaciones-no-asociadas/{colaborador}/asociar', [AsistenciaController::class, 'asociarPersonId'])->middleware('permiso:asistencia.importar');
     Route::post('/asistencia/reprocesar', [AsistenciaController::class, 'reprocesar'])->middleware('permiso:asistencia.procesar');
+    Route::get('/asistencia/dias-ajustados', [AsistenciaController::class, 'diasAjustados'])->middleware('permiso:asistencia.procesar');
     Route::get('/asistencia/planificacion', [AsistenciaController::class, 'planificacion'])->middleware('permiso:asistencia.ver');
     Route::put('/asistencia/planificacion', [AsistenciaController::class, 'guardarPlanificacion'])->middleware('permiso:asistencia.incidencias');
     Route::put('/asistencia/planificacion/masivo', [AsistenciaController::class, 'guardarPlanificacionMasivo'])->middleware('permiso:asistencia.incidencias');

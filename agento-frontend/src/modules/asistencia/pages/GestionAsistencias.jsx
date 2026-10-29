@@ -51,6 +51,11 @@ function EstadoDia({ resultado, mostrarHoras = false }) {
   return (
     <div className="flex flex-col items-start gap-1">
       <Tag color={estado[2]} title={estado[1]} className="!m-0 min-w-7 text-center">{estado[0]}</Tag>
+      {resultado?.ajustado_manualmente && (
+        <span className="text-[10px] font-medium text-blue-700" title="Ajustado manualmente: los recálculos automáticos no lo modifican">
+          <EditOutlined /> Ajustado
+        </span>
+      )}
       {mostrarHoras && Number(resultado?.minutos_trabajados) > 0 && (
         <span className="text-[11px] font-medium text-slate-600" title="Horas trabajadas">
           {duracion(Number(resultado.minutos_trabajados))}
@@ -83,7 +88,7 @@ const ESTADOS_CORREGIBLES = [
   { value: 'feriado', label: 'Feriado' },
 ];
 
-function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, reprocesando, onCorregir, corrigiendo, puedeCorregir: puedeCorregirPermiso = true }) {
+function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, reprocesando, onCorregir, corrigiendo, puedeCorregir: puedeCorregirPermiso = true, puedeRestablecer = false, onRestablecer }) {
   const [motivo, setMotivo] = useState('');
   const [entrada, setEntrada] = useState('');
   const [salida, setSalida] = useState('');
@@ -121,6 +126,24 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
       destroyOnHidden
       footer={[
         <Button key="cerrar" onClick={onCerrar}>Cerrar</Button>,
+        // Restablecer descarta el ajuste manual del día: solo Administrador
+        // (validado también en backend), con el motivo del modal.
+        puedeRestablecer && resultado?.ajustado_manualmente && (
+          <Button
+            key="restablecer"
+            danger
+            disabled={!motivo.trim()}
+            loading={reprocesando}
+            onClick={() => Modal.confirm({
+              title: 'Restablecer día',
+              content: 'Se descartarán los ajustes manuales de este día (marcaciones de RR.HH., estado forzado, horario excepcional, incidencias y horas extra resueltas) y se recalculará desde las marcaciones del reloj.',
+              okText: 'Restablecer', okButtonProps: { danger: true }, cancelText: 'Cancelar',
+              onOk: () => onRestablecer(fechaTexto, motivo.trim()).then(onCerrar).catch(() => {}),
+            })}
+          >
+            Restablecer día
+          </Button>
+        ),
         <Button
           key="reprocesar"
           icon={<ReloadOutlined />}
@@ -128,12 +151,12 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
           disabled={!motivo.trim()}
           onClick={() => onReprocesar(fechaTexto, motivo.trim()).then(onCerrar).catch(() => {})}
         >
-          Reprocesar
+          Recalcular día
         </Button>,
         // V3 Fase 3 — A1: visible/habilitado solo si el usuario tiene el
         // permiso real (asistencia.incidencias), no solo si backend
         // devolvería 403 — y con ícono para que no compita visualmente con
-        // "Reprocesar".
+        // "Recalcular día".
         puedeCorregirPermiso && (
           <Button
             key="corregir"
@@ -148,6 +171,15 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
         ),
       ]}
     >
+      {resultado?.ajustado_manualmente && (
+        <Alert
+          className="mb-4"
+          type="info"
+          showIcon
+          message={`Día ajustado manualmente${resultado.ajustado_por ? ` por ${resultado.ajustado_por}` : ''}${resultado.ajustado_at ? ` el ${dayjs(resultado.ajustado_at).format('DD/MM/YYYY HH:mm')}` : ''}`}
+          description={`${resultado.motivo_ajuste ? `Motivo: ${resultado.motivo_ajuste}. ` : ''}Las importaciones y los recálculos automáticos no modifican este día; si llegan marcaciones nuevas se genera un aviso para revisarlas.`}
+        />
+      )}
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Text type="secondary" className="text-xs">Tipo programado</Text>
@@ -208,7 +240,7 @@ function DetalleDiaModal({ open, fecha, colaborador, onCerrar, onReprocesar, rep
           Úsalo cuando la persona sí asistió pero el biométrico no registró la marcación: escribe la hora real y, si hace falta, fuerza el estado.
         </p>
         {!puedeCorregir && (
-          <p className="mt-2 text-xs text-amber-600">Este día todavía no tiene un resultado procesado — usa "Reprocesar" primero para poder corregirlo.</p>
+          <p className="mt-2 text-xs text-amber-600">Este día todavía no tiene un resultado procesado — usa "Recalcular día" primero para poder corregirlo.</p>
         )}
         <div className="mt-3 grid grid-cols-2 gap-3">
           <div>
@@ -325,7 +357,21 @@ function ModalResolverConPermiso({ open, incidencia, form, onCancel, onSubmit, s
   );
 }
 
-function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reprocesando, onReprocesarDia, reprocesandoDia, onCorregirDia, corrigiendoDia, puedeResolverIncidencias, accionesIncidencia }) {
+// Recalcula la asistencia con las marcaciones ya registradas (no reimporta
+// el Excel). "rango" y "parcial" conservan los ajustes manuales; "total"
+// (Restablecer) los descarta y solo se ofrece al Administrador.
+function ReprocesarDropdown({ onReprocesar, reprocesando, puedeRestablecer = false }) {
+  const items = [
+    { key: 'rango', label: 'Recalcular rango seleccionado' },
+    { key: 'parcial', label: 'Recalcular última importación' },
+    ...(puedeRestablecer ? [{ type: 'divider' }, { key: 'total', label: 'Restablecer ajustes manuales…', danger: true }] : []),
+  ];
+  return <Dropdown menu={{ items, onClick: ({ key }) => onReprocesar(key) }} disabled={reprocesando}>
+    <Button icon={<ReloadOutlined />} loading={reprocesando}>Recalcular asistencia <DownOutlined /></Button>
+  </Dropdown>;
+}
+
+function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reprocesando, puedeRestablecer, onReprocesarDia, reprocesandoDia, onCorregirDia, corrigiendoDia, puedeResolverIncidencias, accionesIncidencia }) {
   const [diaSeleccionado, setDiaSeleccionado] = useState(null);
 
   if (loading || !colaborador) return <Card loading className="min-h-72" />;
@@ -377,7 +423,7 @@ function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reproc
   return <div className="space-y-4">
     <div className="flex items-center justify-between border-b border-slate-200 pb-3">
       <div className="flex items-center gap-3"><Button type="text" icon={<ArrowLeftOutlined />} onClick={onVolver} /><div><Text type="secondary" className="text-xs">Gestión de asistencias / Colaboradores / Perfil de asistencia</Text><Title level={4} className="!mb-0 !mt-1">{colaborador.nombre_completo}</Title><Text type="secondary" className="text-xs">{colaborador.empresa} · {colaborador.area ?? 'Sin área'} · {colaborador.cargo}</Text></div></div>
-      <Button icon={<ReloadOutlined />} loading={reprocesando} onClick={onReprocesar}>Reprocesar</Button>
+      <ReprocesarDropdown onReprocesar={onReprocesar} reprocesando={reprocesando} puedeRestablecer={puedeRestablecer} />
     </div>
     <Tabs items={[
       { key: 'resumen', label: 'Resumen', children: <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{tarjetas.map(([label, value, color]) => <Card size="small" key={label}><div className={`text-xl font-semibold ${color}`}>{value ?? 0}</div><Text type="secondary" className="text-xs">{label}</Text></Card>)}</div> },
@@ -398,6 +444,8 @@ function PerfilAsistencia({ colaborador, loading, onVolver, onReprocesar, reproc
       onCorregir={(resultadoId, datos) => onCorregirDia(resultadoId, datos)}
       corrigiendo={corrigiendoDia}
       puedeCorregir={puedeResolverIncidencias}
+      puedeRestablecer={puedeRestablecer}
+      onRestablecer={(fecha, motivo) => onReprocesarDia(fecha, motivo, 'total')}
     />
   </div>;
 }
@@ -459,6 +507,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const [periodoModalOpen, setPeriodoModalOpen] = useState(false);
   const [periodoForm] = Form.useForm();
   const puedeProcesar = user?.role === 'administrador' || user?.permisos?.includes('asistencia.procesar');
+  // Restablecer descarta ajustes manuales: solo Administrador (también en backend).
+  const puedeRestablecer = user?.role === 'administrador';
   const puedeGestionarPermisos = user?.role === 'administrador' || user?.permisos?.includes('asistencia.permisos');
   const puedeGestionarArea = user?.role === 'administrador' || user?.permisos?.includes('asistencia.gestiones_area');
   const puedeGestionarPeriodos = user?.role === 'administrador' || user?.permisos?.includes('asistencia.periodos');
@@ -560,20 +610,100 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       .finally(() => setLoading(false));
   }, [colaboradorId, message, parametros]);
 
-  const reprocesar = async () => {
+  // modo: 'rango' (fechas del filtro, conserva ajustes manuales), 'parcial'
+  // (última importación, conserva ajustes) o 'total' (restablece: descarta
+  // ajustes manuales, solo Administrador).
+  const reprocesar = async (modo, motivo) => {
     setReprocesando(true);
     try {
-      const payload = colaboradorId ? { ...parametros, colaborador_ids: [colaboradorId] } : parametros;
+      // "parcial" no envía fechas: el backend usa el rango de la última carga.
+      const base = modo === 'parcial'
+        ? { modo }
+        : { fecha_desde: parametros.fecha_desde, fecha_hasta: parametros.fecha_hasta, ...(modo === 'total' ? { modo } : {}), motivo };
+      const payload = colaboradorId ? { ...base, colaborador_ids: [colaboradorId] } : base;
       const { data } = await api.post('/asistencia/reprocesar', payload);
       const eliminados = data.resultados_eliminados_anteriores_ingreso ?? 0;
-      message.success(`${data.resultados_procesados} jornadas procesadas${eliminados > 0 ? ` · ${eliminados} resultado(s) anterior(es) al ingreso eliminado(s)` : ''}`);
+      const descartados = data.cambios_descartados;
+      const totalDescartados = descartados ? Object.values(descartados).reduce((suma, valor) => suma + valor, 0) : 0;
+      const rangoTexto = `${dayjs(data.fecha_desde).format('DD/MM/YYYY')} – ${dayjs(data.fecha_hasta).format('DD/MM/YYYY')}`;
+      const conservados = data.conservados_por_ajuste_manual ?? 0;
+      message.success(`${data.resultados_procesados} jornadas recalculadas (${rangoTexto})${conservados > 0 ? ` · ${conservados} día(s) con ajuste manual conservado(s)` : ''}${eliminados > 0 ? ` · ${eliminados} resultado(s) anterior(es) al ingreso eliminado(s)` : ''}${descartados ? ` · ${totalDescartados} ajuste(s) manual(es) descartado(s)` : ''}`);
       await cargar();
       if (colaboradorId) {
         const perfilResponse = await api.get(`/asistencia/colaboradores/${colaboradorId}`, { params: parametros });
         setPerfil(perfilResponse.data.data ?? perfilResponse.data);
       }
-    } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo reprocesar la asistencia'); }
+    } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo recalcular la asistencia'); }
     finally { setReprocesando(false); }
+  };
+
+  const confirmarReproceso = async (modo) => {
+    const alcance = colaboradorId ? 'de este colaborador' : 'de todos los colaboradores';
+    if (modo === 'rango') {
+      // Cuántos días ajustados a mano hay en el rango: se conservan sin cambios.
+      let ajustados = null;
+      try {
+        const { data } = await api.get('/asistencia/dias-ajustados', {
+          params: { fecha_desde: parametros.fecha_desde, fecha_hasta: parametros.fecha_hasta, colaborador_id: colaboradorId || undefined },
+        });
+        ajustados = data.data.dias_ajustados;
+      } catch { /* el resumen es informativo: sin él se confirma igual */ }
+      Modal.confirm({
+        title: 'Recalcular rango seleccionado',
+        width: 480,
+        content: <div className="mt-3 space-y-2">
+          <p>Se recalculará la asistencia {alcance} del {rango[0].format('DD/MM/YYYY')} al {rango[1].format('DD/MM/YYYY')} con las marcaciones ya registradas.</p>
+          {ajustados > 0
+            ? <Alert type="info" showIcon message={`${ajustados} día(s) ajustado(s) manualmente se conservarán sin cambios.`} />
+            : null}
+          <p>Los ajustes manuales (días editados, incidencias y horas extra resueltas) se conservan.</p>
+        </div>,
+        okText: 'Recalcular', cancelText: 'Cancelar',
+        onOk: () => reprocesar('rango'),
+      });
+      return;
+    }
+    if (modo === 'parcial') {
+      const ultima = importaciones.find((item) => item.estado === 'completada' && item.fecha_minima);
+      const rangoUltima = ultima
+        ? ` (${dayjs(ultima.fecha_minima.slice(0, 10)).format('DD/MM/YYYY')} – ${dayjs(ultima.fecha_maxima.slice(0, 10)).format('DD/MM/YYYY')})`
+        : '';
+      Modal.confirm({
+        title: 'Recalcular última importación',
+        width: 480,
+        content: <div className="mt-3 space-y-2">
+          <p>Se recalculará la asistencia {alcance} en las fechas de la última importación de marcaciones{rangoUltima}.</p>
+          <p>Los ajustes manuales (marcaciones de RR.HH., estados de día, horarios excepcionales, incidencias y horas extra resueltas) se conservan.</p>
+        </div>,
+        okText: 'Recalcular', cancelText: 'Cancelar',
+        onOk: () => reprocesar('parcial'),
+      });
+      return;
+    }
+    // Restablecer es destructivo: solo Administrador (también validado en
+    // backend), con motivo y escribiendo la palabra de confirmación.
+    const valores = { motivo: '', confirmacion: '' };
+    Modal.confirm({
+      title: 'Restablecer ajustes manuales',
+      width: 540,
+      content: <div className="mt-3 space-y-3">
+        <p>Se recalculará la asistencia {alcance} del {rango[0].format('DD/MM/YYYY')} al {rango[1].format('DD/MM/YYYY')} y <strong>se perderán los ajustes manuales hechos en ese rango</strong>:</p>
+        <Alert type="error" showIcon message={<ul className="mb-0 list-disc pl-4">
+          <li>Las marcaciones agregadas o editadas por RR.HH. se anulan.</li>
+          <li>Los estados de día forzados se descartan.</li>
+          <li>Los horarios excepcionales y la planificación decidida al resolver incidencias se revierten (los días rotativos pueden volver a quedar sin clasificar).</li>
+          <li>Las incidencias y horas extra ya resueltas vuelven a quedar pendientes.</li>
+        </ul>} />
+        <Input.TextArea rows={3} placeholder="Motivo obligatorio" onChange={(event) => { valores.motivo = event.target.value; }} />
+        <Input placeholder='Escribe RESTABLECER para confirmar' onChange={(event) => { valores.confirmacion = event.target.value; }} />
+      </div>,
+      okText: 'Restablecer', okButtonProps: { danger: true }, cancelText: 'Cancelar',
+      onOk: async () => {
+        if (!valores.motivo.trim()) { message.warning('Ingresa el motivo'); throw new Error('motivo_requerido'); }
+        if (valores.confirmacion.trim() !== 'RESTABLECER') { message.warning('Escribe RESTABLECER para confirmar'); throw new Error('confirmacion_requerida'); }
+        await reprocesar('total', valores.motivo.trim());
+      },
+    });
   };
 
   const descargarExcel = async (ruta, params, nombrePorDefecto) => {
@@ -612,17 +742,20 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     finally { setExportandoHorasExtra(false); }
   };
 
-  const reprocesarDia = async (fecha, motivo) => {
+  // modo 'total' = Restablecer día (descarta el ajuste manual; solo Administrador).
+  const reprocesarDia = async (fecha, motivo, modo) => {
     setReprocesandoDia(true);
     try {
-      await api.post('/asistencia/reprocesar', {
-        fecha_desde: fecha, fecha_hasta: fecha, colaborador_ids: [colaboradorId], motivo,
+      const { data } = await api.post('/asistencia/reprocesar', {
+        fecha_desde: fecha, fecha_hasta: fecha, colaborador_ids: [colaboradorId], motivo, ...(modo ? { modo } : {}),
       });
-      message.success('Día reprocesado correctamente');
+      if (modo === 'total') message.success('Día restablecido y recalculado');
+      else if (data.conservados_por_ajuste_manual > 0) message.info('Este día está ajustado manualmente: se conservó sin cambios.');
+      else message.success('Día recalculado correctamente');
       const perfilResponse = await api.get(`/asistencia/colaboradores/${colaboradorId}`, { params: parametros });
       setPerfil(perfilResponse.data.data ?? perfilResponse.data);
     } catch (error) {
-      message.error(error.response?.data?.message ?? 'No se pudo reprocesar el día');
+      message.error(error.response?.data?.message ?? 'No se pudo recalcular el día');
       throw error;
     } finally { setReprocesandoDia(false); }
   };
@@ -896,7 +1029,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   // que trae el resultado en forma cruda (entrada_at/salida_at) en vez del
   // shape simplificado (entrada/salida) que espera editarJornada().
   const editarMarcacionesDeIncidencia = (row) => {
-    if (!row.resultado) { message.warning('Este día todavía no tiene un resultado procesado — usa "Reprocesar" primero.'); return; }
+    if (!row.resultado) { message.warning('Este día todavía no tiene un resultado procesado — usa "Recalcular asistencia" primero.'); return; }
     editarJornada({
       id: row.resultado.id, fecha: row.fecha, estado: row.resultado.estado,
       entrada: row.resultado.entrada_at, salida: row.resultado.salida_at,
@@ -1140,7 +1273,13 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Entrada', dataIndex: 'entrada', width: 90, render: hora }, { title: 'Salida', dataIndex: 'salida', width: 90, render: hora },
     { title: 'Trabajado', dataIndex: 'minutos_trabajados', width: 115, render: duracion }, { title: 'Tardanza', dataIndex: 'minutos_tardanza', width: 105, render: duracion },
     { title: 'H. extra', dataIndex: 'minutos_extra_observados', width: 105, render: duracion },
-    { title: 'Estado', dataIndex: 'estado', width: 170, render: (value) => <Tag color={ESTADOS[value]?.[2]}>{ESTADOS[value]?.[1] ?? value}</Tag> },
+    {
+      title: 'Estado', dataIndex: 'estado', width: 170,
+      render: (value, row) => <Space size={4} wrap>
+        <Tag color={ESTADOS[value]?.[2]}>{ESTADOS[value]?.[1] ?? value}</Tag>
+        {row.ajustado_manualmente && <Tag color="blue" icon={<EditOutlined />} title={row.motivo_ajuste ?? 'Ajustado manualmente'}>Ajustado</Tag>}
+      </Space>,
+    },
     { title: 'Acciones', width: 90, render: (_, row) => puedeResolverIncidencias ? <Button type="link" size="small" onClick={() => editarJornada(row)}>Editar</Button> : '—' },
   ], []);
 
@@ -1450,7 +1589,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   ];
 
   if (colaboradorId) return <>
-    <PerfilAsistencia colaborador={perfil} loading={loading} onVolver={onVolver} onReprocesar={reprocesar} reprocesando={reprocesando} onReprocesarDia={reprocesarDia} reprocesandoDia={reprocesandoDia} onCorregirDia={corregirDia} corrigiendoDia={corrigiendoDia} puedeResolverIncidencias={puedeResolverIncidencias} accionesIncidencia={accionesIncidencia} />
+    <PerfilAsistencia colaborador={perfil} loading={loading} onVolver={onVolver} onReprocesar={confirmarReproceso} reprocesando={reprocesando} puedeRestablecer={puedeRestablecer} onReprocesarDia={reprocesarDia} reprocesandoDia={reprocesandoDia} onCorregirDia={corregirDia} corrigiendoDia={corrigiendoDia} puedeResolverIncidencias={puedeResolverIncidencias} accionesIncidencia={accionesIncidencia} />
     <ModalResolverConPermiso
       open={permisoIncidenciaModalOpen}
       incidencia={incidenciaParaPermiso}
@@ -1461,7 +1600,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     />
   </>;
 
-  return <div className="space-y-4"><div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><Title level={3} className="!mb-1">Gestión de asistencias</Title><Text type="secondary">Control diario de {user?.empresa?.nombre_comercial ?? 'la empresa activa'}</Text></div><Space wrap><RangePicker value={rango} allowClear={false} format="DD/MM/YYYY" onChange={(value) => value && setRango(value)} />{activeTab !== 'horas-extra' && <Button icon={<FileExcelOutlined />} loading={exportandoReporte} onClick={exportarReporte}>{colaboradoresSeleccionados.length > 0 ? `Descargar reporte (${colaboradoresSeleccionados.length})` : 'Descargar reporte'}</Button>}{puedeProcesar && <Button icon={<ReloadOutlined />} loading={reprocesando} onClick={reprocesar}>Reprocesar</Button>}</Space></div><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
+  return <div className="space-y-4"><div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-end"><div><Title level={3} className="!mb-1">Gestión de asistencias</Title><Text type="secondary">Control diario de {user?.empresa?.nombre_comercial ?? 'la empresa activa'}</Text></div><Space wrap><RangePicker value={rango} allowClear={false} format="DD/MM/YYYY" onChange={(value) => value && setRango(value)} />{activeTab !== 'horas-extra' && <Button icon={<FileExcelOutlined />} loading={exportandoReporte} onClick={exportarReporte}>{colaboradoresSeleccionados.length > 0 ? `Descargar reporte (${colaboradoresSeleccionados.length})` : 'Descargar reporte'}</Button>}{puedeProcesar && <ReprocesarDropdown onReprocesar={confirmarReproceso} reprocesando={reprocesando} puedeRestablecer={puedeRestablecer} />}</Space></div><Tabs activeKey={activeTab} onChange={setActiveTab} items={tabs} />
     <Modal title="Nuevo permiso" open={permisoModalOpen} onCancel={() => setPermisoModalOpen(false)} footer={null} destroyOnHidden width={520}>
       <Form form={permisoForm} layout="vertical" onFinish={crearPermiso} initialValues={{ tipo: 'personal' }} requiredMark="optional">
         <Form.Item name="colaborador_id" label="Empleado" rules={[{ required: true, message: 'Selecciona un empleado' }]}><Select showSearch optionFilterProp="label" placeholder="Seleccionar empleado" options={colaboradores.map((item) => ({ value: item.id, label: `${item.nombre_completo} · ${item.legajo}` }))} /></Form.Item>

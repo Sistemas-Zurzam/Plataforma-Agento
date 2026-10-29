@@ -29,6 +29,7 @@ class AsistenciaPeriodoService
         AsistenciaIncidencia::TIPO_SIN_DESCANSO_SEMANAL => 'semanas sin descanso',
         AsistenciaIncidencia::TIPO_DESCANSO_FLEXIBLE_INCOMPLETO => 'descansos flexibles incompletos',
         AsistenciaIncidencia::TIPO_SEMANA_ROTATIVA_OMITIDA => 'semanas rotativas omitidas',
+        AsistenciaIncidencia::TIPO_MARCACIONES_EN_DIA_AJUSTADO => 'marcaciones nuevas en días ajustados manualmente',
     ];
 
     public function __construct(

@@ -56,6 +56,10 @@ class AsistenciaColaboradorResource extends JsonResource
                 'minutos_trabajados' => $resultado->minutos_trabajados,
                 'minutos_tardanza' => $resultado->minutos_tardanza,
                 'minutos_extra' => $resultado->minutos_extra_observados,
+                'ajustado_manualmente' => $resultado->estaAjustadoManualmente(),
+                'ajustado_at' => $resultado->ajustado_manualmente_at?->format('Y-m-d H:i:s'),
+                'ajustado_por' => $resultado->estaAjustadoManualmente() ? $resultado->ajustadoPor?->name : null,
+                'motivo_ajuste' => $resultado->motivo_ajuste,
             ]),
             'marcaciones' => $this->marcacionesAsistencia->map(fn ($marcacion) => [
                 'id' => $marcacion->id,

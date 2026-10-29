@@ -83,9 +83,9 @@ class AsistenciaDecisionService
             $origen['vinculada_motivo'] = $motivo;
             $salida->update(['datos_origen' => $origen]);
 
-            $actualizado = $this->procesador->procesar($resultado->colaborador, $resultado->fecha);
+            $actualizado = $this->procesador->procesar($resultado->colaborador, $resultado->fecha, respetarAjusteManual: false);
             // Recalcula el día de la marca para retirar su MI independiente.
-            $this->procesador->procesar($resultado->colaborador, Carbon::parse($fechaSiguiente));
+            $this->procesador->procesar($resultado->colaborador, Carbon::parse($fechaSiguiente), respetarAjusteManual: false);
             $this->auditoria->registrar($empresa->id, $usuario->id, 'salida_dia_siguiente_vinculada', $actualizado, $motivo, $antes, $actualizado->fresh('marcaciones')->toArray());
 
             return $incidencia->fresh(['colaborador', 'resultado']);
@@ -200,7 +200,7 @@ class AsistenciaDecisionService
 
             // Reprocesa con la planificación ya guardada — nunca se fuerza
             // el estado final a mano, sale del mismo motor de siempre.
-            $this->procesador->procesar($incidencia->colaborador, $incidencia->fecha);
+            $this->procesador->procesar($incidencia->colaborador, $incidencia->fecha, respetarAjusteManual: false);
 
             return $incidencia->fresh(['colaborador', 'resultado']);
         });
@@ -329,7 +329,7 @@ class AsistenciaDecisionService
             // planifica, nunca se fuerza un cálculo (mismo criterio que
             // PlanificacionRotativaService::reprocesarSiYaExiste()).
             if ($resultadoSustituto) {
-                $this->procesador->procesar($colaborador, Carbon::parse($fechaSustitutoria));
+                $this->procesador->procesar($colaborador, Carbon::parse($fechaSustitutoria), respetarAjusteManual: false);
             }
 
             // Con sustitutorio en la misma semana, el Art. 3° del D.Leg. 713
@@ -391,7 +391,7 @@ class AsistenciaDecisionService
             );
             // El motor normal decide el estado final (presente/HD/HI/etc.)
             // — nunca se fuerza un estado a mano.
-            $this->procesador->procesar($incidencia->colaborador, $incidencia->fecha);
+            $this->procesador->procesar($incidencia->colaborador, $incidencia->fecha, respetarAjusteManual: false);
 
             $incidencia->update([
                 'estado' => AsistenciaIncidencia::ESTADO_RESUELTA,
@@ -498,7 +498,7 @@ class AsistenciaDecisionService
         });
         if ($resuelto->estado === 'aprobado') {
             for ($fecha = Carbon::parse($resuelto->fecha_inicio); $fecha->lte($resuelto->fecha_fin); $fecha->addDay()) {
-                $this->procesador->procesar($resuelto->colaborador, $fecha);
+                $this->procesador->procesar($resuelto->colaborador, $fecha, respetarAjusteManual: false);
             }
         }
         return $resuelto;
@@ -528,17 +528,34 @@ class AsistenciaDecisionService
         }
         foreach (['entrada', 'salida'] as $campo) {
             if (! empty($datos[$campo])) {
+                // tipo_manual: la corrección prevalece sobre las marcas del
+                // reloj (ProcesarAsistenciaDiaria::aplicarCorreccionManual).
+                // anulada_at null en la búsqueda: no reutilizar una marca
+                // manual que la edición anterior ya anuló.
                 AsistenciaMarcacion::query()->firstOrCreate([
                     'empresa_id' => $empresa->id,
                     'person_id' => $resultado->colaborador->numero_documento,
                     'marcado_at' => Carbon::parse($fecha.' '.$datos[$campo]),
                     'origen' => 'manual_rrhh',
-                ], ['colaborador_id' => $resultado->colaborador_id, 'dispositivo' => 'Edición RR.HH.']);
+                    'anulada_at' => null,
+                ], ['colaborador_id' => $resultado->colaborador_id, 'dispositivo' => 'Edición RR.HH.', 'datos_origen' => ['tipo_manual' => $campo]]);
             }
         }
-        $actualizado = $this->procesador->procesar($resultado->colaborador, $resultado->fecha);
+        $actualizado = $this->procesador->procesar($resultado->colaborador, $resultado->fecha, respetarAjusteManual: false);
+        // El día queda protegido frente a procesos automáticos (importación,
+        // recálculo, carnet) hasta que un Administrador lo restablezca.
+        $actualizado->update([
+            'ajustado_manualmente_at' => now(),
+            'ajustado_por' => $usuario->id,
+            'motivo_ajuste' => $datos['motivo'],
+        ]);
+        // Editar la jornada es la revisión que pedía el aviso de marcaciones nuevas.
+        $actualizado->incidencias()
+            ->where('tipo', AsistenciaIncidencia::TIPO_MARCACIONES_EN_DIA_AJUSTADO)
+            ->where('estado', AsistenciaIncidencia::ESTADO_PENDIENTE)
+            ->update(['estado' => AsistenciaIncidencia::ESTADO_RESUELTA, 'motivo_resolucion' => 'Jornada editada por RR.HH.: '.$datos['motivo'], 'resuelto_por' => $usuario->id, 'resuelto_at' => now()]);
         if (! empty($datos['estado'])) {
-            $actualizado->update(['estado' => $datos['estado']]);
+            $actualizado->update(['estado' => $datos['estado'], 'estado_forzado' => $datos['estado']]);
             // El estado forzado pisa el que calculó el motor, pero la incidencia
             // automática (incl. falta) que procesar() dejó pendiente para el
             // estado calculado no se limpiaba sola — y como Nóminas cuenta

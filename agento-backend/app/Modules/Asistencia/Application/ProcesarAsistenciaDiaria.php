@@ -14,6 +14,7 @@ use App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class ProcesarAsistenciaDiaria
@@ -24,7 +25,15 @@ class ProcesarAsistenciaDiaria
         private readonly NotificarCambioAsistenciaCiclo $notificarCambioAsistencia,
     ) {}
 
-    public function procesar(Colaborador $colaborador, Carbon $fecha): AsistenciaResultadoDiario
+    /**
+     * Un día ajustado manualmente por RR.HH. (editarDia) no se recalcula en
+     * procesos automáticos o masivos: importación, recálculo de rango,
+     * carnet, descanso flexible, planificación, cobertura. Si llegaron
+     * marcaciones nuevas, se deja un aviso para revisarlo. Las decisiones
+     * de RR.HH. sobre ese día concreto (AsistenciaDecisionService) pasan
+     * $respetarAjusteManual = false; "Restablecer" limpia la marca antes.
+     */
+    public function procesar(Colaborador $colaborador, Carbon $fecha, bool $respetarAjusteManual = true): AsistenciaResultadoDiario
     {
         $fecha = $fecha->copy()->startOfDay();
         $periodoProtegido = AsistenciaPeriodo::query()
@@ -34,6 +43,19 @@ class ProcesarAsistenciaDiaria
             ->whereDate('fecha_fin', '>=', $fecha->toDateString())
             ->exists();
         abort_if($periodoProtegido, 422, 'La fecha pertenece a un período de asistencia protegido.');
+
+        if ($respetarAjusteManual && ($ajustado = $this->resultadoAjustado($colaborador, $fecha))) {
+            $this->avisarMarcacionesNuevas($ajustado);
+
+            return $ajustado->load('marcaciones', 'incidencias');
+        }
+
+        $existente = AsistenciaResultadoDiario::query()
+            ->where('empresa_id', $colaborador->empresa_id)
+            ->where('colaborador_id', $colaborador->id)
+            ->whereDate('fecha', $fecha->toDateString())
+            ->first();
+        $antes = $existente?->only(self::CAMPOS_CON_EFECTO_EN_NOMINA);
 
         // V3 P3 — se resuelve la condición vigente EN ESA FECHA (histórico,
         // nunca colaborador.es_trabajador_confianza actual) antes de tocar
@@ -168,6 +190,16 @@ class ProcesarAsistenciaDiaria
             $this->sincronizarTrabajoEnDescanso($resultado, $jornada['tipo_dia'] === 'descanso' && $minutosTrabajados > 0);
             $this->sincronizarHorasExtra($resultado);
 
+            // Un estado forzado por RR.HH. (editarDia) es una decisión manual:
+            // el motor recalcula todo lo demás, pero el estado final vuelve a
+            // ser el forzado, con el mismo efecto que editarDia() sobre las
+            // incidencias automáticas pendientes. Solo "Reprocesar todo"
+            // limpia estado_forzado.
+            if ($resultado->estado_forzado) {
+                $resultado->update(['estado' => $resultado->estado_forzado]);
+                $this->limpiarIncidenciasDePresenteForzado($resultado);
+            }
+
             return $resultado->load('marcaciones', 'incidencias');
         });
 
@@ -182,14 +214,80 @@ class ProcesarAsistenciaDiaria
         // si esa transacción exterior termina en rollback), sin que
         // procesar() necesite saber si está anidado. Sin transacción activa,
         // afterCommit() ejecuta de inmediato.
-        DB::afterCommit(function () use ($colaborador, $fecha, $resultado) {
-            $this->notificarCambioAsistencia->notificar(
-                $colaborador->empresa_id, $colaborador->id, $fecha->toDateString(), $fecha->toDateString(),
-                "Se reprocesó la asistencia del {$fecha->toDateString()} (quedó como '{$resultado->estado}').",
-            );
-        });
+        //
+        // Solo si el día realmente cambió en algo que Nómina usa: recalcular
+        // un rango sin cambios no debe marcar ciclos como pendientes.
+        if ($antes === null || $antes != $resultado->only(self::CAMPOS_CON_EFECTO_EN_NOMINA)) {
+            DB::afterCommit(function () use ($colaborador, $fecha, $resultado) {
+                $this->notificarCambioAsistencia->notificar(
+                    $colaborador->empresa_id, $colaborador->id, $fecha->toDateString(), $fecha->toDateString(),
+                    "Se reprocesó la asistencia del {$fecha->toDateString()} (quedó como '{$resultado->estado}').",
+                );
+            });
+        }
 
         return $resultado;
+    }
+
+    private const CAMPOS_CON_EFECTO_EN_NOMINA = [
+        'tipo_dia', 'estado', 'minutos_programados', 'minutos_trabajados', 'minutos_tardanza',
+        'minutos_salida_anticipada', 'minutos_extra_25', 'minutos_extra_35', 'minutos_extra_100',
+    ];
+
+    public function resultadoAjustado(Colaborador $colaborador, Carbon $fecha): ?AsistenciaResultadoDiario
+    {
+        return AsistenciaResultadoDiario::query()
+            ->where('empresa_id', $colaborador->empresa_id)
+            ->where('colaborador_id', $colaborador->id)
+            ->whereDate('fecha', $fecha->toDateString())
+            ->whereNotNull('ajustado_manualmente_at')
+            ->first();
+    }
+
+    /**
+     * Marcaciones registradas después del ajuste manual que el día no usa:
+     * no se aplican solas, se avisa con una incidencia para revisión. Una
+     * incidencia ya revisada solo se reabre si llegan marcas posteriores.
+     */
+    private function avisarMarcacionesNuevas(AsistenciaResultadoDiario $resultado): void
+    {
+        $usadas = $resultado->marcaciones()->pluck('asistencia_marcaciones.id');
+        $nuevas = AsistenciaMarcacion::query()
+            ->where('empresa_id', $resultado->empresa_id)
+            ->whereNull('anulada_at')
+            ->where('colaborador_id', $resultado->colaborador_id)
+            ->whereDate('marcado_at', $resultado->fecha->toDateString())
+            ->where('origen', '!=', 'manual_rrhh')
+            ->where('created_at', '>', $resultado->ajustado_manualmente_at)
+            ->whereNotIn('id', $usadas)
+            ->orderBy('marcado_at')
+            ->get();
+        if ($nuevas->isEmpty()) {
+            return;
+        }
+
+        $existente = AsistenciaIncidencia::query()
+            ->where('resultado_diario_id', $resultado->id)
+            ->where('tipo', AsistenciaIncidencia::TIPO_MARCACIONES_EN_DIA_AJUSTADO)
+            ->first();
+        $ultimaLlegada = $nuevas->max('created_at');
+        if ($existente && $existente->estado !== AsistenciaIncidencia::ESTADO_PENDIENTE
+            && $existente->resuelto_at && $existente->resuelto_at->gte($ultimaLlegada)) {
+            return; // ya revisada después de esas marcaciones
+        }
+
+        $horas = $nuevas->map(fn (AsistenciaMarcacion $m) => $m->marcado_at->format('H:i'))->implode(', ');
+        AsistenciaIncidencia::query()->updateOrCreate(
+            ['resultado_diario_id' => $resultado->id, 'tipo' => AsistenciaIncidencia::TIPO_MARCACIONES_EN_DIA_AJUSTADO],
+            [
+                'empresa_id' => $resultado->empresa_id,
+                'colaborador_id' => $resultado->colaborador_id,
+                'fecha' => $resultado->fecha,
+                'estado' => AsistenciaIncidencia::ESTADO_PENDIENTE,
+                'descripcion' => "Llegaron marcaciones ({$horas}) para un día ajustado manualmente. No se aplicaron: edita la jornada si corresponde o restablece el día.",
+                'motivo_resolucion' => null, 'resuelto_por' => null, 'resuelto_at' => null,
+            ],
+        );
     }
 
     /**
@@ -292,7 +390,7 @@ class ProcesarAsistenciaDiaria
             $hasta = $hasta->minimum($fecha->copy()->endOfDay());
         }
 
-        return AsistenciaMarcacion::query()
+        $marcaciones = AsistenciaMarcacion::query()
             ->where('empresa_id', $colaborador->empresa_id)
             ->whereNull('anulada_at')
             ->where(function ($query) use ($colaborador) {
@@ -320,6 +418,30 @@ class ProcesarAsistenciaDiaria
             })
             ->orderBy('marcado_at')
             ->get();
+
+        return $this->aplicarCorreccionManual($marcaciones);
+    }
+
+    /**
+     * La entrada/salida corregida por RR.HH. (editarDia, marcada con
+     * datos_origen.tipo_manual) prevalece sobre las del reloj: se descartan
+     * las marcas automáticas anteriores a la entrada corregida y posteriores
+     * a la salida corregida, para que el día no mezcle ambas fuentes.
+     */
+    private function aplicarCorreccionManual(Collection $marcaciones): Collection
+    {
+        $manual = fn (string $tipo) => $marcaciones->first(fn (AsistenciaMarcacion $m) => $m->origen === 'manual_rrhh'
+            && ($m->datos_origen['tipo_manual'] ?? null) === $tipo);
+        $entrada = $manual('entrada');
+        $salida = $manual('salida');
+        if (! $entrada && ! $salida) {
+            return $marcaciones;
+        }
+
+        return $marcaciones->reject(fn (AsistenciaMarcacion $m) => $m->origen !== 'manual_rrhh' && (
+            ($entrada && $m->marcado_at->lt($entrada->marcado_at))
+            || ($salida && $m->marcado_at->gt($salida->marcado_at))
+        ))->values();
     }
 
     private function resolverEstado(string $tipoDia, int $cantidadMarcaciones): string
