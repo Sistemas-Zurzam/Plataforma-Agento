@@ -3,8 +3,6 @@
 namespace App\Modules\Nominas\Services;
 
 use App\Modules\Configuracion\Models\Empresa;
-use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
-use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaDatosPago;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -22,7 +20,6 @@ class CicloRemunerativoService
 {
     public function __construct(
         private readonly IncidenciasPendientesNominaService $incidenciasPendientes,
-        private readonly VerificarConsistenciaAsistenciaCiclo $consistenciaAsistencia,
     ) {}
 
     /**
