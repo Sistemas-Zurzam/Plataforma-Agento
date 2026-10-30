@@ -14,6 +14,13 @@ class PeriodoAsistenciaCicloTest extends TestCase
         $this->assertSame(['inicio' => '2026-08-28', 'fin' => '2026-09-27'], $periodo);
     }
 
+    public function test_un_corte_del_27_permite_horas_extra_desde_el_mes_anterior(): void
+    {
+        $periodo = PeriodoAsistenciaCiclo::resolver('2026-10-01', '2026-10-31', '2026-10-27');
+
+        $this->assertSame(['inicio' => '2026-09-28', 'fin' => '2026-10-27'], $periodo);
+    }
+
     public function test_un_corte_al_final_conserva_el_mes_calendario(): void
     {
         $periodo = PeriodoAsistenciaCiclo::resolver('2026-09-01', '2026-09-30', '2026-09-30');

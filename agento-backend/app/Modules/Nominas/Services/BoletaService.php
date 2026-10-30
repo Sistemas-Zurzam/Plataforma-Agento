@@ -75,8 +75,13 @@ class BoletaService
         if ((int) $colaborador->empresa_id !== (int) $empresa->id) {
             throw ValidationException::withMessages(['colaborador_id' => 'El colaborador no pertenece a la empresa del ciclo.']);
         }
-        if ($fecha < $ciclo->fecha_inicio->toDateString() || $fecha > $ciclo->fecha_fin->toDateString()) {
-            throw ValidationException::withMessages(['fecha' => 'La fecha debe estar dentro del período de la planilla.']);
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver(
+            $ciclo->fecha_inicio->toDateString(),
+            $ciclo->fecha_fin->toDateString(),
+            $ciclo->fecha_corte_asistencia->toDateString(),
+        );
+        if ($fecha < $periodoAsistencia['inicio'] || $fecha > $periodoAsistencia['fin']) {
+            throw ValidationException::withMessages(['fecha' => 'La fecha debe estar dentro del período de asistencia cubierto por la planilla.']);
         }
         $condicion = ColaboradorCondicionLaboral::vigenteEn($colaborador->id, $fecha);
         if ($condicion?->es_trabajador_confianza || ! ($condicion?->contabilizar_horas_extra ?? $colaborador->contabilizar_horas_extra ?? true)) {
