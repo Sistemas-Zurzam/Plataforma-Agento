@@ -9,6 +9,7 @@ use App\Modules\Nominas\Application\CalcularReciboHonorarios;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Services\CicloRemunerativoService;
+use App\Modules\Personas\Models\Colaborador;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\CreaColaboradorDePrueba;
@@ -57,6 +58,55 @@ class PagoHonorariosPorDiasPresentesTest extends TestCase
         $this->assertSame(93.33, $lineaFeriado['monto']);
         $this->assertStringContainsString('2026-10-08', $lineaFeriado['formula_texto']);
         $this->assertSame(2893.33, $resultado['total_ingresos']);
+    }
+
+    public function test_feriado_con_entrada_y_salida_de_un_locador_sin_control_de_horario_se_paga(): void
+    {
+        $colaborador = $this->crearLocadorDeOctubre();
+        // Así guarda ProcesarAsistenciaDiaria un día sin control de horario:
+        // presente, con marcaciones, pero con minutos_trabajados en 0.
+        AsistenciaResultadoDiario::create([
+            'empresa_id' => $colaborador->empresa_id,
+            'colaborador_id' => $colaborador->id,
+            'fecha' => '2026-10-08',
+            'tipo_dia' => 'no_sujeto_control',
+            'estado' => 'presente',
+            'entrada_at' => '2026-10-08 09:20:00',
+            'salida_at' => '2026-10-08 13:49:00',
+            'minutos_trabajados' => 0,
+            'procesado_at' => now(),
+        ]);
+
+        $resultado = app(CalcularReciboHonorarios::class)->calcular(
+            $colaborador, '2026-10-01', '2026-10-31', '2026-10-27',
+        );
+
+        $lineaFeriado = collect($resultado['ingresos'])->firstWhere('codigo', 'HONORARIO_FERIADO_TRABAJADO');
+        $this->assertSame(93.33, $lineaFeriado['monto']);
+        $this->assertStringContainsString('2026-10-08', $lineaFeriado['formula_texto']);
+        $this->assertSame(2893.33, $resultado['total_ingresos']);
+    }
+
+    public function test_feriado_con_solo_entrada_de_un_locador_sin_control_de_horario_no_se_paga(): void
+    {
+        $colaborador = $this->crearLocadorDeOctubre();
+        AsistenciaResultadoDiario::create([
+            'empresa_id' => $colaborador->empresa_id,
+            'colaborador_id' => $colaborador->id,
+            'fecha' => '2026-10-08',
+            'tipo_dia' => 'no_sujeto_control',
+            'estado' => 'presente',
+            'entrada_at' => '2026-10-08 09:20:00',
+            'salida_at' => null,
+            'minutos_trabajados' => 0,
+            'procesado_at' => now(),
+        ]);
+
+        $resultado = app(CalcularReciboHonorarios::class)->calcular(
+            $colaborador, '2026-10-01', '2026-10-31', '2026-10-27',
+        );
+
+        $this->assertNull(collect($resultado['ingresos'])->firstWhere('codigo', 'HONORARIO_FERIADO_TRABAJADO'));
     }
 
     public function test_bonificacion_manual_se_suma_al_servicio_de_un_locador(): void
@@ -198,5 +248,28 @@ class PagoHonorariosPorDiasPresentesTest extends TestCase
         $this->assertCount(1, $resultado['ingresos']);
         $this->assertSame('HONORARIO_BRUTO', $resultado['ingresos'][0]['codigo']);
         $this->assertStringContainsString('12/09, 18/09, 19/09', $resultado['ingresos'][0]['formula_texto']);
+    }
+
+    private function crearLocadorDeOctubre(): Colaborador
+    {
+        $this->seed(DatabaseSeeder::class);
+        $colaborador = $this->crearColaborador(atributos: [
+            'tipo_contrato' => 'locacion_servicios',
+            'regimen_laboral' => 'Locacion de Servicios',
+            'fecha_ingreso' => '2026-10-01',
+        ]);
+        $colaborador->remuneraciones()->update(['salario' => 2800, 'vigencia_desde' => '2026-10-01']);
+        foreach (['renta_4ta_tasa' => 8, 'renta_4ta_umbral' => 3500] as $clave => $valor) {
+            ParametroLaboralValor::create([
+                'empresa_id' => $colaborador->empresa_id,
+                'definicion_id' => ParametroLaboralDefinicion::where('clave', $clave)->value('id'),
+                'regimen_laboral' => 'Locacion de Servicios',
+                'vigencia_desde' => '2026-10-01',
+                'valor' => $valor,
+                'motivo' => 'Configuración de prueba',
+            ]);
+        }
+
+        return $colaborador;
     }
 }

@@ -109,7 +109,13 @@ class CalcularReciboHonorarios
                 $query->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA)
                     ->orWhere('estado', 'feriado');
             })
-            ->where('minutos_trabajados', '>', 0)
+            // Sin control de horario (tipo_dia no_sujeto_control) el motor
+            // guarda minutos_trabajados en 0 aunque haya marcaciones; ahí la
+            // evidencia de trabajo es tener entrada y salida.
+            ->where(function ($query): void {
+                $query->where('minutos_trabajados', '>', 0)
+                    ->orWhere(fn ($marcado) => $marcado->whereNotNull('entrada_at')->whereNotNull('salida_at'));
+            })
             ->orderBy('fecha')
             ->get()
             // Usa el calendario oficial además del tipo de día persistido:
