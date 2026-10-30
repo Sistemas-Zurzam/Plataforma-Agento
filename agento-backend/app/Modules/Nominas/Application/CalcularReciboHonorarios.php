@@ -41,13 +41,13 @@ class CalcularReciboHonorarios
         $parametros = ParametrosVigentesResolver::paraHonorarios($colaborador->empresa, $fechaCorte);
 
         $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
-            ->whereDate('vigencia_desde', '<=', $fechaCorte)
+            ->whereDate('vigencia_desde', '<=', $fechaFin)
             ->orderByDesc('vigencia_desde')
             ->orderByDesc('id')
             ->first();
 
         if (! $remuneracion && $salarioBaseOverride === null) {
-            throw new RuntimeException("El colaborador #{$colaborador->id} no tiene un honorario pactado vigente a {$fechaCorte}.");
+            throw new RuntimeException("El colaborador #{$colaborador->id} no tiene un honorario pactado vigente durante el período pagado hasta {$fechaFin}.");
         }
 
         $honorarioBruto = (float) ($remuneracion?->salario ?? $salarioBaseOverride);

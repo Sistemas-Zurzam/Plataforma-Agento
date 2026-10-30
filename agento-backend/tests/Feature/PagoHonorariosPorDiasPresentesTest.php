@@ -15,6 +15,38 @@ class PagoHonorariosPorDiasPresentesTest extends TestCase
 {
     use RefreshDatabase, CreaColaboradorDePrueba;
 
+    public function test_locador_con_honorario_vigente_despues_del_corte_y_dentro_del_mes_pagado_no_se_omite(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $colaborador = $this->crearColaborador(atributos: [
+            'tipo_contrato' => 'locacion_servicios',
+            'regimen_laboral' => 'Locacion de Servicios',
+            'fecha_ingreso' => '2026-10-28',
+        ]);
+        $colaborador->remuneraciones()->update([
+            'salario' => 1400,
+            'vigencia_desde' => '2026-10-28',
+        ]);
+        foreach (['renta_4ta_tasa' => 8, 'renta_4ta_umbral' => 3500] as $clave => $valor) {
+            ParametroLaboralValor::create([
+                'empresa_id' => $colaborador->empresa_id,
+                'definicion_id' => ParametroLaboralDefinicion::where('clave', $clave)->value('id'),
+                'regimen_laboral' => 'Locacion de Servicios',
+                'vigencia_desde' => '2026-10-01',
+                'valor' => $valor,
+                'motivo' => 'Configuración de prueba',
+            ]);
+        }
+
+        $resultado = app(CalcularReciboHonorarios::class)->calcular(
+            $colaborador, '2026-10-01', '2026-10-31', '2026-10-27',
+        );
+
+        $this->assertSame(1400.0, $resultado['sueldo_basico']);
+        $this->assertGreaterThan(0, $resultado['ingresos'][0]['monto']);
+        $this->assertSame('HONORARIO_BRUTO', $resultado['ingresos'][0]['codigo']);
+    }
+
     public function test_un_locador_por_dias_presentes_cobra_solo_las_asistencias_reales(): void
     {
         $this->seed(DatabaseSeeder::class);

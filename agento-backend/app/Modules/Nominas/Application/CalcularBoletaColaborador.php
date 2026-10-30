@@ -68,13 +68,13 @@ class CalcularBoletaColaborador
         $parametros = ParametrosVigentesResolver::paraRegimen($colaborador->empresa, $regimen, $fechaCorte);
 
         $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
-            ->whereDate('vigencia_desde', '<=', $fechaCorte)
+            ->whereDate('vigencia_desde', '<=', $fechaFin)
             ->orderByDesc('vigencia_desde')
             ->orderByDesc('id')
             ->first();
 
         if (! $remuneracion && $salarioBaseOverride === null) {
-            throw new RuntimeException("El colaborador #{$colaborador->id} no tiene remuneración vigente a {$fechaCorte}.");
+            throw new RuntimeException("El colaborador #{$colaborador->id} no tiene remuneración vigente durante el período pagado hasta {$fechaFin}.");
         }
 
         $sueldoBasico = (float) ($remuneracion?->salario ?? $salarioBaseOverride);
