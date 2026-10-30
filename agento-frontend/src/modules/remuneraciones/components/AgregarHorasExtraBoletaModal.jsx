@@ -8,7 +8,7 @@ export default function AgregarHorasExtraBoletaModal({ open, onCancel, onSubmit,
   const fechaInicioHorasExtra = ciclo?.fecha_corte_asistencia
     && ciclo?.fecha_fin
     && dayjs(ciclo.fecha_corte_asistencia).isBefore(dayjs(ciclo.fecha_fin), 'day')
-    ? dayjs(ciclo.fecha_corte_asistencia).subtract(1, 'month').add(1, 'day')
+    ? dayjs(ciclo.fecha_corte_asistencia).subtract(1, 'month')
     : dayjs(ciclo?.fecha_inicio);
   const fechaFinHorasExtra = ciclo?.fecha_corte_asistencia
     && ciclo?.fecha_fin

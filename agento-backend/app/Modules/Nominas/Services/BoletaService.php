@@ -75,7 +75,7 @@ class BoletaService
         if ((int) $colaborador->empresa_id !== (int) $empresa->id) {
             throw ValidationException::withMessages(['colaborador_id' => 'El colaborador no pertenece a la empresa del ciclo.']);
         }
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver(
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolverHorasExtraManual(
             $ciclo->fecha_inicio->toDateString(),
             $ciclo->fecha_fin->toDateString(),
             $ciclo->fecha_corte_asistencia->toDateString(),

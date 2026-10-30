@@ -327,7 +327,7 @@ class BoletaController extends Controller
     public function registrarHorasExtraManual(Request $request, CicloRemunerativo $ciclo, int $colaborador): BoletaResource
     {
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver(
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolverHorasExtraManual(
             $ciclo->fecha_inicio->toDateString(),
             $ciclo->fecha_fin->toDateString(),
             $ciclo->fecha_corte_asistencia->toDateString(),
