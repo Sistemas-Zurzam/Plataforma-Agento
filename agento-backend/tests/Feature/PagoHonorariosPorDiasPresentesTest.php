@@ -41,7 +41,9 @@ class PagoHonorariosPorDiasPresentesTest extends TestCase
             'empresa_id' => $colaborador->empresa_id,
             'colaborador_id' => $colaborador->id,
             'fecha' => '2026-10-08',
-            'tipo_dia' => 'feriado',
+            // El resultado histórico puede conservar tipo_dia laborable;
+            // la fecha oficial debe seguir identificándose como feriado.
+            'tipo_dia' => 'laborable_presencial',
             'estado' => 'presente',
             'minutos_trabajados' => 480,
             'procesado_at' => now(),

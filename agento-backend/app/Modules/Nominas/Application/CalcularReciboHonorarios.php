@@ -13,6 +13,7 @@ use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
+use App\Modules\Personas\Support\FeriadosPeru;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use RuntimeException;
@@ -101,11 +102,13 @@ class CalcularReciboHonorarios
         $conceptosManuales = $this->conceptosDelPeriodo($colaborador, $cicloId);
         $feriadosTrabajados = AsistenciaResultadoDiario::where('colaborador_id', $colaborador->id)
             ->whereBetween('fecha', [$fechaInicio, $fechaFin])
-            ->where('tipo_dia', 'feriado')
             ->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA)
             ->where('minutos_trabajados', '>', 0)
             ->orderBy('fecha')
             ->get()
+            // Usa el calendario oficial además del tipo de día persistido:
+            // algunos resultados históricos conservan tipo_dia laborable.
+            ->filter(fn (AsistenciaResultadoDiario $resultado): bool => FeriadosPeru::esFeriado($resultado->fecha->toDateString()))
             ->map(function (AsistenciaResultadoDiario $resultado) use ($colaborador): array {
                 $remuneracionFeriado = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
                     ->whereDate('vigencia_desde', '<=', $resultado->fecha->toDateString())
