@@ -98,16 +98,25 @@ class CalcularReciboHonorarios
                 ? round($honorarioBruto * max(0, 30 - $diasNoPagadosPorIngresoTardio) / 30, 2)
                 : $honorarioBruto);
 
+        $conceptosManuales = $this->conceptosDelPeriodo($colaborador, $cicloId);
+        $ingresosAdicionales = collect($conceptosManuales)
+            ->where('tipo', 'ingreso')
+            ->sum(fn (array $manual) => (float) $manual['linea']['monto']);
+        $baseServicio = $honorarioDelPeriodo + $ingresosAdicionales;
+
         $retencion = 0.0;
         $alertas = [];
 
         if ($colaborador->tiene_suspension_renta_4ta) {
             $formulaRetencion = 'Sin retención — el colaborador presentó constancia de suspensión de retenciones de renta de 4ta.';
-        } elseif ($honorarioDelPeriodo <= $parametros['umbral_retencion_4ta']) {
+        } elseif ($baseServicio <= $parametros['umbral_retencion_4ta']) {
             $formulaRetencion = "Sin retención — el honorario ({$honorarioDelPeriodo}) no supera el umbral vigente (S/ {$parametros['umbral_retencion_4ta']}).";
         } else {
-            $retencion = round($honorarioDelPeriodo * $parametros['tasa_retencion_4ta'], 2);
+            $retencion = round($baseServicio * $parametros['tasa_retencion_4ta'], 2);
             $formulaRetencion = "{$parametros['tasa_retencion_4ta']} × honorario del período ({$honorarioDelPeriodo}) — supera el umbral de S/ {$parametros['umbral_retencion_4ta']}";
+        }
+        if ($ingresosAdicionales > 0) {
+            $formulaRetencion .= " (incluye S/ {$ingresosAdicionales} en ingresos adicionales)";
         }
 
         $ingresos = [[
@@ -128,7 +137,7 @@ class CalcularReciboHonorarios
         $egresos = [[
             'codigo' => 'RETENCION_RENTA_4TA',
             'monto' => $retencion,
-            'base_utilizada' => $honorarioDelPeriodo,
+            'base_utilizada' => $baseServicio,
             'tasa_aplicada' => $colaborador->tiene_suspension_renta_4ta ? null : $parametros['tasa_retencion_4ta'],
             'cantidad' => null,
             'formula_texto' => $formulaRetencion,
@@ -185,10 +194,9 @@ class CalcularReciboHonorarios
 
         // Adelantos/descuentos operativos que RR.HH. registró para este
         // locador+ciclo (colaborador_conceptos_periodo). CicloRemunerativoService::
-        // registrarConcepto ya exige tipo=egreso para honorarios, así que en la
-        // práctica esto siempre cae en $egresos — pero se enruta por tipo real
-        // del catálogo, nunca se asume, igual que en CalcularBoletaColaborador.
-        foreach ($this->conceptosDelPeriodo($colaborador, $cicloId) as $manual) {
+        // Los descuentos y adicionales permitidos para honorarios se enrutan
+        // por el tipo real del catálogo, nunca se asume.
+        foreach ($conceptosManuales as $manual) {
             if ($manual['tipo'] === 'egreso') {
                 $egresos[] = $manual['linea'];
             } else {

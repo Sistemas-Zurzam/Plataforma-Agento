@@ -23,11 +23,7 @@ const CONCEPTOS_CON_DEFINICION = ['BONIFICACION', 'BONO_NO_REMUNERATIVO'];
  * tipo (ingreso/egreso) que decide dónde aparece en la boleta lo determina
  * siempre el catálogo, nunca este formulario.
  *
- * Un locador (Recibos por Honorarios) no tiene relación laboral, así que
- * solo puede recibir conceptos de descuento (egreso) — el backend
- * (CicloRemunerativoService::registrarConcepto) ya lo rechaza si se intenta
- * lo contrario, pero `esHonorarios` evita ofrecer la opción inválida.
- */
+ * Para locadores, el backend limita los ingresos a adicionales de servicio`r`n * (comisiones/bonificaciones) y permite también los descuentos operativos.`r`n * Los conceptos exclusivos de planilla dependiente siguen sujetos a sus`r`n * reglas y clasificaciones PLAME.`r`n */
 export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpdate, onDelete, loading, colaborador, conceptos, conceptosLoading, catalogo, esHonorarios }) {
   const [form] = Form.useForm();
   const [tipoSeleccionado, setTipoSeleccionado] = useState(null);
@@ -92,8 +88,7 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpd
   };
 
   const opcionesDisponibles = CONCEPTOS_REGISTRABLES
-    .filter((c) => catalogo.some((k) => k.codigo === c.codigo))
-    .filter((c) => !esHonorarios || c.tipo === 'egreso');
+    .filter((c) => catalogo.some((k) => k.codigo === c.codigo));
   const codigoSeleccionado = Form.useWatch('codigo', form);
   const esOtroConceptoPlame = codigoSeleccionado === 'BONO_NO_REMUNERATIVO';
 
@@ -124,7 +119,7 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpd
             onChange={handleCambioConcepto}
           />
         </Form.Item>
-        {CONCEPTOS_CON_DEFINICION.includes(codigoSeleccionado) && (
+        {CONCEPTOS_CON_DEFINICION.includes(codigoSeleccionado) && !esHonorarios && (
           <Form.Item
             name="concepto_definicion_id"
             label="Clasificación PLAME"
@@ -154,6 +149,9 @@ export default function RegistrarConceptoModal({ open, onCancel, onSubmit, onUpd
         </Form.Item>
         {tipoSeleccionado === 'egreso' && (
           <p className="text-xs text-gray-400">Este concepto se descontará del neto a pagar (no se suma a los ingresos).</p>
+        )}
+        {esHonorarios && tipoSeleccionado === 'ingreso' && (
+          <p className="text-xs text-gray-500">Se sumará como adicional al servicio de honorarios; no usa clasificación PLAME.</p>
         )}
         {editandoId && (
           <p className="text-xs text-blue-500">

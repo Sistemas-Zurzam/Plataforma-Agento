@@ -87,11 +87,10 @@ class BoletaResource extends JsonResource
             'pagado_at' => $this->pagado_at?->toDateTimeString(),
             'referencia_pago' => $this->referencia_pago,
             'comprobante_rh' => $this->whenLoaded('comprobanteRh', fn () => $this->comprobanteRh ? [
-                // Se resuelve sin ambigüedad desde el concepto ya calculado
-                // (HONORARIO_BRUTO) — nunca se duplica como columna propia
+                // Suma los conceptos de ingreso ya calculados — nunca se duplica como columna propia
                 // en boleta_comprobantes_rh (ver BoletaService::montoTotalServicioRh).
                 'monto_total_servicio' => $this->whenLoaded('conceptos', fn () => (float) $this->conceptos
-                    ->filter(fn ($c) => $c->concepto?->codigo === 'HONORARIO_BRUTO')
+                    ->where('tipo', 'ingreso')
                     ->sum('monto')),
                 'tipo_comprobante' => $this->comprobanteRh->tipo_comprobante,
                 'serie' => $this->comprobanteRh->serie,

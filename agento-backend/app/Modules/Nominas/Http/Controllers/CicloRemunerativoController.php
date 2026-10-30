@@ -451,7 +451,8 @@ class CicloRemunerativoController extends Controller
         // corresponde, para que el snapshot de la boleta conserve el
         // código PLAME correcto en vez de uno genérico.
         $conceptoCodigo = ConceptoRemuneracion::find($request->input('concepto_id'))?->codigo;
-        $requiereDefinicion = in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
+        $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
+        $requiereDefinicion = ! $esHonorarios && in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
 
         $datos = $request->validate([
             'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],
@@ -473,7 +474,8 @@ class CicloRemunerativoController extends Controller
     public function actualizarConcepto(Request $request, CicloRemunerativo $ciclo, Colaborador $colaborador, ColaboradorConceptoPeriodo $conceptoPeriodo): ColaboradorConceptoPeriodoResource
     {
         $conceptoCodigo = ConceptoRemuneracion::find($request->input('concepto_id'))?->codigo;
-        $requiereDefinicion = in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
+        $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
+        $requiereDefinicion = ! $esHonorarios && in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
 
         $datos = $request->validate([
             'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],

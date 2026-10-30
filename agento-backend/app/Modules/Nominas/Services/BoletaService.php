@@ -441,14 +441,14 @@ class BoletaService
 
     /**
      * "Monto total del servicio" (E20, campo 6) para una boleta de
-     * honorarios — se resuelve sin ambigüedad sumando el concepto
-     * HONORARIO_BRUTO ya calculado, nunca se duplica el dato en
+     * honorarios — suma los conceptos de ingreso ya calculados, incluidos
+     * los adicionales de honorarios. Nunca se duplica el dato en
      * boleta_comprobantes_rh (sección 34 del encargo).
      */
     public function montoTotalServicioRh(Boleta $boleta): float
     {
         return (float) $boleta->conceptos()
-            ->whereHas('concepto', fn ($q) => $q->where('codigo', 'HONORARIO_BRUTO'))
+            ->where('tipo', 'ingreso')
             ->sum('monto');
     }
 

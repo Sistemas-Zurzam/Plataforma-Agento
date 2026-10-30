@@ -6,6 +6,9 @@ use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\ParametroLaboralDefinicion;
 use App\Modules\Configuracion\Models\ParametroLaboralValor;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
+use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Services\CicloRemunerativoService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\Concerns\CreaColaboradorDePrueba;
@@ -14,6 +17,51 @@ use Tests\TestCase;
 class PagoHonorariosPorDiasPresentesTest extends TestCase
 {
     use RefreshDatabase, CreaColaboradorDePrueba;
+
+    public function test_bonificacion_manual_se_suma_al_servicio_de_un_locador(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $colaborador = $this->crearColaborador(atributos: [
+            'tipo_contrato' => 'locacion_servicios',
+            'regimen_laboral' => 'Locacion de Servicios',
+            'fecha_ingreso' => '2026-09-01',
+        ]);
+        $colaborador->remuneraciones()->update(['salario' => 1800, 'vigencia_desde' => '2026-09-01']);
+        foreach (['renta_4ta_tasa' => 8, 'renta_4ta_umbral' => 3500] as $clave => $valor) {
+            ParametroLaboralValor::create([
+                'empresa_id' => $colaborador->empresa_id,
+                'definicion_id' => ParametroLaboralDefinicion::where('clave', $clave)->value('id'),
+                'regimen_laboral' => 'Locacion de Servicios',
+                'vigencia_desde' => '2026-09-01',
+                'valor' => $valor,
+                'motivo' => 'Configuración de prueba',
+            ]);
+        }
+        $ciclo = CicloRemunerativo::create([
+            'empresa_id' => $colaborador->empresa_id, 'nombre' => 'Septiembre 2026',
+            'fecha_inicio' => '2026-09-01', 'fecha_fin' => '2026-09-30',
+            'fecha_corte_asistencia' => '2026-09-30', 'fecha_pago' => '2026-09-30', 'estado' => 'abierto',
+        ]);
+        app(CicloRemunerativoService::class)->registrarConcepto(
+            $colaborador->empresa,
+            $ciclo,
+            $colaborador,
+            [
+                'concepto_id' => ConceptoRemuneracion::where('codigo', 'BONIFICACION')->value('id'),
+                'monto' => 500,
+                'motivo' => 'Bono por cumplimiento',
+            ],
+            \App\Models\User::firstOrFail()->id,
+        );
+
+        $resultado = app(CalcularReciboHonorarios::class)->calcular(
+            $colaborador, '2026-09-01', '2026-09-30', '2026-09-30', $ciclo->id,
+        );
+
+        $this->assertSame(2300.0, $resultado['total_ingresos']);
+        $this->assertSame(2300.0, $resultado['neto_a_pagar']);
+        $this->assertSame(500.0, collect($resultado['ingresos'])->firstWhere('codigo', 'BONIFICACION')['monto']);
+    }
 
     public function test_locador_con_honorario_vigente_despues_del_corte_y_dentro_del_mes_pagado_no_se_omite(): void
     {
