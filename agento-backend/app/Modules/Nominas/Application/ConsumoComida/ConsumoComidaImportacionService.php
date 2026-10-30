@@ -211,7 +211,9 @@ class ConsumoComidaImportacionService
                     'colaborador_id' => $colaboradorId,
                     'concepto_id' => $concepto->id,
                     'monto' => ConsumoComidaFila::centavosATexto($total['centavos']),
-                    'motivo' => "Consumo de comida — importación #{$importacion->id}",
+                    // Sin motivo: la boleta muestra "Adelanto 2" como cualquier
+                    // adelanto. La trazabilidad vive en ConsumoComidaAplicacion.
+                    'motivo' => null,
                     'creado_por' => $usuarioId,
                 ]);
                 ConsumoComidaAplicacion::create([
@@ -567,7 +569,7 @@ class ConsumoComidaImportacionService
             $bloqueos[] = 'El ciclo está cerrado, pagado o calculándose; no admite cambios en sus descuentos.';
         }
         if ($this->conceptoDisponible() === null) {
-            $bloqueos[] = 'El concepto "Descuento por consumo de comida" no está configurado como egreso activo. Configúralo antes de aplicar.';
+            $bloqueos[] = 'El concepto "Adelanto 2" (DESCUENTO_CONSUMO_COMIDA) no está configurado como egreso activo. Configúralo antes de aplicar.';
         }
         if ($boletas->contains('estado', 'pagada')) {
             $bloqueos[] = 'Hay boletas pagadas entre los colaboradores afectados.';
@@ -608,7 +610,7 @@ class ConsumoComidaImportacionService
     private function conceptoConfigurado(): ConceptoRemuneracion
     {
         return $this->conceptoDisponible() ?? throw ValidationException::withMessages([
-            'concepto' => 'El concepto "Descuento por consumo de comida" no está configurado como egreso activo. Configúralo antes de aplicar.',
+            'concepto' => 'El concepto "Adelanto 2" (DESCUENTO_CONSUMO_COMIDA) no está configurado como egreso activo. Configúralo antes de aplicar.',
         ]);
     }
 

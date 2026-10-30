@@ -110,7 +110,7 @@ export default function ConsumoComidaTab({ ciclo, puedeGestionar }) {
     <div className="space-y-4">
       {error && <Alert type="error" showIcon message={error} action={<Button size="small" onClick={cargar}>Reintentar</Button>} />}
       {resumen && !resumen.concepto_configurado && (
-        <Alert type="warning" showIcon message='El concepto "Descuento por consumo de comida" no está configurado como egreso activo: puedes validar archivos, pero no aplicarlos.' />
+        <Alert type="warning" showIcon message='El concepto "Adelanto 2" (descuento por consumo de comida) no está configurado como egreso activo: puedes validar archivos, pero no aplicarlos.' />
       )}
       {resumen && !resumen.ciclo_modificable && (
         <Alert type="info" showIcon message="El ciclo está cerrado, pagado o calculándose: no admite aplicar ni anular descuentos." />
