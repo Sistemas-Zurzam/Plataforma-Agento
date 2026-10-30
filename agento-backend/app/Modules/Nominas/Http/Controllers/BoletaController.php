@@ -16,7 +16,6 @@ use App\Modules\Nominas\Models\BoletaComprobanteRh;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Services\AportesPrevisionalesService;
 use App\Modules\Nominas\Services\BoletaService;
-use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Http\JsonResponse;
@@ -327,13 +326,8 @@ class BoletaController extends Controller
     public function registrarHorasExtraManual(Request $request, CicloRemunerativo $ciclo, int $colaborador): BoletaResource
     {
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolverHorasExtraManual(
-            $ciclo->fecha_inicio->toDateString(),
-            $ciclo->fecha_fin->toDateString(),
-            $ciclo->fecha_corte_asistencia->toDateString(),
-        );
         $datos = $request->validate([
-            'fecha' => ['required', 'date_format:Y-m-d', 'after_or_equal:'.$periodoAsistencia['inicio'], 'before_or_equal:'.$periodoAsistencia['fin']],
+            'fecha' => ['required', 'date_format:Y-m-d'],
             'minutos' => ['required', 'integer', 'min:1', 'max:1440'],
             'tasa' => ['required', Rule::in(['25', '35', '100'])],
             'motivo' => ['required', 'string', 'min:5', 'max:1000'],

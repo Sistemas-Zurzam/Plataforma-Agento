@@ -5,17 +5,6 @@ import { useEffect } from 'react';
 export default function AgregarHorasExtraBoletaModal({ open, onCancel, onSubmit, loading, boleta, ciclo }) {
   const [form] = Form.useForm();
   const esHonorarios = boleta?.regimen_laboral === 'Locacion de Servicios';
-  const fechaInicioHorasExtra = ciclo?.fecha_corte_asistencia
-    && ciclo?.fecha_fin
-    && dayjs(ciclo.fecha_corte_asistencia).isBefore(dayjs(ciclo.fecha_fin), 'day')
-    ? dayjs(ciclo.fecha_corte_asistencia).subtract(1, 'month')
-    : dayjs(ciclo?.fecha_inicio);
-  const fechaFinHorasExtra = ciclo?.fecha_corte_asistencia
-    && ciclo?.fecha_fin
-    && dayjs(ciclo.fecha_corte_asistencia).isBefore(dayjs(ciclo.fecha_fin), 'day')
-    ? dayjs(ciclo.fecha_corte_asistencia)
-    : dayjs(ciclo?.fecha_fin);
-
   useEffect(() => {
     if (!open) form.resetFields();
   }, [open, form]);
@@ -49,10 +38,7 @@ export default function AgregarHorasExtraBoletaModal({ open, onCancel, onSubmit,
       </p>
       <Form form={form} layout="vertical">
         <Form.Item label="Fecha" name="fecha" rules={[{ required: true, message: 'Selecciona la fecha' }]}>
-          <DatePicker className="w-full" format="DD/MM/YYYY" disabledDate={(fecha) => (
-            (fechaInicioHorasExtra?.isValid() && fecha.isBefore(fechaInicioHorasExtra, 'day'))
-            || (fechaFinHorasExtra?.isValid() && fecha.isAfter(fechaFinHorasExtra, 'day'))
-          )} />
+          <DatePicker className="w-full" format="DD/MM/YYYY" />
         </Form.Item>
         <div className="grid grid-cols-2 gap-4">
           <Form.Item label="Minutos" name="minutos" rules={[{ required: true, message: 'Ingresa los minutos' }]}>

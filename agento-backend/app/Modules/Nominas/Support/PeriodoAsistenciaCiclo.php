@@ -35,25 +35,6 @@ final class PeriodoAsistenciaCiclo
         ];
     }
 
-    /** @return array{inicio: string, fin: string} */
-    public static function resolverHorasExtraManual(string $fechaInicioCiclo, string $fechaFinCiclo, string $fechaCorte): array
-    {
-        $inicio = Carbon::parse($fechaInicioCiclo)->startOfDay();
-        $fin = Carbon::parse($fechaFinCiclo)->startOfDay();
-        $corte = Carbon::parse($fechaCorte)->startOfDay();
-
-        if ($corte->gte($fin)) {
-            return ['inicio' => $inicio->toDateString(), 'fin' => $fin->toDateString()];
-        }
-
-        return [
-            // Se admite el día de corte del mes anterior para registrar HE
-            // manual que no quedó en el huellero.
-            'inicio' => $corte->copy()->subMonthNoOverflow()->toDateString(),
-            'fin' => $corte->toDateString(),
-        ];
-    }
-
     /**
      * Proyectado de planilla: la asistencia se lee solo hasta el último día
      * ya procesado; el resto del mes se paga sin incidencias (proyectado al
