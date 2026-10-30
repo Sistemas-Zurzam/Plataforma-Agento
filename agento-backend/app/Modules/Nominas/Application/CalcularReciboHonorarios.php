@@ -102,7 +102,13 @@ class CalcularReciboHonorarios
         $conceptosManuales = $this->conceptosDelPeriodo($colaborador, $cicloId);
         $feriadosTrabajados = AsistenciaResultadoDiario::where('colaborador_id', $colaborador->id)
             ->whereBetween('fecha', [$fechaInicio, $fechaFin])
-            ->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA)
+            ->where(function ($query): void {
+                // ProcesarAsistenciaDiaria guarda el estado como "feriado"
+                // cuando resuelve una fecha festiva con marcaciones; no usa
+                // "presente" para ese tipo de jornada.
+                $query->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA)
+                    ->orWhere('estado', 'feriado');
+            })
             ->where('minutos_trabajados', '>', 0)
             ->orderBy('fecha')
             ->get()
