@@ -28,13 +28,23 @@ use App\Modules\Nominas\Http\Controllers\ConsumoComidaController;
 use App\Modules\Nominas\Http\Controllers\LiquidacionCeseController;
 use App\Modules\Nominas\Http\Controllers\NominaImportacionHistoricaController;
 use App\Modules\Nominas\Http\Controllers\PlanillaComplementariaController;
+use App\Modules\Nominas\Http\Controllers\PropuestaConceptoController;
 use App\Modules\Nominas\Http\Controllers\SunatCatalogoController;
 use App\Modules\Nominas\Http\Controllers\TramoRentaController;
 use App\Modules\Nominas\Http\Controllers\VacacionMovimientoController;
 use App\Modules\Personas\Http\Controllers\ColaboradorController;
+use App\Modules\Personas\Http\Controllers\SolicitudCeseController;
 use App\Modules\PortalCliente\Http\Controllers\PortalAsistenciaController;
 use App\Modules\PortalCliente\Http\Controllers\PortalAsistenciaListadosController;
+use App\Modules\PortalCliente\Http\Controllers\PortalBonosController;
+use App\Modules\PortalCliente\Http\Controllers\PortalCesesController;
 use App\Modules\PortalCliente\Http\Controllers\PortalContextoController;
+use App\Modules\PortalCliente\Http\Controllers\PortalHorasExtraController;
+use App\Modules\PortalCliente\Http\Controllers\PortalInicioController;
+use App\Modules\PortalCliente\Http\Controllers\PortalPermisosController;
+use App\Modules\PortalCliente\Http\Controllers\PortalPersonalController;
+use App\Modules\PortalCliente\Http\Controllers\PortalPlanificacionController;
+use App\Modules\Reclutamiento\Http\Middleware\ExigirAlgunPermiso;
 use Illuminate\Support\Facades\Route;
 
 Route::post('/login', [AuthController::class, 'login']);
@@ -48,10 +58,31 @@ Route::middleware('jwt')->group(function () {
     // Portal Cliente: la empresa se resuelve desde el usuario autenticado.
     Route::prefix('portal')->middleware(['portal.habilitado', 'portal.empresa'])->group(function () {
         Route::get('/contexto', [PortalContextoController::class, 'contexto'])->middleware('permiso:portal.acceder');
+        Route::get('/inicio', [PortalInicioController::class, 'inicio'])->middleware('permiso:portal.acceder');
+
+        // Portal de Empresa (GER): toda operación se limita al alcance
+        // (empresa del JWT + áreas autorizadas) dentro de cada caso de uso.
+        Route::patch('/horas-extra/{horaExtra}/decision', [PortalHorasExtraController::class, 'decidir'])
+            ->whereNumber('horaExtra')->middleware('permiso:portal.horas_extra.aprobar');
+        Route::get('/permisos/tipos', [PortalPermisosController::class, 'tipos'])->middleware('permiso:portal.permisos.solicitar');
+        Route::post('/permisos', [PortalPermisosController::class, 'solicitar'])->middleware('permiso:portal.permisos.solicitar');
+        Route::get('/planificacion', [PortalPlanificacionController::class, 'semana'])->middleware('permiso:portal.planificacion.gestionar');
+        Route::put('/planificacion', [PortalPlanificacionController::class, 'guardar'])->middleware('permiso:portal.planificacion.gestionar');
+        Route::get('/bonos/ciclos', [PortalBonosController::class, 'ciclos'])->middleware('permiso:portal.bonos.proponer');
+        Route::get('/bonos', [PortalBonosController::class, 'index'])->middleware('permiso:portal.bonos.proponer');
+        Route::post('/bonos', [PortalBonosController::class, 'store'])->middleware('permiso:portal.bonos.proponer');
+        Route::get('/ceses', [PortalCesesController::class, 'index'])->middleware('permiso:portal.ceses.solicitar');
+        Route::post('/ceses', [PortalCesesController::class, 'store'])->middleware('permiso:portal.ceses.solicitar');
+        Route::get('/ceses/{solicitud}', [PortalCesesController::class, 'show'])->whereNumber('solicitud')->middleware('permiso:portal.ceses.solicitar');
+        Route::get('/ceses/{solicitud}/evidencias/{evidencia}', [PortalCesesController::class, 'evidencia'])
+            ->whereNumber(['solicitud', 'evidencia'])->middleware('permiso:portal.ceses.solicitar');
+        Route::get('/personal/solicitudes', [PortalPersonalController::class, 'index'])
+            ->middleware(ExigirAlgunPermiso::class.':seleccion.solicitudes.crear,seleccion.seguimiento');
 
         Route::prefix('asistencia')->group(function () {
             Route::get('/resumen', [PortalAsistenciaController::class, 'resumen'])->middleware('permiso:portal.asistencia.ver');
             Route::get('/colaboradores', [PortalAsistenciaController::class, 'colaboradores'])->middleware('permiso:portal.asistencia.ver');
+            Route::get('/equipo-mensual', [PortalAsistenciaController::class, 'equipoMensual'])->middleware('permiso:portal.asistencia.ver');
             Route::get('/colaboradores/{colaborador}', [PortalAsistenciaController::class, 'colaborador'])->middleware('permiso:portal.asistencia.ver');
             Route::get('/colaboradores/{colaborador}/calendario', [PortalAsistenciaController::class, 'calendario'])->middleware('permiso:portal.asistencia.ver');
             Route::get('/colaboradores/{colaborador}/marcaciones', [PortalAsistenciaController::class, 'marcaciones'])->middleware('permiso:portal.asistencia.ver');
@@ -198,6 +229,13 @@ Route::middleware('jwt')->group(function () {
     Route::put('/colaboradores/{colaborador}/configuracion-nomina', [ColaboradorController::class, 'actualizarConfiguracionNomina'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/colaboradores/{colaborador}', [ColaboradorController::class, 'update'])->middleware('permiso:colaboradores.editar');
     Route::patch('/colaboradores/{colaborador}/cesar', [ColaboradorController::class, 'cesar'])->middleware('permiso:colaboradores.cesar');
+    // Bandeja de RR. HH.: solicitudes de cese enviadas desde el Portal de Empresa.
+    Route::get('/solicitudes-cese', [SolicitudCeseController::class, 'index'])->middleware('permiso:colaboradores.cesar');
+    Route::get('/solicitudes-cese/{solicitud}', [SolicitudCeseController::class, 'show'])->whereNumber('solicitud')->middleware('permiso:colaboradores.cesar');
+    Route::patch('/solicitudes-cese/{solicitud}/decision', [SolicitudCeseController::class, 'resolver'])->whereNumber('solicitud')->middleware('permiso:colaboradores.cesar');
+    Route::post('/solicitudes-cese/{solicitud}/ejecutar', [SolicitudCeseController::class, 'ejecutar'])->whereNumber('solicitud')->middleware('permiso:colaboradores.cesar');
+    Route::get('/solicitudes-cese/{solicitud}/evidencias/{evidencia}', [SolicitudCeseController::class, 'evidencia'])
+        ->whereNumber(['solicitud', 'evidencia'])->middleware('permiso:colaboradores.cesar');
     Route::patch('/colaboradores/{colaborador}/reactivar', [ColaboradorController::class, 'reactivar'])->middleware('permiso:colaboradores.cesar');
     Route::get('/colaboradores/{colaborador}/vacacion-movimientos', [VacacionMovimientoController::class, 'index'])->middleware('permiso:colaboradores.ver');
     Route::post('/colaboradores/{colaborador}/vacacion-movimientos', [VacacionMovimientoController::class, 'store'])->middleware('permiso:colaboradores.editar');
@@ -332,6 +370,9 @@ Route::middleware('jwt')->group(function () {
 
     Route::get('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'listarConceptos'])->middleware('permiso:nominas.ver');
     Route::post('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos', [CicloRemunerativoController::class, 'registrarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
+    // Bandeja de RR. HH.: propuestas de bono/comisión del Portal de Empresa.
+    Route::get('/propuestas-conceptos', [PropuestaConceptoController::class, 'index'])->middleware('permiso:nominas.gestionar_ciclos');
+    Route::patch('/propuestas-conceptos/{propuesta}', [PropuestaConceptoController::class, 'resolver'])->whereNumber('propuesta')->middleware('permiso:nominas.gestionar_ciclos');
     Route::put('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos/{conceptoPeriodo}', [CicloRemunerativoController::class, 'actualizarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::delete('/ciclos-remunerativos/{ciclo}/colaboradores/{colaborador}/conceptos/{conceptoPeriodo}', [CicloRemunerativoController::class, 'eliminarConcepto'])->middleware('permiso:nominas.gestionar_ciclos');
 

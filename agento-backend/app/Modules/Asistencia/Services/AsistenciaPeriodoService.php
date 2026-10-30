@@ -5,11 +5,11 @@ namespace App\Modules\Asistencia\Services;
 use App\Modules\Asistencia\Application\AsegurarCoberturaAsistenciaPeriodo;
 use App\Modules\Asistencia\Application\AsignarDescansoFlexibleSemanal;
 use App\Modules\Asistencia\Jobs\AsegurarCoberturaAsistenciaPeriodoJob;
-use App\Modules\Asistencia\Models\AsistenciaPeriodo;
-use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
-use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
+use App\Modules\Asistencia\Models\AsistenciaIncidencia;
+use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -47,7 +47,7 @@ class AsistenciaPeriodoService
      * nivel de servicio, no solo esta orquestación de UI).
      *
      * @return array<string, mixed>|null null = todo listo, seguir con cambiarEstado('cerrar').
-     *                                    array = cobertura en curso (202), el período sigue abierto.
+     *                                   array = cobertura en curso (202), el período sigue abierto.
      *
      * @throws ValidationException cobertura en error, o pendientes sin resolver — cierre bloqueado.
      */
@@ -191,10 +191,13 @@ class AsistenciaPeriodoService
         $solapado = AsistenciaPeriodo::query()->where('empresa_id', $empresa->id)
             ->whereDate('fecha_inicio', '<=', $datos['fecha_fin'])
             ->whereDate('fecha_fin', '>=', $datos['fecha_inicio'])->exists();
-        if ($solapado) throw ValidationException::withMessages(['fecha_inicio' => ['El rango se superpone con otro período de asistencia.']]);
+        if ($solapado) {
+            throw ValidationException::withMessages(['fecha_inicio' => ['El rango se superpone con otro período de asistencia.']]);
+        }
 
         $periodo = AsistenciaPeriodo::query()->create([...$datos, 'empresa_id' => $empresa->id, 'estado' => 'abierto']);
         $this->auditoria->registrar($empresa->id, $usuarioId, 'periodo_creado', $periodo, null, null, $periodo->toArray());
+
         return $periodo;
     }
 
@@ -209,6 +212,7 @@ class AsistenciaPeriodoService
     public function cambiarEstado(Empresa $empresa, AsistenciaPeriodo $periodo, string $accion, int $usuarioId, string $motivo): AsistenciaPeriodo
     {
         abort_unless($periodo->empresa_id === $empresa->id, 404);
+
         return DB::transaction(function () use ($empresa, $periodo, $accion, $usuarioId, $motivo) {
             $antes = $periodo->toArray();
             if ($accion === 'cerrar' && $periodo->estado === 'abierto') {
@@ -285,6 +289,7 @@ class AsistenciaPeriodoService
                 throw ValidationException::withMessages(['estado' => ['La transición solicitada no es válida para el período.']]);
             }
             $this->auditoria->registrar($empresa->id, $usuarioId, 'periodo_'.$accion, $periodo, $motivo, $antes, $periodo->fresh()->toArray());
+
             return $periodo->fresh();
         });
     }
@@ -294,7 +299,9 @@ class AsistenciaPeriodoService
         $protegido = AsistenciaPeriodo::query()->where('empresa_id', $empresaId)
             ->whereIn('estado', ['cerrado', 'enviado_nomina'])
             ->whereDate('fecha_inicio', '<=', $hasta)->whereDate('fecha_fin', '>=', $desde)->exists();
-        if ($protegido) throw ValidationException::withMessages(['fecha_desde' => ['El rango contiene un período cerrado o enviado a Nómina.']]);
+        if ($protegido) {
+            throw ValidationException::withMessages(['fecha_desde' => ['El rango contiene un período cerrado o enviado a Nómina.']]);
+        }
     }
 
     /**
@@ -316,7 +323,9 @@ class AsistenciaPeriodoService
             ->selectRaw('tipo, count(*) as total')->groupBy('tipo')->pluck('total', 'tipo');
 
         $horasPendientes = AsistenciaHoraExtra::query()->where('empresa_id', $empresa->id)
-            ->whereBetween('fecha', [$periodo->fecha_inicio, $periodo->fecha_fin])->where('estado', 'pendiente')->count();
+            ->whereBetween('fecha', [$periodo->fecha_inicio, $periodo->fecha_fin])
+            // aprobado_gerencia sigue esperando la validación de RR. HH.
+            ->whereIn('estado', AsistenciaHoraExtra::ESTADOS_PENDIENTES_RRHH)->count();
 
         $permisosPendientes = AsistenciaPermiso::query()->where('empresa_id', $empresa->id)
             ->whereDate('fecha_inicio', '<=', $periodo->fecha_fin)->whereDate('fecha_fin', '>=', $periodo->fecha_inicio)
@@ -340,8 +349,12 @@ class AsistenciaPeriodoService
         foreach ($pendientes['incidencias'] as $tipo => $total) {
             $partes[] = "{$total} ".(self::ETIQUETAS_INCIDENCIA[$tipo] ?? $tipo);
         }
-        if ($pendientes['horas_extra'] > 0) $partes[] = "{$pendientes['horas_extra']} horas extra pendientes";
-        if ($pendientes['permisos'] > 0) $partes[] = "{$pendientes['permisos']} permisos pendientes";
+        if ($pendientes['horas_extra'] > 0) {
+            $partes[] = "{$pendientes['horas_extra']} horas extra pendientes";
+        }
+        if ($pendientes['permisos'] > 0) {
+            $partes[] = "{$pendientes['permisos']} permisos pendientes";
+        }
 
         return 'No se puede cerrar el período. Existen asuntos de asistencia pendientes: '.implode(', ', $partes).'. Resuélvelos antes de cerrar.';
     }

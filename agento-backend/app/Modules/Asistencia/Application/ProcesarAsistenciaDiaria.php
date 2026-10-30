@@ -2,11 +2,11 @@
 
 namespace App\Modules\Asistencia\Application;
 
-use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
+use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaMarcacion;
-use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
+use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\HorarioDia;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
@@ -706,11 +706,33 @@ class ProcesarAsistenciaDiaria
                 'resultado_diario_id' => $resultado->id,
                 'tasa' => $tasa,
             ]);
-            if ($minutos <= 0) {
-                if ($registro->exists && $registro->estado === 'pendiente') $registro->delete();
+            // Portal de Empresa: una aprobación de gerencia todavía no es
+            // final. Si el reprocesamiento cambió el tiempo observado, esa
+            // aprobación deja de ser compatible y se invalida (vuelve a
+            // pendiente, con auditoría) en vez de conservarse en silencio.
+            // Si el tiempo no cambió, la decisión de gerencia se respeta.
+            $esAprobacionGerencia = $registro->exists && $registro->estado === AsistenciaHoraExtra::ESTADO_APROBADO_GERENCIA;
+            if ($esAprobacionGerencia && (int) $registro->minutos_observados === (int) $minutos) {
                 continue;
             }
-            if ($registro->exists && $registro->estado !== 'pendiente') continue;
+            if ($esAprobacionGerencia) {
+                $antes = $registro->toArray();
+                $this->auditoria->registrar(
+                    $resultado->empresa_id, null, 'hora_extra_gerencia_invalidada', $registro,
+                    "El reprocesamiento cambió el tiempo observado ({$registro->minutos_observados} → ".max(0, (int) $minutos).' min); la aprobación de gerencia vuelve a pendiente.',
+                    $antes, null,
+                );
+            }
+            if ($minutos <= 0) {
+                if ($registro->exists && in_array($registro->estado, AsistenciaHoraExtra::ESTADOS_PENDIENTES_RRHH, true)) {
+                    $registro->delete();
+                }
+
+                continue;
+            }
+            if ($registro->exists && ! in_array($registro->estado, AsistenciaHoraExtra::ESTADOS_PENDIENTES_RRHH, true)) {
+                continue;
+            }
             $registro->fill([
                 'empresa_id' => $resultado->empresa_id,
                 'colaborador_id' => $resultado->colaborador_id,
@@ -732,6 +754,10 @@ class ProcesarAsistenciaDiaria
                     : null,
                 'resuelto_por' => null,
                 'resuelto_at' => $esFeriadoTrabajado ? now() : null,
+                'minutos_aprobados_gerencia' => null,
+                'motivo_gerencia' => null,
+                'gerencia_resuelto_por' => null,
+                'gerencia_resuelto_at' => null,
             ])->save();
         }
     }

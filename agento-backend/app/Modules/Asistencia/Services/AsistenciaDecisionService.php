@@ -3,26 +3,27 @@
 namespace App\Modules\Asistencia\Services;
 
 use App\Models\User;
+use App\Modules\Asistencia\Application\ProcesarAsistenciaDiaria;
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Models\AsistenciaIncidencia;
-use App\Modules\Asistencia\Models\AsistenciaPermiso;
-use App\Modules\Asistencia\Models\AsistenciaSolicitudArea;
-use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\AsistenciaMarcacion;
+use App\Modules\Asistencia\Models\AsistenciaPermiso;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
+use App\Modules\Asistencia\Models\AsistenciaSolicitudArea;
 use App\Modules\Asistencia\Models\Horario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\NotificarCambioAsistenciaCiclo;
 use App\Modules\Personas\Models\ColaboradorCalendarioDia;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class AsistenciaDecisionService
 {
     public function __construct(
         private readonly AsistenciaAuditoriaService $auditoria,
-        private readonly \App\Modules\Asistencia\Application\ProcesarAsistenciaDiaria $procesador,
+        private readonly ProcesarAsistenciaDiaria $procesador,
         private readonly AsistenciaPeriodoService $periodos,
         private readonly AsistenciaPermisoService $permisos,
         private readonly NotificarCambioAsistenciaCiclo $notificarCambioAsistencia,
@@ -33,6 +34,7 @@ class AsistenciaDecisionService
         $this->asegurarEmpresa($empresa, $incidencia);
         $fecha = $incidencia->fecha->toDateString();
         $this->periodos->asegurarRangoEditable($empresa->id, $fecha, $fecha);
+
         return DB::transaction(function () use ($empresa, $incidencia, $datos, $usuario) {
             $antes = $incidencia->toArray();
             // Estado canónico único para el flujo nuevo: 'aprobar' -> resuelta,
@@ -52,6 +54,7 @@ class AsistenciaDecisionService
                 'motivo_resolucion' => $datos['motivo'], 'resuelto_por' => $usuario->id, 'resuelto_at' => now(),
             ]);
             $this->auditoria->registrar($empresa->id, $usuario->id, 'incidencia_'.$datos['accion'], $incidencia, $datos['motivo'], $antes, $incidencia->fresh()->toArray());
+
             return $incidencia->fresh(['colaborador', 'resultado']);
         });
     }
@@ -114,9 +117,9 @@ class AsistenciaDecisionService
      * intacta con su auditoría humana completa.
      *
      * @param  array<string, mixed>  $datosPermiso  Mismos campos que
-     *   StoreAsistenciaPermisoRequest (tipo, fecha_inicio, fecha_fin, motivo,
-     *   con_goce, pagador_subsidio) — sin colaborador_id, se toma de la
-     *   incidencia, nunca del request, para no confiar en un valor arbitrario.
+     *                                              StoreAsistenciaPermisoRequest (tipo, fecha_inicio, fecha_fin, motivo,
+     *                                              con_goce, pagador_subsidio) — sin colaborador_id, se toma de la
+     *                                              incidencia, nunca del request, para no confiar en un valor arbitrario.
      * @return array{incidencia: AsistenciaIncidencia, permiso: AsistenciaPermiso}
      */
     public function resolverIncidenciaConPermiso(Empresa $empresa, AsistenciaIncidencia $incidencia, array $datosPermiso, User $usuario): array
@@ -416,13 +419,31 @@ class AsistenciaDecisionService
         if ($datos['accion'] === 'anular_aprobacion' && $horaExtra->estado !== AsistenciaHoraExtra::ESTADO_APROBADO) {
             throw ValidationException::withMessages(['accion' => ['Solo se puede anular una hora extra aprobada.']]);
         }
-        if (in_array($datos['accion'], ['aprobar', 'rechazar'], true) && $horaExtra->estado !== AsistenciaHoraExtra::ESTADO_PENDIENTE) {
-            throw ValidationException::withMessages(['accion' => ['La hora extra ya fue resuelta. Usa anular aprobación si se aprobó por error.']]);
-        }
         $resultado = DB::transaction(function () use ($empresa, $horaExtra, $datos, $usuario) {
+            // Relectura bloqueada: dos validaciones simultáneas (o un
+            // reintento) nunca deciden dos veces la misma fila.
+            $horaExtra = AsistenciaHoraExtra::query()->whereKey($horaExtra->id)->lockForUpdate()->firstOrFail();
+            // RR. HH. valida tanto lo pendiente como lo ya aprobado por
+            // gerencia (Portal de Empresa); en el segundo caso el tope es lo
+            // que aprobó gerencia: validado ≤ gerencia ≤ observado.
+            if (in_array($datos['accion'], ['aprobar', 'rechazar'], true)
+                && ! in_array($horaExtra->estado, AsistenciaHoraExtra::ESTADOS_PENDIENTES_RRHH, true)) {
+                throw ValidationException::withMessages(['accion' => ['La hora extra ya fue resuelta. Usa anular aprobación si se aprobó por error.']]);
+            }
             $antes = $horaExtra->toArray();
+            $tope = $horaExtra->estado === AsistenciaHoraExtra::ESTADO_APROBADO_GERENCIA
+                ? min((int) $horaExtra->minutos_observados, (int) $horaExtra->minutos_aprobados_gerencia)
+                : (int) $horaExtra->minutos_observados;
+            // Solo se rechaza explícitamente al superar lo aprobado por
+            // gerencia; sobre lo observado se conserva el recorte histórico.
+            if ($datos['accion'] === 'aprobar' && $horaExtra->estado === AsistenciaHoraExtra::ESTADO_APROBADO_GERENCIA
+                && isset($datos['minutos_aprobados']) && (int) $datos['minutos_aprobados'] > $tope) {
+                throw ValidationException::withMessages(['minutos_aprobados' => [
+                    "No puedes validar más de {$tope} minutos (tope: tiempo aprobado por gerencia u observado).",
+                ]]);
+            }
             $aprobados = $datos['accion'] === 'aprobar'
-                ? min($horaExtra->minutos_observados, $datos['minutos_aprobados'] ?? $horaExtra->minutos_observados) : 0;
+                ? min($tope, $datos['minutos_aprobados'] ?? $tope) : 0;
             // Estado canónico único (V3 Fase 3, mismo bug que ya se corrigió
             // para incidencias en la fase HD/HI): antes se guardaba el verbo
             // crudo de la acción ('rechazar'), nunca el adjetivo. Solo se
@@ -440,6 +461,7 @@ class AsistenciaDecisionService
                 'resuelto_por' => $usuario->id, 'resuelto_at' => now(),
             ]);
             $this->auditoria->registrar($empresa->id, $usuario->id, 'hora_extra_'.$datos['accion'], $horaExtra, $datos['motivo'], $antes, $horaExtra->fresh()->toArray());
+
             return $horaExtra->fresh('colaborador');
         });
 
@@ -464,6 +486,7 @@ class AsistenciaDecisionService
         if (! $esRrhh && $usuario->area_id !== $solicitud->area_id) {
             abort(403, 'La solicitud no pertenece al área bajo tu responsabilidad.');
         }
+
         return DB::transaction(function () use ($empresa, $solicitud, $datos, $usuario, $esRrhh) {
             $antes = $solicitud->toArray();
             if ($datos['accion'] === 'aprobar') {
@@ -477,6 +500,7 @@ class AsistenciaDecisionService
                 'estado' => $estado, 'responsable_por' => $usuario->id, 'responsable_at' => now(), 'observacion_responsable' => $datos['motivo'],
             ]);
             $this->auditoria->registrar($empresa->id, $usuario->id, 'solicitud_'.$datos['accion'], $solicitud, $datos['motivo'], $antes, $solicitud->fresh()->toArray());
+
             return $solicitud->fresh(['area', 'colaboradores.area']);
         });
     }
@@ -494,6 +518,7 @@ class AsistenciaDecisionService
                 'resuelto_por' => $usuario->id, 'resuelto_at' => now(), 'observacion_resolucion' => $datos['motivo'],
             ]);
             $this->auditoria->registrar($empresa->id, $usuario->id, 'permiso_'.$datos['accion'], $permiso, $datos['motivo'], $antes, $permiso->fresh()->toArray());
+
             return $permiso->fresh('colaborador.area');
         });
         if ($resuelto->estado === 'aprobado') {
@@ -501,6 +526,7 @@ class AsistenciaDecisionService
                 $this->procesador->procesar($resuelto->colaborador, $fecha, respetarAjusteManual: false);
             }
         }
+
         return $resuelto;
     }
 
@@ -567,6 +593,7 @@ class AsistenciaDecisionService
             $this->procesador->limpiarIncidenciasDePresenteForzado($actualizado);
         }
         $this->auditoria->registrar($empresa->id, $usuario->id, 'resultado_editado', $actualizado, $datos['motivo'], $antes, $actualizado->fresh('marcaciones')->toArray());
+
         return $actualizado->fresh(['colaborador.area', 'incidencias', 'marcaciones']);
     }
 

@@ -2,16 +2,15 @@
 
 namespace App\Modules\PortalCliente\Http\Requests;
 
-use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Sede;
-use App\Modules\Personas\Models\Colaborador;
+use App\Modules\PortalCliente\Application\AlcancePortal;
 use App\Modules\PortalCliente\Http\Requests\Concerns\ValidaRangoDeFechas;
 use Illuminate\Foundation\Http\FormRequest;
 
 /**
  * Usado por los listados generales de incidencias/horas-extra/permisos de
- * TODA la empresa activa. colaborador_id es opcional pero, si se envía,
- * debe pertenecer a la empresa activa del usuario autenticado — nunca se
+ * TODO el alcance (empresa o áreas autorizadas). area_id/colaborador_id son
+ * opcionales pero, si se envían, deben pertenecer a ese alcance — nunca se
  * confía en el id por sí solo.
  */
 class PortalListadoGeneralRequest extends FormRequest
@@ -40,8 +39,7 @@ class PortalListadoGeneralRequest extends FormRequest
                 'area_id' => [
                     'nullable', 'integer',
                     function (string $attribute, mixed $value, \Closure $fail): void {
-                        $empresaActivaId = $this->user('api')->empresa_id;
-                        if (! Area::where('id', $value)->where('empresa_id', $empresaActivaId)->exists()) {
+                        if (! AlcancePortal::desdeRequest($this)->puedeVerArea((int) $value)) {
                             $fail('El área indicada no es válida.');
                         }
                     },
@@ -59,8 +57,7 @@ class PortalListadoGeneralRequest extends FormRequest
                 'colaborador_id' => [
                     'nullable', 'integer',
                     function (string $attribute, mixed $value, \Closure $fail): void {
-                        $empresaActivaId = $this->user('api')->empresa_id;
-                        if (! Colaborador::where('id', $value)->where('empresa_id', $empresaActivaId)->exists()) {
+                        if (! AlcancePortal::desdeRequest($this)->colaboradores()->whereKey((int) $value)->exists()) {
                             $fail('El colaborador indicado no es válido.');
                         }
                     },

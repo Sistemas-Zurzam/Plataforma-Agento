@@ -22,6 +22,7 @@ import VerColaboradorModal from '../../modules/personas/components/VerColaborado
 import VerCarnetModal from '../../modules/personas/components/VerCarnetModal';
 import DocumentosFaltantesModal from '../../modules/personas/components/DocumentosFaltantesModal';
 import FichaColaborador from '../../modules/personas/components/FichaColaborador';
+import SolicitudesCesePanel from '../../modules/personas/components/SolicitudesCesePanel';
 import { useColaboradores } from '../../modules/personas/hooks/useColaboradores';
 import { colorForName, initialsForName } from '../../utils/avatarColor';
 
@@ -29,7 +30,7 @@ function etiquetaTipoContrato(valor) {
   return TIPO_CONTRATO_OPTIONS.find((o) => o.value === valor)?.label ?? valor;
 }
 
-function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId, onAbrirColaborador, onVolverColaboradores, onIrAPlanificacion }) {
+function ListaColaboradores({ user, onUserRefresh, onVerHorarios, onVerSolicitudesCese, colaboradorId, onAbrirColaborador, onVolverColaboradores, onIrAPlanificacion }) {
   const { colaboradores, stats, loading, pagination, fetchColaboradores, crearColaborador, actualizarConfiguracionNomina, restaurarColaborador, subirFotoPerfil, fetchRotativosSinRol } =
     useColaboradores();
   const { message, modal } = App.useApp();
@@ -49,6 +50,7 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
   const puedeCrear = user?.permisos?.includes('colaboradores.crear');
   const puedeEditar = user?.permisos?.includes('colaboradores.editar');
   const puedeVerHorarios = user?.permisos?.includes('horarios.ver');
+  const puedeResolverCeses = user?.permisos?.includes('colaboradores.cesar');
   const isAdmin = user?.role === 'administrador';
   const [restaurandoId, setRestaurandoId] = useState(null);
 
@@ -402,6 +404,11 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
           <Switch size="small" checked={todasEmpresas} onChange={setTodasEmpresas} />
           <span className="text-sm text-gray-600">Todas las empresas</span>
         </div>
+        {puedeResolverCeses && (
+          <Button onClick={onVerSolicitudesCese}>
+            Solicitudes de cese
+          </Button>
+        )}
         {puedeVerHorarios && (
           <Button icon={<ClockCircleOutlined />} onClick={onVerHorarios}>
             Gestión de horarios
@@ -497,6 +504,10 @@ function ListaColaboradores({ user, onUserRefresh, onVerHorarios, colaboradorId,
 export default function GestionPersonas({ user, onUserRefresh, colaboradorId, onAbrirColaborador, onVolverColaboradores, onIrAPlanificacion }) {
   const [vista, setVista] = useState('personas');
 
+  if (vista === 'solicitudes-cese') {
+    return <SolicitudesCesePanel onVolver={() => setVista('personas')} />;
+  }
+
   if (vista === 'horarios') {
     return (
       <GestionHorarios
@@ -512,6 +523,7 @@ export default function GestionPersonas({ user, onUserRefresh, colaboradorId, on
       user={user}
       onUserRefresh={onUserRefresh}
       onVerHorarios={() => setVista('horarios')}
+      onVerSolicitudesCese={() => setVista('solicitudes-cese')}
       colaboradorId={colaboradorId}
       onAbrirColaborador={onAbrirColaborador}
       onVolverColaboradores={onVolverColaboradores}

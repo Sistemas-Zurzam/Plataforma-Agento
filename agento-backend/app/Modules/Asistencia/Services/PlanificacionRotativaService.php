@@ -47,6 +47,7 @@ class PlanificacionRotativaService
         ?string $busqueda,
         bool $soloRotativos,
         ?int $sedeId,
+        ?\Closure $restriccion = null,
     ): array {
         [$inicioSemana, $finSemana] = $this->limitesSemana($fechaSemana);
 
@@ -65,6 +66,9 @@ class PlanificacionRotativaService
                     ->whereHas('horario', fn ($query) => $query->where('tipo_turno', 'rotativo')),
             ))
             ->when($sedeId, fn ($query) => $query->where('sede_id', $sedeId))
+            // Portal de Empresa: limita a las áreas autorizadas del gerente
+            // (AlcancePortal) sin duplicar esta consulta.
+            ->when($restriccion, fn ($query) => $restriccion($query))
             ->when($busqueda, fn ($query) => $query->where(function ($query) use ($busqueda) {
                 $query->where('nombres', 'like', "%{$busqueda}%")
                     ->orWhere('apellidos', 'like', "%{$busqueda}%")
@@ -210,8 +214,14 @@ class PlanificacionRotativaService
         return $planificados === $requeridos ? 'ok' : 'descuadre';
     }
 
-    public function planificarDia(Empresa $empresa, Colaborador $colaborador, string $fecha, ?string $tipo, User $usuario): void
-    {
+    public function planificarDia(
+        Empresa $empresa,
+        Colaborador $colaborador,
+        string $fecha,
+        ?string $tipo,
+        User $usuario,
+        string $origen = ColaboradorCalendarioDia::ORIGEN_PLANIFICACION,
+    ): void {
         abort_unless($colaborador->empresa_id === $empresa->id, 404);
         $this->periodos->asegurarRangoEditable($empresa->id, $fecha, $fecha);
 
@@ -235,7 +245,7 @@ class PlanificacionRotativaService
             }
         }
 
-        DB::transaction(function () use ($empresa, $colaborador, $fecha, $tipo, $usuario, $existente) {
+        DB::transaction(function () use ($empresa, $colaborador, $fecha, $tipo, $usuario, $existente, $origen) {
             if ($tipo === null && ! $existente) {
                 return;
             }
@@ -248,7 +258,7 @@ class PlanificacionRotativaService
                 ? tap($existente)->delete()
                 : $colaborador->calendario()->updateOrCreate(
                     ['fecha' => $fecha],
-                    ['tipo' => $tipo, 'origen' => ColaboradorCalendarioDia::ORIGEN_PLANIFICACION],
+                    ['tipo' => $tipo, 'origen' => $origen],
                 );
 
             $this->auditoria->registrar(

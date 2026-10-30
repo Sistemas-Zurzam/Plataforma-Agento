@@ -42,6 +42,7 @@ import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal
 import ImportarComprobantesRhModal from '../../modules/remuneraciones/components/ImportarComprobantesRhModal';
 import PlanillasComplementariasModal from '../../modules/remuneraciones/components/PlanillasComplementariasModal';
 import ProyectadoPlanillaTab from '../../modules/remuneraciones/components/ProyectadoPlanillaTab';
+import PropuestasPortalPanel from '../../modules/remuneraciones/components/PropuestasPortalPanel';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
 import AgregarHorasExtraBoletaModal from '../../modules/remuneraciones/components/AgregarHorasExtraBoletaModal';
 import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
@@ -1128,6 +1129,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
               />
             ),
           },
+          ...(puedeGestionarCiclos ? [{
+            key: 'propuestas-portal',
+            label: 'Propuestas de gerencia',
+            children: <PropuestasPortalPanel />,
+          }] : []),
           {
             key: 'planilla',
             label: 'Planilla mensual',

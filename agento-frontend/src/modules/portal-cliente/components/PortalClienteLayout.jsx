@@ -1,44 +1,22 @@
-import {
-  ClockCircleOutlined,
-  DollarOutlined,
-  FileTextOutlined,
-  GiftOutlined,
-  HomeOutlined,
-  LogoutOutlined,
-  TeamOutlined,
-  UserSwitchOutlined,
-} from '@ant-design/icons';
+import { LogoutOutlined } from '@ant-design/icons';
 import { Avatar, ConfigProvider, Dropdown, Layout, Menu } from 'antd';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import agentoLogo from '../../../assets/agento-logo.png';
 
 const { Sider, Header: AntHeader, Content } = Layout;
 
-// Cada entrada declara el permiso portal.* que el backend ya devolvió en
-// /api/portal/contexto (permisos) — el backend sigue siendo la autoridad
-// real; esto solo evita mostrar en el menú una opción que el backend de
-// todas formas rechazaría. "Bonificaciones" se condiciona a
-// portal.remuneraciones.ver (no a portal.bonificaciones.gestionar): ver
-// (esta pantalla, todavía un placeholder de solo lectura) es parte de "ver
-// remuneraciones"; portal.bonificaciones.gestionar es el permiso de
-// escritura para las acciones futuras (validar/aprobar bonos), no para
-// simplemente entrar a la sección. "Perfil de asistencia" no tiene ítem de
-// menú propio — se llega a él desde una fila de Colaboradores, igual que
-// el panel admin no tiene un menú separado para el detalle de un
-// colaborador.
-const MENU_ITEMS = [
-  { key: 'resumen', icon: <HomeOutlined />, label: 'Resumen', permiso: 'portal.acceder' },
-  { key: 'colaboradores', icon: <TeamOutlined />, label: 'Colaboradores', permiso: 'portal.asistencia.ver' },
-  { key: 'incidencias', icon: <FileTextOutlined />, label: 'Incidencias', permiso: 'portal.asistencia.ver' },
-  { key: 'horas-extra', icon: <ClockCircleOutlined />, label: 'Horas Extra', permiso: 'portal.horas_extra.ver' },
-  { key: 'permisos', icon: <UserSwitchOutlined />, label: 'Permisos', permiso: 'portal.permisos.ver' },
-  { key: 'planilla', icon: <DollarOutlined />, label: 'Planilla', permiso: 'portal.remuneraciones.ver' },
-  { key: 'bonificaciones', icon: <GiftOutlined />, label: 'Bonificaciones', permiso: 'portal.remuneraciones.ver' },
-];
-
+/**
+ * Layout común del Portal Cliente y del Portal de Empresa (gerencia).
+ * menuItems llega ya filtrado por PortalClienteApp según los permisos y
+ * capacidades que el backend devolvió en /api/portal/contexto — el backend
+ * sigue siendo la autoridad real; esto solo evita mostrar opciones que de
+ * todas formas rechazaría.
+ */
 export default function PortalClienteLayout({
   user,
   contexto,
+  titulo = 'Portal Cliente',
+  menuItems,
   seccion,
   tituloSeccion,
   onSelect,
@@ -48,12 +26,6 @@ export default function PortalClienteLayout({
   const [collapsed, setCollapsed] = useState(false);
   const initial = user?.name?.charAt(0).toUpperCase();
   const nombreEmpresa = contexto?.empresa?.nombre_comercial ?? contexto?.empresa?.razon_social;
-
-  const menuItems = useMemo(() => {
-    const permisos = contexto?.permisos ?? [];
-
-    return MENU_ITEMS.filter((item) => permisos.includes(item.permiso));
-  }, [contexto?.permisos]);
 
   const userMenuItems = [
     { key: 'logout', icon: <LogoutOutlined />, label: 'Cerrar sesión', onClick: onLogout },
@@ -79,7 +51,7 @@ export default function PortalClienteLayout({
           {!collapsed && (
             <div className="min-w-0">
               <span className="block truncate text-base font-semibold tracking-tight text-white">
-                Portal Cliente
+                {titulo}
               </span>
               {nombreEmpresa && (
                 <span className="block truncate text-xs text-white/60">{nombreEmpresa}</span>
@@ -127,7 +99,7 @@ export default function PortalClienteLayout({
         >
           <div className="min-w-0">
             <h1 className="truncate text-base font-semibold text-gray-900">
-              {tituloSeccion ?? menuItems.find((item) => item.key === seccion)?.label ?? 'Resumen'}
+              {tituloSeccion ?? menuItems.find((item) => item.key === seccion)?.label ?? 'Inicio'}
             </h1>
             {nombreEmpresa && <p className="truncate text-xs text-gray-500">{nombreEmpresa}</p>}
           </div>

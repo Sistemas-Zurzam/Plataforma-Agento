@@ -25,6 +25,16 @@ const ESTADOS_SEMANA = {
 
 const NO_EDITABLES = ['feriado', 'fuera_de_periodo'];
 
+// Fuente por defecto: endpoints internos de Asistencias. El Portal de Empresa
+// inyecta su propia fuente (mismos casos de uso, limitados al equipo).
+const FUENTE_INTERNA = {
+  consultar: (params) => api.get('/asistencia/planificacion', { params }).then(({ data }) => data),
+  guardarDia: ({ colaboradorId, fecha, tipo }) => api.put('/asistencia/planificacion', { colaborador_id: colaboradorId, fecha, tipo }),
+  guardarMasivo: ({ colaboradorIds, fechas, tipo }) => api.put('/asistencia/planificacion/masivo', {
+    colaborador_ids: colaboradorIds, fechas, tipo,
+  }).then(({ data }) => data.procesadas),
+};
+
 function celda(tipo) {
   if (!tipo) return { abrev: '—', color: 'default' };
   if (tipo === 'feriado') return { abrev: 'F', color: 'purple' };
@@ -42,9 +52,9 @@ function celda(tipo) {
  * bloqueando el envío a Nómina — pero por la incidencia dia_sin_clasificar
  * de la Fase 1, no por esta pantalla.
  */
-export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia }) {
+export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia, fuente = FUENTE_INTERNA, filtrosExtra, parametrosExtra, semanaInicial, descripcion }) {
   const { message, modal } = App.useApp();
-  const [semana, setSemana] = useState(() => dayjs().startOf('week'));
+  const [semana, setSemana] = useState(() => (semanaInicial ? dayjs(semanaInicial) : dayjs()).startOf('week'));
   const [busqueda, setBusqueda] = useState('');
   const [soloRotativos, setSoloRotativos] = useState(true);
   const [cargando, setCargando] = useState(false);
@@ -54,21 +64,42 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
   const [tipoMasivo, setTipoMasivo] = useState();
   const [guardando, setGuardando] = useState(false);
 
+  const claveExtra = JSON.stringify(parametrosExtra ?? {});
+
   const cargar = () => {
     setCargando(true);
-    api.get('/asistencia/planificacion', {
-      params: { semana: semana.format('YYYY-MM-DD'), busqueda: busqueda || undefined, solo_rotativos: soloRotativos },
+    fuente.consultar({
+      semana: semana.format('YYYY-MM-DD'), busqueda: busqueda || undefined, solo_rotativos: soloRotativos ? 1 : 0, ...parametrosExtra,
     })
-      .then(({ data }) => setDatos(data))
+      .then((respuesta) => setDatos(respuesta))
       .catch(() => message.error('No se pudo cargar la planificación de la semana'))
       .finally(() => setCargando(false));
+  };
+
+  // Un lote rechazado por conflictos no guarda nada: se listan todos.
+  const mostrarError = (err, porDefecto) => {
+    const conflictos = err.response?.data?.conflictos;
+    if (err.response?.status === 409 && conflictos?.length) {
+      modal.warning({
+        title: err.response.data.message,
+        width: 560,
+        content: (
+          <ul className="mt-2 max-h-72 list-disc space-y-1 overflow-auto pl-5 text-sm">
+            {conflictos.map((c) => <li key={`${c.colaborador_id}-${c.fecha}`}><strong>{c.colaborador}</strong> · {dayjs(c.fecha).format('DD/MM')}: {c.motivo}</li>)}
+          </ul>
+        ),
+      });
+      cargar();
+      return;
+    }
+    message.error(err.response?.data?.message ?? porDefecto);
   };
 
   useEffect(() => {
     cargar();
     setSeleccionados([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [semana, soloRotativos]);
+  }, [semana, soloRotativos, claveExtra]);
 
   useEffect(() => {
     const timeout = setTimeout(cargar, 400);
@@ -86,13 +117,16 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
     setDiasMasivo(fechasSemana.map((f) => f.format('YYYY-MM-DD')));
   }, [fechasSemana]);
 
+  const tipoActual = (colaboradorId, fecha) => datos.colaboradores
+    .find((c) => c.colaborador_id === colaboradorId)?.dias.find((d) => d.fecha === fecha)?.tipo ?? null;
+
   const planificarDia = async (colaboradorId, fecha, tipo) => {
     try {
-      await api.put('/asistencia/planificacion', { colaborador_id: colaboradorId, fecha, tipo });
+      await fuente.guardarDia({ colaboradorId, fecha, tipo, tipoAnterior: tipoActual(colaboradorId, fecha) });
       message.success('Planificación actualizada');
       cargar();
     } catch (err) {
-      message.error(err.response?.data?.message ?? 'No se pudo actualizar la planificación');
+      mostrarError(err, 'No se pudo actualizar la planificación');
     }
   };
 
@@ -106,15 +140,15 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
       onOk: async () => {
         setGuardando(true);
         try {
-          const { data } = await api.put('/asistencia/planificacion/masivo', {
-            colaborador_ids: seleccionados, fechas: diasMasivo, tipo: tipoMasivo,
+          const procesadas = await fuente.guardarMasivo({
+            colaboradorIds: seleccionados, fechas: diasMasivo, tipo: tipoMasivo, tipoAnterior: tipoActual,
           });
-          message.success(`Planificación aplicada a ${data.procesadas} combinación(es)`);
+          message.success(`Planificación aplicada a ${procesadas} combinación(es)`);
           setSeleccionados([]);
           setTipoMasivo(undefined);
           cargar();
         } catch (err) {
-          message.error(err.response?.data?.message ?? 'No se pudo aplicar la planificación masiva');
+          mostrarError(err, 'No se pudo aplicar la planificación masiva');
         } finally {
           setGuardando(false);
         }
@@ -133,7 +167,10 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
       width: 62,
       align: 'center',
       render: (_, row) => {
-        const dia = row.dias[index];
+        const original = row.dias[index];
+        // Un feriado legal prevalece sobre la planificación (solo lectura).
+        const dia = datos.feriados?.includes(original.fecha) && original.tipo !== 'fuera_de_periodo'
+          ? { ...original, tipo: 'feriado' } : original;
         const info = celda(dia.tipo);
         const editable = puedeEditar && !NO_EDITABLES.includes(dia.tipo);
         const esAutomatico = dia.origen === 'descanso_flexible_automatico';
@@ -158,6 +195,9 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
         // Fase 3.1 — un día con trabajo_en_descanso pendiente no se edita
         // aquí directamente (el endpoint genérico lo bloquea, Sección 22):
         // el menú solo ofrece saltar a resolver la incidencia especializada.
+        if (dia.incidencia_trabajo_en_descanso_id && !onAbrirIncidencia) {
+          return <span title="Trabajo en descanso pendiente: lo resuelve RR. HH.">{tagBase}</span>;
+        }
         if (dia.incidencia_trabajo_en_descanso_id) {
           return (
             <Dropdown
@@ -209,12 +249,12 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
   ];
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <Alert
         type="info"
         showIcon
         message="Planificación de horarios rotativos"
-        description="Aquí se declara cuáles días le tocan de descanso, trabajo presencial u home office a cada colaborador rotativo. Un día sin marcar queda 'sin planificar' hasta que se procese, y ahí genera la incidencia de clasificación pendiente que sí bloquea el envío a Nómina. Si la empresa activó el descanso semanal flexible automático, algunos días pueden llegar ya clasificados solos al cerrar el período (marcados con el ícono de sincronización) — igual pueden corregirse manualmente como cualquier otro día."
+        description={descripcion ?? "Aquí se declara cuáles días le tocan de descanso, trabajo presencial u home office a cada colaborador rotativo. Un día sin marcar queda 'sin planificar' hasta que se procese, y ahí genera la incidencia de clasificación pendiente que sí bloquea el envío a Nómina. Si la empresa activó el descanso semanal flexible automático, algunos días pueden llegar ya clasificados solos al cerrar el período (marcados con el ícono de sincronización) — igual pueden corregirse manualmente como cualquier otro día."}
       />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -226,6 +266,7 @@ export default function PlanificacionRotativos({ puedeEditar, onAbrirIncidencia 
         <Button onClick={() => setSemana(dayjs().startOf('week'))}>Semana actual</Button>
         <Input.Search placeholder="Buscar colaborador o legajo" value={busqueda} onChange={(event) => setBusqueda(event.target.value)} allowClear className="w-64" />
         <Checkbox checked={soloRotativos} onChange={(event) => setSoloRotativos(event.target.checked)}>Solo rotativos</Checkbox>
+        {filtrosExtra}
       </div>
 
       {puedeEditar && seleccionados.length > 0 && (

@@ -51,6 +51,17 @@ function App() {
     );
   }
 
+  // GER (gerencia) trabaja solo en el Portal de Empresa (/portal), con el
+  // mismo feature flag resuelto por el backend. El alcance (empresa del JWT
+  // y áreas autorizadas) y cada permiso se vuelven a validar en la API.
+  if (user.role === 'gerencia') {
+    return user.portal_cliente_habilitado ? (
+      <PortalClienteApp user={user} onLogout={handleLogout} base="/portal" modo="gerencia" />
+    ) : (
+      <PortalNoHabilitadoScreen onLogout={handleLogout} />
+    );
+  }
+
   // La cuenta de vigilancia solo utiliza esta pantalla, incluso si abre otra URL.
   if (user.role === 'vigilancia') {
     return <ControlAcceso onLogout={handleLogout} />;

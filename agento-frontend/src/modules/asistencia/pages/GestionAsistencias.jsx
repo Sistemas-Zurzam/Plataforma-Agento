@@ -5,22 +5,14 @@ import 'dayjs/locale/es';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../configuracion/components/EmpresaActivaFiltro';
 import PlanificacionRotativos from '../components/PlanificacionRotativos';
+import { ESTADOS_ASISTENCIA, claveEstadoAsistencia } from '../constants/estadosAsistencia';
 import { etiquetaOrigenMarcacion } from '../constants/origenesMarcacion';
 import api from '../../../services/api';
 
 const { RangePicker } = DatePicker;
 const { Text, Title } = Typography;
 dayjs.locale('es');
-const ESTADOS = {
-  presente: ['P', 'Presente', 'green'], tardanza: ['T', 'Tardanza', 'gold'], falta: ['F', 'Falta', 'red'],
-  marcacion_incompleta: ['MI', 'Marcación incompleta', 'orange'],
-  horario_desplazado: ['HD', 'Horario desplazado', 'purple'],
-  horas_incompletas: ['HI', 'Horas incompletas', 'volcano'],
-  home_office: ['TR', 'Trabajo remoto', 'blue'], descanso: ['D', 'Descanso', 'default'],
-  feriado: ['D', 'Feriado', 'default'], no_programado: ['—', 'Sin procesar', 'default'],
-  permiso: ['PE', 'Permiso', 'cyan'], falta_justificada: ['FJ', 'Falta justificada', 'gold'],
-  dia_sin_clasificar: ['?', 'Rotativo sin planificar — pendiente de clasificación', 'magenta'],
-};
+const ESTADOS = ESTADOS_ASISTENCIA;
 // Mismas etiquetas que ETIQUETAS_INCIDENCIA en AsistenciaPeriodoService (backend)
 // — para el resumen de "Verificar asistencia", que es informativo (nunca
 // bloquea nada, a diferencia del mensaje de "Cerrar período").
@@ -44,7 +36,7 @@ const duracionEnTexto = (minutos) => {
   return `${horas} ${horas === 1 ? 'hora' : 'horas'} y ${resto} ${resto === 1 ? 'minuto' : 'minutos'}`;
 };
 const hora = (valor) => (valor ? dayjs(valor).format('HH:mm') : '—');
-const claveEstado = (resultado) => (resultado?.estado === 'presente' && resultado?.minutos_tardanza > 0 ? 'tardanza' : resultado?.estado);
+const claveEstado = claveEstadoAsistencia;
 
 function EstadoDia({ resultado, mostrarHoras = false }) {
   const estado = resultado ? (ESTADOS[claveEstado(resultado)] ?? ESTADOS.no_programado) : ESTADOS.no_programado;
@@ -1351,6 +1343,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       { title: 'Fecha fin', dataIndex: 'fecha_fin', render: (value) => dayjs(value).format('DD/MM/YYYY') },
       { title: 'Motivo', dataIndex: 'motivo', ellipsis: true },
       { title: 'Estado', dataIndex: 'estado', width: 110, render: (value) => <Tag color={value === 'aprobado' ? 'green' : value === 'rechazado' ? 'red' : 'gold'}>{value}</Tag> },
+      { title: 'Origen', dataIndex: 'origen', width: 110, render: (value) => (value === 'portal' ? <Tag color="blue">Portal gerencia</Tag> : 'RR. HH.') },
       { title: 'Acciones', width: 160, render: (_, row) => row.estado === 'pendiente' && puedeGestionarPermisos ? <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Aprobar permiso', `/asistencia/permisos/${row.id}`, 'aprobar')}>Aprobar</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar permiso', `/asistencia/permisos/${row.id}`, 'rechazar')}>Rechazar</Button></Space> : '—' },
     ]} pagination={{ pageSize: 15 }} locale={{ emptyText: <Empty image={<SafetyCertificateOutlined className="text-4xl text-slate-300" />} description="No hay permisos registrados" /> }} /></Card>
   </div>;
@@ -1500,6 +1493,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
         options={[
           { value: 'todos', label: 'Todos los estados' },
           { value: 'pendiente', label: 'Pendientes' },
+          { value: 'aprobado_gerencia', label: 'Aprobadas por gerencia (por validar)' },
           { value: 'aprobado', label: 'Aprobadas' },
           { value: 'rechazado', label: 'Rechazadas' },
         ]}
@@ -1535,14 +1529,17 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Colaborador', render: (_, row) => `${row.colaborador?.nombres ?? ''} ${row.colaborador?.apellidos ?? ''}`.trim() },
     { title: 'Tasa', dataIndex: 'tasa', width: 75, render: (value) => <Tag>{value}%</Tag> },
     { title: 'Observadas', dataIndex: 'minutos_observados', width: 105, render: duracion },
+    { title: 'Gerencia', dataIndex: 'minutos_aprobados_gerencia', width: 105, render: (value) => (value === null || value === undefined ? '—' : duracion(value)) },
     { title: 'Aprobadas', dataIndex: 'minutos_aprobados', width: 105, render: duracion },
-    { title: 'Estado', dataIndex: 'estado', width: 110, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'aprobado' ? 'green' : 'red'}>{value}</Tag> },
+    { title: 'Estado', dataIndex: 'estado', width: 130, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'aprobado_gerencia' ? 'blue' : value === 'aprobado' ? 'green' : 'red'}>{value === 'aprobado_gerencia' ? 'aprobado gerencia' : value}</Tag> },
     { title: 'Motivo', dataIndex: 'motivo', ellipsis: true, render: (value) => value || '—' },
     {
       title: 'Acciones',
       width: 180,
       render: (_, row) => {
         if (!puedeGestionarHorasExtra) return '—';
+        // Aprobada por gerencia (Portal de Empresa): RR. HH. valida hasta lo aprobado por gerencia.
+        if (row.estado === 'aprobado_gerencia') return <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Validar horas extra aprobadas por gerencia', `/asistencia/horas-extra/${row.id}`, 'aprobar', { minutos_aprobados: row.minutos_aprobados_gerencia }, `Gerencia aprobó ${duracionEnTexto(row.minutos_aprobados_gerencia)}. Al validar, la hora extra se incorpora a la planilla.`)}>Validar</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar horas extra', `/asistencia/horas-extra/${row.id}`, 'rechazar')}>Rechazar</Button></Space>;
         if (row.estado === 'pendiente') return <Space size={2}><Button type="link" size="small" onClick={() => solicitarDecision('Aprobar horas extra', `/asistencia/horas-extra/${row.id}`, 'aprobar', { minutos_aprobados: row.minutos_observados })}>Aprobar</Button><Button type="link" size="small" danger onClick={() => solicitarDecision('Rechazar horas extra', `/asistencia/horas-extra/${row.id}`, 'rechazar')}>Rechazar</Button></Space>;
         if (row.estado === 'aprobado') return <Button type="link" size="small" danger onClick={() => solicitarDecision('Anular aprobación de horas extra', `/asistencia/horas-extra/${row.id}`, 'anular_aprobacion', {}, 'La hora extra dejará de pagarse. Si la planilla ya fue calculada, quedará marcada para recalcular.')}>Anular aprobación</Button>;
         return '—';

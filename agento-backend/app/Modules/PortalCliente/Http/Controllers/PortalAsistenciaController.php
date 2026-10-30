@@ -4,6 +4,8 @@ namespace App\Modules\PortalCliente\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Personas\Models\Colaborador;
+use App\Modules\PortalCliente\Application\AlcancePortal;
+use App\Modules\PortalCliente\Http\Requests\PortalEquipoMensualRequest;
 use App\Modules\PortalCliente\Http\Requests\PortalListadoColaboradorRequest;
 use App\Modules\PortalCliente\Http\Requests\PortalListarColaboradoresRequest;
 use App\Modules\PortalCliente\Http\Requests\PortalRangoDiasRequest;
@@ -26,7 +28,7 @@ class PortalAsistenciaController extends Controller
         $datos = $request->validated();
 
         return response()->json([
-            'data' => $this->asistencia->resumen($request->user('api')->empresa, $datos['fecha_desde'], $datos['fecha_hasta']),
+            'data' => $this->asistencia->resumen(AlcancePortal::desdeRequest($request), $datos['fecha_desde'], $datos['fecha_hasta']),
         ]);
     }
 
@@ -35,7 +37,7 @@ class PortalAsistenciaController extends Controller
         $datos = $request->validated();
 
         return PortalColaboradorResource::collection(
-            $this->asistencia->listarColaboradores($request->user('api')->empresa, $datos, $datos['per_page'] ?? 15),
+            $this->asistencia->listarColaboradores(AlcancePortal::desdeRequest($request), $datos, $datos['per_page'] ?? 15),
         );
     }
 
@@ -43,7 +45,7 @@ class PortalAsistenciaController extends Controller
     {
         $datos = $request->validated();
         $resultado = $this->asistencia->perfilResumen(
-            $request->user('api')->empresa, $colaborador, $datos['fecha_desde'], $datos['fecha_hasta'],
+            AlcancePortal::desdeRequest($request), $colaborador, $datos['fecha_desde'], $datos['fecha_hasta'],
         );
 
         return (new PortalColaboradorResource($resultado['colaborador']))
@@ -56,7 +58,7 @@ class PortalAsistenciaController extends Controller
 
         return response()->json([
             'data' => $this->asistencia->calendario(
-                $request->user('api')->empresa, $colaborador, $datos['fecha_desde'], $datos['fecha_hasta'],
+                AlcancePortal::desdeRequest($request), $colaborador, $datos['fecha_desde'], $datos['fecha_hasta'],
             ),
         ]);
     }
@@ -67,7 +69,7 @@ class PortalAsistenciaController extends Controller
 
         return response()->json([
             'data' => $this->asistencia->marcaciones(
-                $request->user('api')->empresa, $colaborador, $datos['fecha_desde'], $datos['fecha_hasta'],
+                AlcancePortal::desdeRequest($request), $colaborador, $datos['fecha_desde'], $datos['fecha_hasta'],
             ),
         ]);
     }
@@ -77,7 +79,7 @@ class PortalAsistenciaController extends Controller
         $datos = $request->validated();
 
         return PortalIncidenciaResource::collection(
-            $this->asistencia->incidenciasDeColaborador($request->user('api')->empresa, $colaborador, $datos, $datos['per_page'] ?? 15),
+            $this->asistencia->incidenciasDeColaborador(AlcancePortal::desdeRequest($request), $colaborador, $datos, $datos['per_page'] ?? 15),
         );
     }
 
@@ -86,7 +88,7 @@ class PortalAsistenciaController extends Controller
         $datos = $request->validated();
 
         return PortalHoraExtraResource::collection(
-            $this->asistencia->horasExtraDeColaborador($request->user('api')->empresa, $colaborador, $datos, $datos['per_page'] ?? 15),
+            $this->asistencia->horasExtraDeColaborador(AlcancePortal::desdeRequest($request), $colaborador, $datos, $datos['per_page'] ?? 15),
         );
     }
 
@@ -95,15 +97,38 @@ class PortalAsistenciaController extends Controller
         $datos = $request->validated();
 
         return PortalPermisoResource::collection(
-            $this->asistencia->permisosDeColaborador($request->user('api')->empresa, $colaborador, $datos, $datos['per_page'] ?? 15),
+            $this->asistencia->permisosDeColaborador(AlcancePortal::desdeRequest($request), $colaborador, $datos, $datos['per_page'] ?? 15),
         );
+    }
+
+    /**
+     * Calendario mensual del equipo: colaboradores en filas (paginados) y
+     * días en columnas, solo lectura.
+     */
+    public function equipoMensual(PortalEquipoMensualRequest $request): JsonResponse
+    {
+        $datos = $request->validated();
+        $resultado = $this->asistencia->equipoMensual(AlcancePortal::desdeRequest($request), $datos['mes'], $datos, $datos['per_page'] ?? 15);
+        $paginado = $resultado['colaboradores'];
+
+        return response()->json([
+            'data' => $paginado->items(),
+            'dias' => $resultado['dias'],
+            'mes' => $resultado['mes'],
+            'meta' => [
+                'current_page' => $paginado->currentPage(),
+                'per_page' => $paginado->perPage(),
+                'total' => $paginado->total(),
+                'last_page' => $paginado->lastPage(),
+            ],
+        ]);
     }
 
     public function historial(PortalRangoDiasRequest $request, Colaborador $colaborador): JsonResponse
     {
         $datos = $request->validated();
         $paginado = $this->asistencia->historial(
-            $request->user('api')->empresa, $colaborador, $datos['fecha_desde'], $datos['fecha_hasta'], $datos['per_page'] ?? 15,
+            AlcancePortal::desdeRequest($request), $colaborador, $datos['fecha_desde'], $datos['fecha_hasta'], $datos['per_page'] ?? 15,
         );
 
         return response()->json([

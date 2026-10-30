@@ -79,7 +79,7 @@ export default function PerfilAsistenciaPage({ colaboradorId, permisos, onVolver
         label: 'Resumen',
         children: (
           <EstadoConsulta cargando={asistencia.loading && tabActiva === 'resumen'} error={resumen.error} vacio={false}>
-            <div className="space-y-4">
+            <div className="flex flex-col gap-4">
               <Descriptions size="small" column={2} bordered>
                 <Descriptions.Item label="Nombre">{resumen.respuesta?.data?.nombre_completo}</Descriptions.Item>
                 <Descriptions.Item label="Código">{resumen.respuesta?.data?.legajo}</Descriptions.Item>
@@ -325,7 +325,7 @@ export default function PerfilAsistenciaPage({ colaboradorId, permisos, onVolver
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Button icon={<ArrowLeftOutlined />} onClick={onVolver}>
           Volver a colaboradores
