@@ -18,6 +18,45 @@ class PagoHonorariosPorDiasPresentesTest extends TestCase
 {
     use RefreshDatabase, CreaColaboradorDePrueba;
 
+    public function test_feriado_trabajado_se_incluye_automaticamente_en_el_recibo_del_locador(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $colaborador = $this->crearColaborador(atributos: [
+            'tipo_contrato' => 'locacion_servicios',
+            'regimen_laboral' => 'Locacion de Servicios',
+            'fecha_ingreso' => '2026-10-01',
+        ]);
+        $colaborador->remuneraciones()->update(['salario' => 2800, 'vigencia_desde' => '2026-10-01']);
+        foreach (['renta_4ta_tasa' => 8, 'renta_4ta_umbral' => 3500] as $clave => $valor) {
+            ParametroLaboralValor::create([
+                'empresa_id' => $colaborador->empresa_id,
+                'definicion_id' => ParametroLaboralDefinicion::where('clave', $clave)->value('id'),
+                'regimen_laboral' => 'Locacion de Servicios',
+                'vigencia_desde' => '2026-10-01',
+                'valor' => $valor,
+                'motivo' => 'Configuración de prueba',
+            ]);
+        }
+        AsistenciaResultadoDiario::create([
+            'empresa_id' => $colaborador->empresa_id,
+            'colaborador_id' => $colaborador->id,
+            'fecha' => '2026-10-08',
+            'tipo_dia' => 'feriado',
+            'estado' => 'presente',
+            'minutos_trabajados' => 480,
+            'procesado_at' => now(),
+        ]);
+
+        $resultado = app(CalcularReciboHonorarios::class)->calcular(
+            $colaborador, '2026-10-01', '2026-10-31', '2026-10-27',
+        );
+
+        $lineaFeriado = collect($resultado['ingresos'])->firstWhere('codigo', 'HONORARIO_FERIADO_TRABAJADO');
+        $this->assertSame(93.33, $lineaFeriado['monto']);
+        $this->assertStringContainsString('2026-10-08', $lineaFeriado['formula_texto']);
+        $this->assertSame(2893.33, $resultado['total_ingresos']);
+    }
+
     public function test_bonificacion_manual_se_suma_al_servicio_de_un_locador(): void
     {
         $this->seed(DatabaseSeeder::class);

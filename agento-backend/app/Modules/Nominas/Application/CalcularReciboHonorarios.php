@@ -99,9 +99,32 @@ class CalcularReciboHonorarios
                 : $honorarioBruto);
 
         $conceptosManuales = $this->conceptosDelPeriodo($colaborador, $cicloId);
+        $feriadosTrabajados = AsistenciaResultadoDiario::where('colaborador_id', $colaborador->id)
+            ->whereBetween('fecha', [$fechaInicio, $fechaFin])
+            ->where('tipo_dia', 'feriado')
+            ->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA)
+            ->where('minutos_trabajados', '>', 0)
+            ->orderBy('fecha')
+            ->get()
+            ->map(function (AsistenciaResultadoDiario $resultado) use ($colaborador): array {
+                $remuneracionFeriado = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
+                    ->whereDate('vigencia_desde', '<=', $resultado->fecha->toDateString())
+                    ->orderByDesc('vigencia_desde')
+                    ->orderByDesc('id')
+                    ->first();
+
+                return [
+                    'fecha' => $resultado->fecha->toDateString(),
+                    'base' => (float) ($remuneracionFeriado?->salario ?? 0),
+                    'monto' => round((float) ($remuneracionFeriado?->salario ?? 0) / 30, 2),
+                ];
+            })
+            ->filter(fn (array $feriado): bool => $feriado['monto'] > 0)
+            ->values();
         $ingresosAdicionales = collect($conceptosManuales)
             ->where('tipo', 'ingreso')
-            ->sum(fn (array $manual) => (float) $manual['linea']['monto']);
+            ->sum(fn (array $manual) => (float) $manual['linea']['monto'])
+            + $feriadosTrabajados->sum('monto');
         $baseServicio = $honorarioDelPeriodo + $ingresosAdicionales;
 
         $retencion = 0.0;
@@ -142,6 +165,17 @@ class CalcularReciboHonorarios
             'cantidad' => null,
             'formula_texto' => $formulaRetencion,
         ]];
+
+        foreach ($feriadosTrabajados as $feriado) {
+            $ingresos[] = [
+                'codigo' => 'HONORARIO_FERIADO_TRABAJADO',
+                'monto' => $feriado['monto'],
+                'base_utilizada' => $feriado['base'],
+                'tasa_aplicada' => null,
+                'cantidad' => 1,
+                'formula_texto' => "({$feriado['base']} / 30) × 1 por feriado trabajado {$feriado['fecha']} — adicional contractual para recibo por honorarios",
+            ];
+        }
 
         // Honorarios y dependientes deben usar el mismo corte diferido. De
         // otro modo un locador seguía descontando todo el mes calendario,
@@ -304,6 +338,9 @@ class CalcularReciboHonorarios
         $horasExtraAprobadas = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
             ->whereBetween('fecha', [$fechaInicio, $fechaFin])
             ->where('estado', AsistenciaHoraExtra::ESTADO_APROBADO)
+            // El adicional contractual por feriado se calcula como un día
+            // de honorario; no se duplica con la aprobación automática HE_100.
+            ->whereDoesntHave('resultado', fn ($query) => $query->where('tipo_dia', 'feriado'))
             ->get()
             ->filter(fn (AsistenciaHoraExtra $horaExtra) => $this->configuracionEnFecha(
                 $condiciones,
