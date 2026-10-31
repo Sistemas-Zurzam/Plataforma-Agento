@@ -176,12 +176,7 @@ class AsistenciaOperacionService
             ->when($filtros['colaborador_id'] ?? null, fn ($q, $colaboradorId) => $q->where('colaborador_id', $colaboradorId))
             ->when($filtros['busqueda'] ?? null, function ($q, $busqueda) {
                 $q->whereHas('colaborador', function ($colaborador) use ($busqueda) {
-                    $colaborador->where(function ($campos) use ($busqueda) {
-                        $campos->where('nombres', 'like', "%{$busqueda}%")
-                            ->orWhere('apellidos', 'like', "%{$busqueda}%")
-                            ->orWhere('legajo', 'like', "%{$busqueda}%")
-                            ->orWhere('numero_documento', 'like', "%{$busqueda}%");
-                    });
+                    $colaborador->buscarTexto($busqueda);
                 });
             })
             ->when($filtros['sede'] ?? null, fn ($q, $sede) => $q->whereHas('colaborador.sede', fn ($s) => $s->where('nombre', $sede)))
@@ -193,6 +188,27 @@ class AsistenciaOperacionService
     public function horasExtra(Empresa $empresa, array $filtros): LengthAwarePaginator
     {
         return $this->queryHorasExtra($empresa, $filtros)->paginate($filtros['per_page'] ?? 25);
+    }
+
+    /**
+     * Colaboradores con horas extra en el rango, para el filtro de la
+     * pestaña. La tabla carga 100 filas: armar las opciones desde ellas
+     * dejaba fuera a quien solo tenía horas extra más antiguas.
+     *
+     * @return \Illuminate\Support\Collection<int, array{value: int, label: string}>
+     */
+    public function colaboradoresConHorasExtra(Empresa $empresa, array $filtros): \Illuminate\Support\Collection
+    {
+        return Colaborador::query()->where('empresa_id', $empresa->id)
+            ->whereIn('id', AsistenciaHoraExtra::query()->select('colaborador_id')
+                ->where('empresa_id', $empresa->id)
+                ->whereBetween('fecha', [$filtros['fecha_desde'], $filtros['fecha_hasta']]))
+            ->orderBy('nombres')->orderBy('apellidos')
+            ->get(['id', 'nombres', 'apellidos'])
+            ->map(fn (Colaborador $colaborador) => [
+                'value' => $colaborador->id,
+                'label' => trim($colaborador->nombres.' '.$colaborador->apellidos),
+            ])->values();
     }
 
     /**

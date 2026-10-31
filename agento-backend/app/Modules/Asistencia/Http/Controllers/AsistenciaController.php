@@ -301,6 +301,11 @@ class AsistenciaController extends Controller
         return response()->json($this->operaciones->horasExtra($request->user('api')->empresa, $request->validated()));
     }
 
+    public function colaboradoresConHorasExtra(ResumenAsistenciaRequest $request): JsonResponse
+    {
+        return response()->json(['data' => $this->operaciones->colaboradoresConHorasExtra($request->user('api')->empresa, $request->validated())]);
+    }
+
     public function resolverHoraExtra(TransicionarAsistenciaRequest $request, AsistenciaHoraExtra $horaExtra): JsonResponse
     {
         return response()->json(['data' => $this->decisiones->resolverHoraExtra(

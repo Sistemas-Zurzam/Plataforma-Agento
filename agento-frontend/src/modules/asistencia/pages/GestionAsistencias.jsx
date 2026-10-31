@@ -490,6 +490,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const [resolviendoConPermiso, setResolviendoConPermiso] = useState(false);
   const [permisoIncidenciaForm] = Form.useForm();
   const [horasExtra, setHorasExtra] = useState([]);
+  const [colaboradoresConHorasExtra, setColaboradoresConHorasExtra] = useState([]);
   const [colaboradorFiltroHorasExtra, setColaboradorFiltroHorasExtra] = useState(null);
   const [estadoFiltroHorasExtra, setEstadoFiltroHorasExtra] = useState('todos');
   const [horasExtraSeleccionadas, setHorasExtraSeleccionadas] = useState([]);
@@ -520,7 +521,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const cargar = useCallback(async () => {
     setLoading(true);
     try {
-      const [resumenResponse, colaboradoresResponse, permisosResponse, solicitudesResponse, noAsociadasResponse, horasExtraResponse, importacionesResponse, periodosResponse, auditoriaResponse] = await Promise.all([
+      const [resumenResponse, colaboradoresResponse, permisosResponse, solicitudesResponse, noAsociadasResponse, horasExtraResponse, importacionesResponse, periodosResponse, auditoriaResponse, colaboradoresHorasExtraResponse] = await Promise.all([
         api.get('/asistencia/resumen', { params: parametros }),
         api.get('/asistencia/colaboradores', { params: parametros }),
         api.get('/asistencia/permisos', { params: parametros }),
@@ -530,6 +531,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
         api.get('/asistencia/importaciones', { params: parametros }),
         api.get('/asistencia/periodos', { params: parametros }),
         api.get('/asistencia/auditoria', { params: parametros }),
+        // Opciones del filtro de horas extra: todo el rango, no solo las 100 filas cargadas.
+        api.get('/asistencia/horas-extra/colaboradores', { params: parametros }),
       ]);
       setResultados(resumenResponse.data.data ?? []);
       setStats(resumenResponse.data.stats ?? {});
@@ -543,6 +546,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       setImportaciones(importacionesResponse.data.data ?? []);
       setPeriodos(periodosResponse.data.data ?? []);
       setAuditoria(auditoriaResponse.data.data ?? []);
+      setColaboradoresConHorasExtra(colaboradoresHorasExtraResponse.data.data ?? []);
     } catch (error) {
       message.error(error.response?.data?.message ?? 'No se pudo cargar la gestión de asistencia');
     } finally { setLoading(false); }
@@ -1252,8 +1256,9 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const colaboradoresFiltrados = useMemo(() => {
     const texto = busqueda.trim().toLowerCase();
     return colaboradores.filter((item) => {
-      const coincideTexto = !texto || [item.nombre_completo, item.documento, item.legajo, item.area]
-        .some((value) => String(value ?? '').toLowerCase().includes(texto));
+      const campos = [item.nombre_completo, item.documento, item.legajo, item.area].map((value) => String(value ?? '').toLowerCase());
+      // Cada palabra en algún campo, igual que el backend (nombres + apellidos).
+      const coincideTexto = !texto || texto.split(/\s+/).every((palabra) => campos.some((value) => value.includes(palabra)));
       const coincidePreparacion = filtroPreparacion === 'todos'
         || (filtroPreparacion === 'listos' && item.tiene_horario && item.tiene_calendario)
         || (filtroPreparacion === 'sin_horario' && !item.tiene_horario)
@@ -1414,14 +1419,6 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       { title: 'Acciones', width: 210, render: (_, row) => accionesIncidencia(row) },
     ]} pagination={{ pageSize: 20, size: 'small' }} locale={{ emptyText: <Empty description="No hay incidencias en el período" /> }} /></Card>
   </div>;
-
-  const colaboradoresConHorasExtra = Array.from(new Map(horasExtra.map((row) => [
-    row.colaborador?.id,
-    {
-      value: row.colaborador?.id,
-      label: `${row.colaborador?.nombres ?? ''} ${row.colaborador?.apellidos ?? ''}`.trim(),
-    },
-  ])).values()).filter((opcion) => opcion.value).sort((a, b) => a.label.localeCompare(b.label));
 
   const horasExtraFiltradas = horasExtra.filter((row) => (
     (!colaboradorFiltroHorasExtra || row.colaborador?.id === colaboradorFiltroHorasExtra)

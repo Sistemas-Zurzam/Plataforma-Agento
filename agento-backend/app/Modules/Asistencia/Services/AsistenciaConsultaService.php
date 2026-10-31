@@ -129,12 +129,7 @@ class AsistenciaConsultaService
                 }
             })
             ->when($filtros['busqueda'] ?? null, function ($query, $busqueda) {
-                $query->where(function ($campos) use ($busqueda) {
-                    $campos->where('nombres', 'like', "%{$busqueda}%")
-                        ->orWhere('apellidos', 'like', "%{$busqueda}%")
-                        ->orWhere('numero_documento', 'like', "%{$busqueda}%")
-                        ->orWhere('legajo', 'like', "%{$busqueda}%");
-                });
+                $query->buscarTexto($busqueda);
             });
     }
 
@@ -184,12 +179,7 @@ class AsistenciaConsultaService
             })
             ->when($filtros['busqueda'] ?? null, function ($query, $busqueda) {
                 $query->whereHas('colaborador', function ($colaborador) use ($busqueda) {
-                    $colaborador->where(function ($campos) use ($busqueda) {
-                        $campos->where('nombres', 'like', "%{$busqueda}%")
-                            ->orWhere('apellidos', 'like', "%{$busqueda}%")
-                            ->orWhere('legajo', 'like', "%{$busqueda}%")
-                            ->orWhere('numero_documento', 'like', "%{$busqueda}%");
-                    });
+                    $colaborador->buscarTexto($busqueda);
                 });
             })
             ->orderByDesc('fecha')

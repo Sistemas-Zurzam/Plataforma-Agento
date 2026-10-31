@@ -69,11 +69,7 @@ class PlanificacionRotativaService
             // Portal de Empresa: limita a las áreas autorizadas del gerente
             // (AlcancePortal) sin duplicar esta consulta.
             ->when($restriccion, fn ($query) => $restriccion($query))
-            ->when($busqueda, fn ($query) => $query->where(function ($query) use ($busqueda) {
-                $query->where('nombres', 'like', "%{$busqueda}%")
-                    ->orWhere('apellidos', 'like', "%{$busqueda}%")
-                    ->orWhere('legajo', 'like', "%{$busqueda}%");
-            }))
+            ->when($busqueda, fn ($query) => $query->buscarTexto($busqueda))
             // Todo en un solo roundtrip por relación (N+1 safe) — nunca una
             // consulta por colaborador dentro del map() de abajo.
             ->with([
