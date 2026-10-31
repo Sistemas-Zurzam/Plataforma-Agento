@@ -121,17 +121,21 @@ class CalcularReciboHonorarios
             // Usa el calendario oficial además del tipo de día persistido:
             // algunos resultados históricos conservan tipo_dia laborable.
             ->filter(fn (AsistenciaResultadoDiario $resultado): bool => FeriadosPeru::esFeriado($resultado->fecha->toDateString()))
-            ->map(function (AsistenciaResultadoDiario $resultado) use ($colaborador): array {
+            ->map(function (AsistenciaResultadoDiario $resultado) use ($colaborador, $honorarioBruto): array {
                 $remuneracionFeriado = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
                     ->whereDate('vigencia_desde', '<=', $resultado->fecha->toDateString())
                     ->orderByDesc('vigencia_desde')
                     ->orderByDesc('id')
                     ->first();
+                // Honorario registrado con vigencia posterior al feriado
+                // (ej. ingresó el 08 y la remuneración rige desde el 28):
+                // se usa el mismo honorario del período, como el bruto.
+                $base = (float) ($remuneracionFeriado?->salario ?? $honorarioBruto);
 
                 return [
                     'fecha' => $resultado->fecha->toDateString(),
-                    'base' => (float) ($remuneracionFeriado?->salario ?? 0),
-                    'monto' => round((float) ($remuneracionFeriado?->salario ?? 0) / 30, 2),
+                    'base' => $base,
+                    'monto' => round($base / 30, 2),
                 ];
             })
             ->filter(fn (array $feriado): bool => $feriado['monto'] > 0)

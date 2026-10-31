@@ -109,6 +109,33 @@ class PagoHonorariosPorDiasPresentesTest extends TestCase
         $this->assertNull(collect($resultado['ingresos'])->firstWhere('codigo', 'HONORARIO_FERIADO_TRABAJADO'));
     }
 
+    public function test_feriado_trabajado_antes_de_la_vigencia_del_honorario_usa_el_honorario_del_periodo(): void
+    {
+        $colaborador = $this->crearLocadorDeOctubre();
+        $colaborador->update(['fecha_ingreso' => '2026-10-08']);
+        $colaborador->remuneraciones()->update(['salario' => 1300, 'vigencia_desde' => '2026-10-28']);
+        AsistenciaResultadoDiario::create([
+            'empresa_id' => $colaborador->empresa_id,
+            'colaborador_id' => $colaborador->id,
+            'fecha' => '2026-10-08',
+            'tipo_dia' => 'laborable_presencial',
+            'estado' => 'presente',
+            'entrada_at' => '2026-10-08 10:52:00',
+            'salida_at' => '2026-10-08 20:03:00',
+            'minutos_trabajados' => 550,
+            'procesado_at' => now(),
+        ]);
+
+        $resultado = app(CalcularReciboHonorarios::class)->calcular(
+            $colaborador->fresh(), '2026-10-01', '2026-10-31', '2026-10-27',
+        );
+
+        $lineaFeriado = collect($resultado['ingresos'])->firstWhere('codigo', 'HONORARIO_FERIADO_TRABAJADO');
+        $this->assertNotNull($lineaFeriado);
+        $this->assertSame(43.33, $lineaFeriado['monto']);
+        $this->assertSame(1300.0, $lineaFeriado['base_utilizada']);
+    }
+
     public function test_bonificacion_manual_se_suma_al_servicio_de_un_locador(): void
     {
         $this->seed(DatabaseSeeder::class);
