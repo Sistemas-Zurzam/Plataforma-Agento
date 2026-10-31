@@ -25,6 +25,7 @@ use App\Modules\Nominas\Http\Controllers\CicloRemunerativoController;
 use App\Modules\Nominas\Http\Controllers\ConceptoDefinicionPlameController;
 use App\Modules\Nominas\Http\Controllers\ConceptoRemuneracionController;
 use App\Modules\Nominas\Http\Controllers\ConsumoComidaController;
+use App\Modules\Nominas\Http\Controllers\HorasExtraMontoController;
 use App\Modules\Nominas\Http\Controllers\LiquidacionCeseController;
 use App\Modules\Nominas\Http\Controllers\NominaImportacionHistoricaController;
 use App\Modules\Nominas\Http\Controllers\PlanillaComplementariaController;
@@ -354,6 +355,9 @@ Route::middleware('jwt')->group(function () {
     Route::post('/bono-asistencia-lotes/{lote}/importar', [BonoAsistenciaController::class, 'importar'])->middleware('permiso:nominas.calcular');
     Route::post('/bono-asistencia-lotes/{lote}/aplicar', [BonoAsistenciaController::class, 'aplicar'])->middleware('permiso:nominas.aprobar');
     Route::delete('/bono-asistencia-lotes/{lote}', [BonoAsistenciaController::class, 'anular'])->middleware('permiso:nominas.calcular');
+    // Montos referenciales de horas extra (pestaña Asistencia); importes = nominas.ver.
+    Route::get('/nominas/horas-extra/montos-aproximados', [HorasExtraMontoController::class, 'index'])->middleware('permiso:nominas.ver');
+    Route::get('/nominas/horas-extra/excel', [HorasExtraMontoController::class, 'excel'])->middleware(['permiso:asistencia.ver', 'permiso:nominas.ver']);
     // Consumo de comida: importación de consumos desde la plantilla oficial,
     // aplicados como descuento del ciclo (ConsumoComidaImportacionService).
     // Mismos permisos que los conceptos manuales del período.

@@ -1,10 +1,11 @@
 import { ArrowLeftOutlined, CalendarOutlined, CheckCircleOutlined, ClockCircleOutlined, DownOutlined, EditOutlined, ExclamationCircleOutlined, EyeOutlined, FileExcelOutlined, FolderOpenOutlined, HistoryOutlined, PlusOutlined, ReloadOutlined, SafetyCertificateOutlined, ScheduleOutlined, SearchOutlined, SendOutlined, TeamOutlined, UploadOutlined, UsergroupAddOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Calendar, Card, DatePicker, Dropdown, Empty, Form, Input, Modal, Select, Space, Statistic, Table, Tabs, Tag, TimePicker, Typography, Upload } from 'antd';
+import { Alert, App, Button, Calendar, Card, DatePicker, Dropdown, Empty, Form, Input, Modal, Select, Space, Statistic, Table, Tabs, Tag, TimePicker, Tooltip, Typography, Upload } from 'antd';
 import dayjs from 'dayjs';
 import 'dayjs/locale/es';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../configuracion/components/EmpresaActivaFiltro';
 import PlanificacionRotativos from '../components/PlanificacionRotativos';
+import useMontosHorasExtra from '../hooks/useMontosHorasExtra';
 import { ESTADOS_ASISTENCIA, claveEstadoAsistencia } from '../constants/estadosAsistencia';
 import { etiquetaOrigenMarcacion } from '../constants/origenesMarcacion';
 import api from '../../../services/api';
@@ -507,6 +508,8 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
   const puedeResolverIncidencias = user?.role === 'administrador' || user?.permisos?.includes('asistencia.incidencias');
   const puedeGestionarHorasExtra = user?.role === 'administrador' || user?.permisos?.includes('asistencia.horas_extra');
   const puedeAprobarRrhh = user?.role === 'administrador' || user?.permisos?.includes('asistencia.aprobar_rrhh');
+  // Los importes son de Nóminas: sin nominas.ver no se consulta ni se muestra la columna.
+  const puedeVerMontosHorasExtra = user?.role === 'administrador' || user?.permisos?.includes('nominas.ver');
 
   const parametros = useMemo(() => ({
     fecha_desde: rango[0].format('YYYY-MM-DD'), fecha_hasta: rango[1].format('YYYY-MM-DD'), per_page: 100,
@@ -728,7 +731,9 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       const params = horasExtraSeleccionadas.length > 0
         ? { fecha_desde: parametros.fecha_desde, fecha_hasta: parametros.fecha_hasta, horas_extra_ids: horasExtraSeleccionadas }
         : { fecha_desde: parametros.fecha_desde, fecha_hasta: parametros.fecha_hasta, colaborador_id: colaboradorFiltroHorasExtra, estado: estadoFiltroHorasExtra };
-      await descargarExcel('/asistencia/horas-extra/excel', params, 'Horas_extra.xlsx');
+      // Con permiso de nóminas se descarga la versión con montos aproximados.
+      const ruta = puedeVerMontosHorasExtra ? '/nominas/horas-extra/excel' : '/asistencia/horas-extra/excel';
+      await descargarExcel(ruta, params, 'Horas_extra.xlsx');
       message.success('Excel de horas extra generado');
     } catch (error) { message.error(error.response?.data?.message ?? 'No se pudo generar el Excel de horas extra'); }
     finally { setExportandoHorasExtra(false); }
@@ -1422,6 +1427,28 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     (!colaboradorFiltroHorasExtra || row.colaborador?.id === colaboradorFiltroHorasExtra)
     && (estadoFiltroHorasExtra === 'todos' || row.estado === estadoFiltroHorasExtra)
   ));
+  const { montos: montosHorasExtra, cargando: cargandoMontosHorasExtra } = useMontosHorasExtra(
+    horasExtraFiltradas.map((row) => row.id),
+    puedeVerMontosHorasExtra,
+  );
+  const columnaMontoHorasExtra = {
+    title: <Tooltip title="Referencial: sueldo u honorario / 240 × tasa del régimen × horas (aprobadas, o las observadas si aún no se aprueba). El monto final lo define el cálculo de la planilla.">Monto aprox.</Tooltip>,
+    key: 'monto_aproximado',
+    width: 115,
+    align: 'right',
+    render: (_, row) => {
+      const estimado = montosHorasExtra[row.id];
+      if (!estimado) return cargandoMontosHorasExtra ? '…' : '—';
+      if (estimado.monto === null) return <Tooltip title={estimado.nota}><Text type="secondary">—</Text></Tooltip>;
+      return (
+        <Tooltip title={`${estimado.base} / 240 × ${estimado.tasa} × ${duracionEnTexto(estimado.minutos)}`}>
+          <Text type={row.estado === 'rechazado' ? 'secondary' : undefined} delete={row.estado === 'rechazado'}>
+            S/ {Number(estimado.monto).toFixed(2)}
+          </Text>
+        </Tooltip>
+      );
+    },
+  };
 
   // La selección sirve también para exportar (cualquier estado), pero
   // aprobar/rechazar solo aplica a pendientes: el backend rechaza el lote
@@ -1531,6 +1558,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     { title: 'Observadas', dataIndex: 'minutos_observados', width: 105, render: duracion },
     { title: 'Gerencia', dataIndex: 'minutos_aprobados_gerencia', width: 105, render: (value) => (value === null || value === undefined ? '—' : duracion(value)) },
     { title: 'Aprobadas', dataIndex: 'minutos_aprobados', width: 105, render: duracion },
+    ...(puedeVerMontosHorasExtra ? [columnaMontoHorasExtra] : []),
     { title: 'Estado', dataIndex: 'estado', width: 130, render: (value) => <Tag color={value === 'pendiente' ? 'gold' : value === 'aprobado_gerencia' ? 'blue' : value === 'aprobado' ? 'green' : 'red'}>{value === 'aprobado_gerencia' ? 'aprobado gerencia' : value}</Tag> },
     { title: 'Motivo', dataIndex: 'motivo', ellipsis: true, render: (value) => value || '—' },
     {
