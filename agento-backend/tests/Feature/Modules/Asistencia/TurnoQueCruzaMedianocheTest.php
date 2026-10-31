@@ -22,12 +22,27 @@ class TurnoQueCruzaMedianocheTest extends TestCase
     {
         $fecha = Carbon::parse('2026-10-05');
         $colaborador = $this->colaboradorConTurno($fecha, '14:00', '01:00');
+        $this->marcar($colaborador, '2026-10-05 13:58:00');
+        $this->marcar($colaborador, '2026-10-06 01:02:00');
+
+        $resultado = app(ProcesarAsistenciaDiaria::class)->procesar($colaborador, $fecha);
+
+        $this->assertSame('presente', $resultado->estado);
+        $this->assertSame('2026-10-06 01:02:00', $resultado->salida_at->format('Y-m-d H:i:s'));
+    }
+
+    public function test_salida_anticipada_despues_de_medianoche_ya_no_es_marcacion_incompleta(): void
+    {
+        // Caso real: turno 14:00-01:00 con salida 00:16. La salida se toma
+        // (antes quedaba como MI); salir 44 min antes es horas incompletas.
+        $fecha = Carbon::parse('2026-10-05');
+        $colaborador = $this->colaboradorConTurno($fecha, '14:00', '01:00');
         $this->marcar($colaborador, '2026-10-05 14:06:29');
         $this->marcar($colaborador, '2026-10-06 00:16:14');
 
         $resultado = app(ProcesarAsistenciaDiaria::class)->procesar($colaborador, $fecha);
 
-        $this->assertSame('presente', $resultado->estado);
+        $this->assertNotSame('marcacion_incompleta', $resultado->estado);
         $this->assertSame('2026-10-06 00:16:14', $resultado->salida_at->format('Y-m-d H:i:s'));
     }
 
