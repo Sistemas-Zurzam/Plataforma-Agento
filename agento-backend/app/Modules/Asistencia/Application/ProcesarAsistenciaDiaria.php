@@ -71,7 +71,7 @@ class ProcesarAsistenciaDiaria
         $jornada = $this->resolverJornada->resolver($colaborador, $fecha);
         $horarioDia = $jornada['horario_dia'];
         [$inicioProgramado, $finProgramado] = $this->limitesProgramados($fecha, $horarioDia);
-        $marcaciones = $this->obtenerMarcaciones($colaborador, $fecha, $inicioProgramado, $finProgramado, (bool) $horarioDia?->jornada_nocturna);
+        $marcaciones = $this->obtenerMarcaciones($colaborador, $fecha, $inicioProgramado, $finProgramado, (bool) $horarioDia?->jornada_nocturna || $this->cruzaMedianoche($horarioDia));
 
         $entrada = $marcaciones->first()?->marcado_at;
         $salida = $marcaciones->count() > 1 ? $marcaciones->last()?->marcado_at : null;
@@ -369,6 +369,28 @@ class ProcesarAsistenciaDiaria
         }
 
         return [$inicio, $fin];
+    }
+
+    /**
+     * Turno que termina al día siguiente (ej. 14:00-01:00) aunque el horario
+     * no se haya guardado como "nocturno": su salida tras la medianoche es
+     * parte de la jornada. Se exige salida estrictamente menor que la
+     * entrada y una duración razonable (≤ 16 h) para no tratar como turno
+     * real una hora_salida mal configurada (ej. 08:00-05:00 por 17:00).
+     */
+    private function cruzaMedianoche(?HorarioDia $dia): bool
+    {
+        if (! $dia?->hora_entrada || ! $dia->hora_salida) {
+            return false;
+        }
+
+        $entrada = Carbon::parse('2000-01-01 '.$dia->hora_entrada);
+        $salida = Carbon::parse('2000-01-01 '.$dia->hora_salida);
+        if ($salida->gte($entrada)) {
+            return false;
+        }
+
+        return $entrada->diffInMinutes($salida->addDay()) <= 16 * 60;
     }
 
     private function obtenerMarcaciones(
