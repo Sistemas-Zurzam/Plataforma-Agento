@@ -5,6 +5,7 @@ use App\Modules\Configuracion\Http\Middleware\EnsureIsEmpresaAdmin;
 use App\Modules\Configuracion\Http\Middleware\EnsurePermission;
 use App\Modules\PortalCliente\Http\Middleware\EnsurePortalClienteHabilitado;
 use App\Modules\PortalCliente\Http\Middleware\EnsurePortalEmpresaVigente;
+use App\Modules\Reclutamiento\Domain\TransicionInvalidaException;
 use Illuminate\Auth\AuthenticationException;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Foundation\Application;
@@ -47,6 +48,14 @@ return Application::configure(basePath: dirname(__DIR__))
         $exceptions->render(function (NotFoundHttpException $e, Request $request) {
             if ($request->is('api/*') || $request->expectsJson()) {
                 return response()->json(['message' => 'La ruta solicitada no existe.'], 404);
+            }
+        });
+
+        // Reglas de estado del dominio de Selección (transiciones no
+        // permitidas): son errores de negocio esperables, no fallas del servidor.
+        $exceptions->render(function (TransicionInvalidaException $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json(['message' => $e->getMessage(), 'errors' => ['estado' => [$e->getMessage()]]], 422);
             }
         });
 

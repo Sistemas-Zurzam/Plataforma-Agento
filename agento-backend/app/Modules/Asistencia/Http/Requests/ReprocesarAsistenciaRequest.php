@@ -8,12 +8,17 @@ class ReprocesarAsistenciaRequest extends FormRequest
 {
     public function rules(): array
     {
+        // modo: null = reproceso del rango conservando cambios manuales (uso
+        // histórico, p. ej. reprocesar un día); 'parcial' = rango de la última
+        // importación, conservando cambios manuales; 'total' = rango indicado,
+        // descartando cambios manuales (exige motivo).
         return [
-            'fecha_desde' => ['required', 'date'],
-            'fecha_hasta' => ['required', 'date', 'after_or_equal:fecha_desde', 'before_or_equal:'.now()->addYears(2)->toDateString()],
+            'modo' => ['nullable', 'in:parcial,total'],
+            'fecha_desde' => ['required_unless:modo,parcial', 'nullable', 'date'],
+            'fecha_hasta' => ['required_unless:modo,parcial', 'nullable', 'date', 'after_or_equal:fecha_desde', 'before_or_equal:'.now()->addYears(2)->toDateString()],
             'colaborador_ids' => ['nullable', 'array', 'max:500'],
             'colaborador_ids.*' => ['integer'],
-            'motivo' => ['nullable', 'string', 'max:500'],
+            'motivo' => ['required_if:modo,total', 'nullable', 'string', 'max:500'],
         ];
     }
 

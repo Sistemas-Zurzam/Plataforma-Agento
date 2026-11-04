@@ -552,15 +552,29 @@ class PortalAsistenciaTest extends TestCase
         }
         $usuario = $this->crearClienteDe($texajo);
 
-        DB::enableQueryLog();
-        $this->withHeaders($this->headersPara($usuario))
-            ->getJson('/api/portal/asistencia/colaboradores')->assertOk();
-        $totalConsultas = count(DB::getQueryLog());
-        DB::disableQueryLog();
+        $contar = function () use ($usuario): int {
+            DB::flushQueryLog();
+            DB::enableQueryLog();
+            $this->withHeaders($this->headersPara($usuario))
+                ->getJson('/api/portal/asistencia/colaboradores')->assertOk();
+            $total = count(DB::getQueryLog());
+            DB::disableQueryLog();
 
-        // Con eager loading de area/sede, el total de consultas no debe
-        // escalar con la cantidad de colaboradores (5) — un N+1 real
-        // hubiera generado 2 consultas adicionales POR colaborador.
-        $this->assertLessThan(15, $totalConsultas, "Se ejecutaron {$totalConsultas} consultas — posible N+1.");
+            return $total;
+        };
+
+        $contar(); // Calentamiento: excluye consultas únicas del primer request.
+        $conCinco = $contar();
+        for ($i = 0; $i < 5; $i++) {
+            $this->crearColaborador($texajo);
+        }
+        $conDiez = $contar();
+
+        // Con eager loading de area/sede el total no escala con la cantidad
+        // de colaboradores — un N+1 real sumaría 2 consultas POR colaborador.
+        // El costo fijo incluye la autorización por request (rol, permisos
+        // y alcance del portal leídos de BD, nunca del JWT).
+        $this->assertSame($conCinco, $conDiez, "Las consultas crecieron de {$conCinco} a {$conDiez} — posible N+1.");
+        $this->assertLessThan(20, $conDiez, "Se ejecutaron {$conDiez} consultas.");
     }
 }

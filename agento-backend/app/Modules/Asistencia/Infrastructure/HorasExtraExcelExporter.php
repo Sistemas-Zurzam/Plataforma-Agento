@@ -24,10 +24,18 @@ final class HorasExtraExcelExporter
     ];
 
     /**
+     * $montos (id => ['monto' => ?float, ...]) lo entrega Nóminas solo a
+     * quien puede ver importes; sin él no se agrega la columna de monto.
+     *
      * @param  Collection<int, AsistenciaHoraExtra>  $horasExtra
+     * @param  array<int, array{monto: ?float}>|null  $montos
      */
-    public static function generar(Empresa $empresa, string $fechaDesde, string $fechaHasta, Collection $horasExtra): string
+    public static function generar(Empresa $empresa, string $fechaDesde, string $fechaHasta, Collection $horasExtra, ?array $montos = null): string
     {
+        $conMonto = $montos !== null;
+        // Con monto, la columna va entre "Aprobadas" y "Estado" (igual que la pantalla).
+        [$colEstado, $colMotivo, $ultima] = $conMonto ? ['G', 'H', 'H'] : ['F', 'G', 'G'];
+
         $libro = new Spreadsheet;
         $hoja = $libro->getActiveSheet();
         $hoja->setTitle('Horas extra');
@@ -35,7 +43,11 @@ final class HorasExtraExcelExporter
         $hoja->fromArray(['Empresa', $empresa->nombre_comercial], null, 'A1');
         $hoja->fromArray(['Período', "{$fechaDesde} a {$fechaHasta}"], null, 'A2');
 
-        $hoja->fromArray(['Fecha', 'Colaborador', 'Tasa', 'Observadas', 'Aprobadas', 'Estado', 'Motivo'], null, 'A4');
+        $hoja->fromArray([
+            'Fecha', 'Colaborador', 'Tasa', 'Observadas', 'Aprobadas',
+            ...($conMonto ? ['Monto aprox. (S/)'] : []),
+            'Estado', 'Motivo',
+        ], null, 'A4');
 
         $fila = 5;
         foreach ($horasExtra as $registro) {
@@ -46,11 +58,15 @@ final class HorasExtraExcelExporter
             $hoja->setCellValue("C{$fila}", "{$registro->tasa}%");
             $hoja->setCellValue("D{$fila}", self::formatearDuracion((int) $registro->minutos_observados));
             $hoja->setCellValue("E{$fila}", self::formatearDuracion((int) $registro->minutos_aprobados));
-            $hoja->setCellValue("F{$fila}", $registro->estado);
-            $hoja->setCellValue("G{$fila}", $registro->motivo ?: '—');
+            if ($conMonto) {
+                $monto = $montos[$registro->id]['monto'] ?? null;
+                $hoja->setCellValue("F{$fila}", $monto ?? '—');
+            }
+            $hoja->setCellValue("{$colEstado}{$fila}", $registro->estado);
+            $hoja->setCellValue("{$colMotivo}{$fila}", $registro->motivo ?: '—');
 
             if ($color = self::COLORES_ESTADO[$registro->estado] ?? null) {
-                $hoja->getStyle("F{$fila}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB($color);
+                $hoja->getStyle("{$colEstado}{$fila}")->getFill()->setFillType(Fill::FILL_SOLID)->getStartColor()->setARGB($color);
             }
             $fila++;
         }
@@ -58,18 +74,27 @@ final class HorasExtraExcelExporter
         $hoja->setCellValue("C{$fila}", 'Total');
         $hoja->setCellValue("D{$fila}", self::formatearDuracion((int) $horasExtra->sum('minutos_observados')));
         $hoja->setCellValue("E{$fila}", self::formatearDuracion((int) $horasExtra->sum('minutos_aprobados')));
-        $hoja->getStyle("C{$fila}:E{$fila}")->getFont()->setBold(true);
+        if ($conMonto) {
+            // Las rechazadas no se pagan: no suman al total referencial.
+            $hoja->setCellValue("F{$fila}", round($horasExtra
+                ->reject(fn (AsistenciaHoraExtra $registro) => $registro->estado === AsistenciaHoraExtra::ESTADO_RECHAZADO)
+                ->sum(fn (AsistenciaHoraExtra $registro) => (float) ($montos[$registro->id]['monto'] ?? 0)), 2));
+            $hoja->getStyle('F5:F'.$fila)->getNumberFormat()->setFormatCode('#,##0.00');
+        }
+        $hoja->getStyle("C{$fila}:".($conMonto ? 'F' : 'E').$fila)->getFont()->setBold(true);
 
         $hoja->getStyle('A1:A2')->getFont()->setBold(true);
-        $hoja->getStyle('A4:G4')->applyFromArray([
+        $hoja->getStyle("A4:{$ultima}4")->applyFromArray([
             'font' => ['bold' => true, 'color' => ['argb' => 'FFFFFFFF']],
             'fill' => ['fillType' => Fill::FILL_SOLID, 'startColor' => ['argb' => 'FF0B4F94']],
             'alignment' => ['vertical' => Alignment::VERTICAL_CENTER],
         ]);
         $hoja->freezePane('A5');
-        $hoja->setAutoFilter('A4:G'.max(5, $fila - 1));
+        $hoja->setAutoFilter("A4:{$ultima}".max(5, $fila - 1));
 
-        foreach (['A' => 12, 'B' => 38, 'C' => 8, 'D' => 13, 'E' => 13, 'F' => 13, 'G' => 40] as $columna => $ancho) {
+        $anchos = ['A' => 12, 'B' => 38, 'C' => 8, 'D' => 13, 'E' => 13]
+            + ($conMonto ? ['F' => 16, 'G' => 13, 'H' => 40] : ['F' => 13, 'G' => 40]);
+        foreach ($anchos as $columna => $ancho) {
             $hoja->getColumnDimension($columna)->setWidth($ancho);
         }
 

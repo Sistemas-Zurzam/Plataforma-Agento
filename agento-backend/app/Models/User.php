@@ -106,6 +106,19 @@ class User extends Authenticatable implements JWTSubject
             || $this->empresas()->where('empresas.id', $empresa->id)->exists();
     }
 
+    /**
+     * Ids de todas las empresas en las que el usuario puede operar — mismo
+     * criterio que tieneAccesoA(), para reportes que abarcan varias empresas.
+     *
+     * @return list<int>
+     */
+    public function empresaIdsAutorizadas(): array
+    {
+        return $this->esAdministradorGlobal()
+            ? Empresa::pluck('id')->all()
+            : $this->empresas()->pluck('empresas.id')->all();
+    }
+
     public function getJWTIdentifier(): mixed
     {
         return $this->getKey();

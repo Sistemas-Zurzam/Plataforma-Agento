@@ -9,9 +9,12 @@ use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ProrateoCese;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
+use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
+use App\Modules\Personas\Support\FeriadosPeru;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use RuntimeException;
 
@@ -34,31 +37,46 @@ use RuntimeException;
  */
 class CalcularReciboHonorarios
 {
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?float $salarioBaseOverride = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?float $salarioBaseOverride = null, ?string $finAsistencia = null, bool $prorratearRango = false): array
     {
         $parametros = ParametrosVigentesResolver::paraHonorarios($colaborador->empresa, $fechaCorte);
 
         $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
-            ->whereDate('vigencia_desde', '<=', $fechaCorte)
+            ->whereDate('vigencia_desde', '<=', $fechaFin)
             ->orderByDesc('vigencia_desde')
             ->orderByDesc('id')
             ->first();
 
         if (! $remuneracion && $salarioBaseOverride === null) {
-            throw new RuntimeException("El colaborador #{$colaborador->id} no tiene un honorario pactado vigente a {$fechaCorte}.");
+            throw new RuntimeException("El colaborador #{$colaborador->id} no tiene un honorario pactado vigente durante el período pagado hasta {$fechaFin}.");
         }
 
         $honorarioBruto = (float) ($remuneracion?->salario ?? $salarioBaseOverride);
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
+        // $finAsistencia solo lo usa el Proyectado de planilla (ver
+        // PeriodoAsistenciaCiclo::acotar()); la planilla real nunca lo pasa.
+        $periodoAsistencia = PeriodoAsistenciaCiclo::acotar(PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte), $finAsistencia);
         $asistencia = $this->obtenerAsistenciaConfigurada(
             $colaborador, $periodoAsistencia['inicio'], $periodoAsistencia['fin']
         );
         $pagoPorDiasPresentes = $remuneracion?->modo_calculo_honorarios === 'por_dias_presentes';
         // Esta modalidad paga exactamente el período mostrado en la
         // planilla; el corte diferido no arrastra presentes de otro mes.
+        $finPresentes = $finAsistencia !== null ? min($fechaFin, $finAsistencia) : $fechaFin;
         $asistenciaParaPago = $pagoPorDiasPresentes
-            ? $this->obtenerAsistenciaConfigurada($colaborador, $fechaInicio, $fechaFin)
+            ? $this->obtenerAsistenciaConfigurada($colaborador, $fechaInicio, $finPresentes)
             : $asistencia;
+        // Proyectado: los días aún sin asistencia procesada se proyectan
+        // como presentes, dentro del vínculo (ingreso/cese) y hasta 30.
+        $diasProyectados = 0;
+        if ($pagoPorDiasPresentes && $finPresentes < $fechaFin) {
+            $desde = Carbon::parse(max($fechaInicio, $colaborador->fecha_ingreso->toDateString()))
+                ->max(Carbon::parse($finPresentes)->addDay());
+            $hasta = Carbon::parse($fechaFin)->min($colaborador->fecha_cese ?? Carbon::parse($fechaFin));
+            if ($desde->lte($hasta)) {
+                $diasProyectados = (int) min(30 - $asistenciaParaPago['dias_presentes'], $desde->diffInDays($hasta) + 1);
+                $asistenciaParaPago['dias_presentes'] += max(0, $diasProyectados);
+            }
+        }
 
         // Un locador que ingresa a mitad de $fechaInicio no debe facturar el
         // honorario pactado completo — el recibo real de ese período es
@@ -71,23 +89,76 @@ class CalcularReciboHonorarios
         // CalcularBoletaColaborador. No-op si ya estaba activo antes del
         // período — ver ProrateoIngresoTardio.
         $diasNoPagadosPorIngresoTardio = ProrateoIngresoTardio::diasNoPagados($colaborador->fecha_ingreso, $fechaInicio)
-            + ProrateoCese::diasNoPagados($colaborador->fecha_cese, $fechaInicio, $fechaFin);
+            + ProrateoCese::diasNoPagados($colaborador->fecha_cese, $fechaInicio, $fechaFin)
+            // Solo el Proyectado por rango (ej. una quincena); la planilla
+            // real nunca lo activa. Por días presentes ya se acota al rango.
+            + ($prorratearRango ? ProrateoRango::diasNoPagados($fechaInicio, $fechaFin, $colaborador->fecha_cese) : 0.0);
         $honorarioDelPeriodo = $pagoPorDiasPresentes
             ? round(($honorarioBruto / 30) * $asistenciaParaPago['dias_presentes'], 2)
             : ($diasNoPagadosPorIngresoTardio > 0
                 ? round($honorarioBruto * max(0, 30 - $diasNoPagadosPorIngresoTardio) / 30, 2)
                 : $honorarioBruto);
 
+        $conceptosManuales = $this->conceptosDelPeriodo($colaborador, $cicloId);
+        $feriadosTrabajados = AsistenciaResultadoDiario::where('colaborador_id', $colaborador->id)
+            ->whereBetween('fecha', [$fechaInicio, $fechaFin])
+            ->where(function ($query): void {
+                // ProcesarAsistenciaDiaria guarda el estado como "feriado"
+                // cuando resuelve una fecha festiva con marcaciones; no usa
+                // "presente" para ese tipo de jornada.
+                $query->whereIn('estado', AsistenciaResultadoDiario::ESTADOS_CON_ASISTENCIA)
+                    ->orWhere('estado', 'feriado');
+            })
+            // Sin control de horario (tipo_dia no_sujeto_control) el motor
+            // guarda minutos_trabajados en 0 aunque haya marcaciones; ahí la
+            // evidencia de trabajo es tener entrada y salida.
+            ->where(function ($query): void {
+                $query->where('minutos_trabajados', '>', 0)
+                    ->orWhere(fn ($marcado) => $marcado->whereNotNull('entrada_at')->whereNotNull('salida_at'));
+            })
+            ->orderBy('fecha')
+            ->get()
+            // Usa el calendario oficial además del tipo de día persistido:
+            // algunos resultados históricos conservan tipo_dia laborable.
+            ->filter(fn (AsistenciaResultadoDiario $resultado): bool => FeriadosPeru::esFeriado($resultado->fecha->toDateString()))
+            ->map(function (AsistenciaResultadoDiario $resultado) use ($colaborador, $honorarioBruto): array {
+                $remuneracionFeriado = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
+                    ->whereDate('vigencia_desde', '<=', $resultado->fecha->toDateString())
+                    ->orderByDesc('vigencia_desde')
+                    ->orderByDesc('id')
+                    ->first();
+                // Honorario registrado con vigencia posterior al feriado
+                // (ej. ingresó el 08 y la remuneración rige desde el 28):
+                // se usa el mismo honorario del período, como el bruto.
+                $base = (float) ($remuneracionFeriado?->salario ?? $honorarioBruto);
+
+                return [
+                    'fecha' => $resultado->fecha->toDateString(),
+                    'base' => $base,
+                    'monto' => round($base / 30, 2),
+                ];
+            })
+            ->filter(fn (array $feriado): bool => $feriado['monto'] > 0)
+            ->values();
+        $ingresosAdicionales = collect($conceptosManuales)
+            ->where('tipo', 'ingreso')
+            ->sum(fn (array $manual) => (float) $manual['linea']['monto'])
+            + $feriadosTrabajados->sum('monto');
+        $baseServicio = $honorarioDelPeriodo + $ingresosAdicionales;
+
         $retencion = 0.0;
         $alertas = [];
 
         if ($colaborador->tiene_suspension_renta_4ta) {
             $formulaRetencion = 'Sin retención — el colaborador presentó constancia de suspensión de retenciones de renta de 4ta.';
-        } elseif ($honorarioDelPeriodo <= $parametros['umbral_retencion_4ta']) {
+        } elseif ($baseServicio <= $parametros['umbral_retencion_4ta']) {
             $formulaRetencion = "Sin retención — el honorario ({$honorarioDelPeriodo}) no supera el umbral vigente (S/ {$parametros['umbral_retencion_4ta']}).";
         } else {
-            $retencion = round($honorarioDelPeriodo * $parametros['tasa_retencion_4ta'], 2);
+            $retencion = round($baseServicio * $parametros['tasa_retencion_4ta'], 2);
             $formulaRetencion = "{$parametros['tasa_retencion_4ta']} × honorario del período ({$honorarioDelPeriodo}) — supera el umbral de S/ {$parametros['umbral_retencion_4ta']}";
+        }
+        if ($ingresosAdicionales > 0) {
+            $formulaRetencion .= " (incluye S/ {$ingresosAdicionales} en ingresos adicionales)";
         }
 
         $ingresos = [[
@@ -99,6 +170,7 @@ class CalcularReciboHonorarios
             'formula_texto' => $pagoPorDiasPresentes
                 ? "Honorario/30 (".round($honorarioBruto / 30, 2)." × {$asistenciaParaPago['dias_presentes']} día(s) con asistencia presente"
                     .($asistenciaParaPago['fechas_presentes'] ? ' — '.implode(', ', $asistenciaParaPago['fechas_presentes']) : '')
+                    .($diasProyectados > 0 ? " — incluye {$diasProyectados} día(s) proyectados sin asistencia procesada" : '')
                 : ($diasNoPagadosPorIngresoTardio > 0
                     ? "Monto pactado vigente para este período — excluye {$diasNoPagadosPorIngresoTardio} día(s) fuera del vínculo (ingreso {$colaborador->fecha_ingreso->toDateString()}".($colaborador->fecha_cese ? ", cese {$colaborador->fecha_cese->toDateString()}" : '').')'
                     : 'Monto pactado vigente para este período (historial remunerativo del colaborador)'),
@@ -107,11 +179,22 @@ class CalcularReciboHonorarios
         $egresos = [[
             'codigo' => 'RETENCION_RENTA_4TA',
             'monto' => $retencion,
-            'base_utilizada' => $honorarioDelPeriodo,
+            'base_utilizada' => $baseServicio,
             'tasa_aplicada' => $colaborador->tiene_suspension_renta_4ta ? null : $parametros['tasa_retencion_4ta'],
             'cantidad' => null,
             'formula_texto' => $formulaRetencion,
         ]];
+
+        foreach ($feriadosTrabajados as $feriado) {
+            $ingresos[] = [
+                'codigo' => 'HONORARIO_FERIADO_TRABAJADO',
+                'monto' => $feriado['monto'],
+                'base_utilizada' => $feriado['base'],
+                'tasa_aplicada' => null,
+                'cantidad' => 1,
+                'formula_texto' => "({$feriado['base']} / 30) × 1 por feriado trabajado {$feriado['fecha']} — adicional contractual para recibo por honorarios",
+            ];
+        }
 
         // Honorarios y dependientes deben usar el mismo corte diferido. De
         // otro modo un locador seguía descontando todo el mes calendario,
@@ -164,10 +247,9 @@ class CalcularReciboHonorarios
 
         // Adelantos/descuentos operativos que RR.HH. registró para este
         // locador+ciclo (colaborador_conceptos_periodo). CicloRemunerativoService::
-        // registrarConcepto ya exige tipo=egreso para honorarios, así que en la
-        // práctica esto siempre cae en $egresos — pero se enruta por tipo real
-        // del catálogo, nunca se asume, igual que en CalcularBoletaColaborador.
-        foreach ($this->conceptosDelPeriodo($colaborador, $cicloId) as $manual) {
+        // Los descuentos y adicionales permitidos para honorarios se enrutan
+        // por el tipo real del catálogo, nunca se asume.
+        foreach ($conceptosManuales as $manual) {
             if ($manual['tipo'] === 'egreso') {
                 $egresos[] = $manual['linea'];
             } else {
@@ -275,6 +357,9 @@ class CalcularReciboHonorarios
         $horasExtraAprobadas = AsistenciaHoraExtra::where('colaborador_id', $colaborador->id)
             ->whereBetween('fecha', [$fechaInicio, $fechaFin])
             ->where('estado', AsistenciaHoraExtra::ESTADO_APROBADO)
+            // El adicional contractual por feriado se calcula como un día
+            // de honorario; no se duplica con la aprobación automática HE_100.
+            ->whereDoesntHave('resultado', fn ($query) => $query->where('tipo_dia', 'feriado'))
             ->get()
             ->filter(fn (AsistenciaHoraExtra $horaExtra) => $this->configuracionEnFecha(
                 $condiciones,

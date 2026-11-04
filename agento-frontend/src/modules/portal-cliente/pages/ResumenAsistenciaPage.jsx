@@ -47,7 +47,7 @@ export default function ResumenAsistenciaPage({ tienePermiso }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <PortalRangoFechas value={rango} onChange={setRango} />
       <EstadoConsulta cargando={loading} error={error} vacio={false}>
         <Row gutter={[16, 16]}>

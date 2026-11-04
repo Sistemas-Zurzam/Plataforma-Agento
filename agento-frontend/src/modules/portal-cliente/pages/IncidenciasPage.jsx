@@ -55,7 +55,7 @@ export default function IncidenciasPage({ tienePermiso }) {
   ];
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <div className="flex flex-wrap gap-2">
         <PortalRangoFechas
           value={rango}

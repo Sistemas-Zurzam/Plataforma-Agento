@@ -34,4 +34,21 @@ final class PeriodoAsistenciaCiclo
             'fin' => $corte->toDateString(),
         ];
     }
+
+    /**
+     * Proyectado de planilla: la asistencia se lee solo hasta el último día
+     * ya procesado; el resto del mes se paga sin incidencias (proyectado al
+     * sueldo). El mes que se paga no cambia — solo se recorta la lectura.
+     *
+     * @param  array{inicio: string, fin: string}  $periodo  Resultado de resolver().
+     * @return array{inicio: string, fin: string}
+     */
+    public static function acotar(array $periodo, ?string $finAsistencia): array
+    {
+        if ($finAsistencia !== null && $finAsistencia < $periodo['fin']) {
+            $periodo['fin'] = $finAsistencia;
+        }
+
+        return $periodo;
+    }
 }

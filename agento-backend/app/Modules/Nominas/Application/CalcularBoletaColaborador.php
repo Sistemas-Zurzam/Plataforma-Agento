@@ -7,6 +7,7 @@ use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Services\AsistenciaOperacionService;
+use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Nominas\Domain\RegimenCalculatorFactory;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
@@ -16,6 +17,7 @@ use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ProrateoCese;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
+use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
@@ -33,7 +35,10 @@ use RuntimeException;
  */
 class CalcularBoletaColaborador
 {
-    public function __construct(private readonly AsistenciaOperacionService $asistenciaOperacion) {}
+    public function __construct(
+        private readonly AsistenciaOperacionService $asistenciaOperacion,
+        private readonly FechaOperativa $fechaOperativa,
+    ) {}
 
     /**
      * @param  int|null  $cicloId  Necesario para recoger comisiones/bonos del período
@@ -56,20 +61,20 @@ class CalcularBoletaColaborador
      *   snapshot_parametros_version: string, snapshot_reglas_version: string, alertas: array<int, string>,
      * }
      */
-    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?string $fechaPago = null, ?float $salarioBaseOverride = null): array
+    public function calcular(Colaborador $colaborador, string $fechaInicio, string $fechaFin, string $fechaCorte, ?int $cicloId = null, ?string $fechaPago = null, ?float $salarioBaseOverride = null, ?string $finAsistencia = null, bool $prorratearRango = false): array
     {
         $regimen = $colaborador->regimen_laboral ?: 'General';
         $calculadora = RegimenCalculatorFactory::paraRegimen($regimen);
         $parametros = ParametrosVigentesResolver::paraRegimen($colaborador->empresa, $regimen, $fechaCorte);
 
         $remuneracion = ColaboradorRemuneracion::where('colaborador_id', $colaborador->id)
-            ->whereDate('vigencia_desde', '<=', $fechaCorte)
+            ->whereDate('vigencia_desde', '<=', $fechaFin)
             ->orderByDesc('vigencia_desde')
             ->orderByDesc('id')
             ->first();
 
         if (! $remuneracion && $salarioBaseOverride === null) {
-            throw new RuntimeException("El colaborador #{$colaborador->id} no tiene remuneración vigente a {$fechaCorte}.");
+            throw new RuntimeException("El colaborador #{$colaborador->id} no tiene remuneración vigente durante el período pagado hasta {$fechaFin}.");
         }
 
         $sueldoBasico = (float) ($remuneracion?->salario ?? $salarioBaseOverride);
@@ -80,7 +85,9 @@ class CalcularBoletaColaborador
         // solo booleano para todo el período): un cambio de condición a
         // mitad de mes solo debe neutralizar los días posteriores a su
         // vigencia real, nunca el mes completo retroactivamente.
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
+        // $finAsistencia solo lo usa el Proyectado de planilla (ver
+        // PeriodoAsistenciaCiclo::acotar()); la planilla real nunca lo pasa.
+        $periodoAsistencia = PeriodoAsistenciaCiclo::acotar(PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte), $finAsistencia);
         $asistencia = $this->obtenerAsistenciaDelPeriodo(
             $colaborador, $periodoAsistencia['inicio'], $periodoAsistencia['fin']
         );
@@ -120,13 +127,17 @@ class CalcularBoletaColaborador
         // El cese ya no paga el mes dentro de la liquidación: la boleta
         // normal del ciclo paga hasta la fecha de cese (inclusive).
         $diasNoPagadosPorCese = ProrateoCese::diasNoPagados($colaborador->fecha_cese, $fechaInicio, $fechaFin);
-        $diasPagados = max(0, $diasPagados - $diasNoPagadosPorIngresoTardio - $diasNoPagadosPorCese);
-        if ($diasNoPagadosPorIngresoTardio > 0 || $diasNoPagadosPorCese > 0) {
+        // Solo el Proyectado de planilla por rango (ej. una quincena); la
+        // planilla real nunca lo activa.
+        $diasNoPagadosPorRango = $prorratearRango ? ProrateoRango::diasNoPagados($fechaInicio, $fechaFin, $colaborador->fecha_cese) : 0.0;
+        $diasPagados = max(0, $diasPagados - $diasNoPagadosPorIngresoTardio - $diasNoPagadosPorCese - $diasNoPagadosPorRango);
+        if ($diasNoPagadosPorIngresoTardio > 0 || $diasNoPagadosPorCese > 0 || $diasNoPagadosPorRango > 0) {
             $basico['linea']['monto'] = round(($sueldoBasico / 30) * $diasPagados, 2);
             $basico['linea']['cantidad'] = $diasPagados;
             $basico['linea']['formula_texto'] = "({$sueldoBasico} / 30) × {$diasPagados} días pagados"
                 .($diasNoPagadosPorIngresoTardio > 0 ? " — excluye {$diasNoPagadosPorIngresoTardio} día(s) previos al ingreso ({$colaborador->fecha_ingreso->toDateString()})" : '')
-                .($diasNoPagadosPorCese > 0 ? " — excluye {$diasNoPagadosPorCese} día(s) posteriores al cese ({$colaborador->fecha_cese->toDateString()})" : '');
+                .($diasNoPagadosPorCese > 0 ? " — excluye {$diasNoPagadosPorCese} día(s) posteriores al cese ({$colaborador->fecha_cese->toDateString()})" : '')
+                .($diasNoPagadosPorRango > 0 ? " — excluye {$diasNoPagadosPorRango} día(s) fuera del rango {$fechaInicio} a {$fechaFin}" : '');
             if ($diasNoPagadosPorCese > 0) {
                 $alertas[] = "Colaborador cesado el {$colaborador->fecha_cese->format('d/m/Y')}: la boleta paga hasta esa fecha. Los beneficios (CTS, gratificación y vacaciones truncas) se liquidan aparte en Liquidaciones.";
             }
@@ -711,6 +722,13 @@ class CalcularBoletaColaborador
      * profundidad (el gate de enviar_nomina en AsistenciaPeriodoService ya
      * bloquea el envío con incidencias pendientes, pero un cálculo/
      * recálculo de boleta puede dispararse sobre un ciclo aún no cerrado).
+     *
+     * Pre-cálculo antes del corte: un día de hoy en adelante que TODAVÍA no
+     * tiene resultado no bloquea — aún no ocurrió (o no se procesó), así que
+     * se paga como cualquier día sin incidencias, igual que el resto del
+     * motor. Un día pasado sin resultado, o cualquier día ya procesado como
+     * "sin clasificar", sigue bloqueando. Calculado después del corte, todos
+     * los días son pasados y la verificación es completa.
      */
     private function verificarRolRotativoCompleto(Colaborador $colaborador, string $fechaInicio, string $fechaFin, $resultados): void
     {
@@ -731,11 +749,13 @@ class CalcularBoletaColaborador
         }
 
         $resultadosPorFecha = $resultados->keyBy(fn ($r) => $r->fecha->toDateString());
+        $hoy = $this->fechaOperativa->hoy()->toDateString();
 
         for ($fecha = $desde->copy(); $fecha->lte($hasta); $fecha->addDay()) {
             $fechaTexto = $fecha->toDateString();
             $resultado = $resultadosPorFecha->get($fechaTexto);
-            if ($resultado === null || $resultado->estado === AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR) {
+            $sinOcurrirAun = $resultado === null && $fechaTexto >= $hoy;
+            if (! $sinOcurrirAun && ($resultado === null || $resultado->estado === AsistenciaIncidencia::TIPO_DIA_SIN_CLASIFICAR)) {
                 throw new RuntimeException(
                     "Tiene horario rotativo y le falta declarar el rol de turnos del {$fechaTexto} — no se puede calcular su planilla hasta que se complete.",
                 );

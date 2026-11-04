@@ -74,6 +74,23 @@ class PermissionSeeder extends Seeder
             ['clave' => 'portal.permisos.ver', 'nombre' => 'Ver permisos laborales en el Portal Cliente', 'grupo' => 'Portal Cliente'],
             ['clave' => 'portal.remuneraciones.ver', 'nombre' => 'Ver remuneraciones en el Portal Cliente', 'grupo' => 'Portal Cliente'],
             ['clave' => 'portal.bonificaciones.gestionar', 'nombre' => 'Gestionar bonificaciones en el Portal Cliente', 'grupo' => 'Portal Cliente'],
+
+            // Portal de Empresa (GER) — ver migración agregar_permisos_portal_gerencia.
+            ['clave' => 'portal.alcance_empresa', 'nombre' => 'Ver toda la empresa activa en el Portal (sin restricción de áreas)', 'grupo' => 'Portal de Empresa'],
+            ['clave' => 'portal.horas_extra.aprobar', 'nombre' => 'Aprobar o rechazar horas extra de su equipo (aprobación de gerencia)', 'grupo' => 'Portal de Empresa'],
+            ['clave' => 'portal.permisos.solicitar', 'nombre' => 'Solicitar permisos laborales para su equipo', 'grupo' => 'Portal de Empresa'],
+            ['clave' => 'portal.planificacion.gestionar', 'nombre' => 'Planificar turnos rotativos de su equipo', 'grupo' => 'Portal de Empresa'],
+            ['clave' => 'portal.bonos.proponer', 'nombre' => 'Proponer bonos y comisiones para su equipo', 'grupo' => 'Portal de Empresa'],
+            ['clave' => 'portal.ceses.solicitar', 'nombre' => 'Solicitar ceses de colaboradores de su equipo', 'grupo' => 'Portal de Empresa'],
+
+            // Selección y Reclutamiento — ver migración agregar_permisos_seleccion.
+            ['clave' => 'seleccion.solicitudes.crear', 'nombre' => 'Crear solicitudes de personal', 'grupo' => 'Selección y Reclutamiento'],
+            ['clave' => 'seleccion.solicitudes.decidir', 'nombre' => 'Aceptar, devolver o rechazar solicitudes de personal', 'grupo' => 'Selección y Reclutamiento'],
+            ['clave' => 'seleccion.vacantes.gestionar', 'nombre' => 'Gestionar procesos, plazas y publicaciones', 'grupo' => 'Selección y Reclutamiento'],
+            ['clave' => 'seleccion.candidatos.gestionar', 'nombre' => 'Gestionar candidatos y postulaciones', 'grupo' => 'Selección y Reclutamiento'],
+            ['clave' => 'seleccion.evaluaciones.gestionar', 'nombre' => 'Gestionar pruebas y entrevistas', 'grupo' => 'Selección y Reclutamiento'],
+            ['clave' => 'seleccion.contratar', 'nombre' => 'Contratar candidatos seleccionados', 'grupo' => 'Selección y Reclutamiento'],
+            ['clave' => 'seleccion.seguimiento', 'nombre' => 'Ver seguimiento y dashboard de selección', 'grupo' => 'Selección y Reclutamiento'],
         ];
 
         foreach ($permisos as $permiso) {
@@ -90,10 +107,33 @@ class PermissionSeeder extends Seeder
         // nominas.*/asistencia.* ni ningún permiso administrativo. Si el rol
         // aún no existe (ej. PermissionSeeder ejecutado solo, sin
         // RoleSeeder antes), se omite sin romper el seeding.
+        // Selección: RYS (talento_cultura) opera todo el módulo; GER
+        // (gerencia/jefe_area) solo crea solicitudes y hace seguimiento de sus áreas.
+        $asignacionesSeleccion = [
+            'talento_cultura' => Permission::where('clave', 'like', 'seleccion.%')->pluck('id'),
+            // GER además opera el Portal de Empresa, siempre limitado a sus áreas.
+            'gerencia' => Permission::whereIn('clave', [
+                'seleccion.solicitudes.crear', 'seleccion.seguimiento',
+                'portal.acceder', 'portal.asistencia.ver', 'portal.horas_extra.ver', 'portal.permisos.ver',
+                'portal.horas_extra.aprobar', 'portal.permisos.solicitar', 'portal.planificacion.gestionar',
+                'portal.bonos.proponer', 'portal.ceses.solicitar',
+            ])->pluck('id'),
+            'jefe_area' => Permission::whereIn('clave', ['seleccion.solicitudes.crear', 'seleccion.seguimiento'])->pluck('id'),
+        ];
+        foreach ($asignacionesSeleccion as $clave => $permisoIds) {
+            Role::where('clave', $clave)->first()?->permissions()->syncWithoutDetaching($permisoIds);
+        }
+
         $clienteEmpresa = Role::where('clave', Role::CLIENTE_EMPRESA)->first();
         if ($clienteEmpresa) {
+            // Lista explícita: los permisos de escritura del Portal de
+            // Empresa (GER) nunca se heredan al cliente externo.
             $clienteEmpresa->permissions()->sync(
-                Permission::where('clave', 'like', 'portal.%')->pluck('id'),
+                Permission::whereIn('clave', [
+                    'portal.acceder', 'portal.asistencia.ver', 'portal.asistencia.editar', 'portal.incidencias.resolver',
+                    'portal.horas_extra.ver', 'portal.horas_extra.resolver', 'portal.permisos.ver',
+                    'portal.remuneraciones.ver', 'portal.bonificaciones.gestionar', 'portal.alcance_empresa',
+                ])->pluck('id'),
             );
         }
     }

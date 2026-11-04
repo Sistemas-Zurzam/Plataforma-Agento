@@ -26,7 +26,7 @@ const { Sider } = Layout;
  * tiene motor de cálculo y UI real (ver GestionRemuneraciones.jsx) — se
  * habilita con el permiso nominas.ver.
  */
-function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso) {
+function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso, permisosSeleccion) {
   const principal = [];
 
   // El kiosco (`/control-acceso`) es una pantalla aparte, sin sidebar/header
@@ -77,14 +77,28 @@ function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerN
     });
   }
 
+  // Selección y reclutamiento: cada entrada aparece según los permisos
+  // seleccion.* reales del usuario (el backend vuelve a validarlos).
+  const seleccion = [
+    { key: 'seleccion-dashboard', label: 'Dashboard', visible: permisosSeleccion.seguimiento || permisosSeleccion.algun },
+    { key: 'seleccion-solicitudes', label: 'Solicitudes', visible: permisosSeleccion.solicitudes },
+    { key: 'seleccion-procesos', label: 'Procesos de selección', visible: permisosSeleccion.procesos },
+    { key: 'seleccion-candidatos', label: 'Candidatos', visible: permisosSeleccion.candidatos },
+    { key: 'seleccion-banco-talentos', label: 'Banco de talentos', visible: permisosSeleccion.banco },
+    { key: 'seleccion-evaluaciones', label: 'Evaluaciones', visible: permisosSeleccion.evaluaciones },
+  ].filter((item) => isAdmin || item.visible).map(({ key, label }) => ({ key, label }));
+
+  if (seleccion.length > 0) {
+    principal.push({
+      key: 'seleccion',
+      icon: <UserSwitchOutlined />,
+      label: 'Selección y reclutamiento',
+      children: seleccion,
+    });
+  }
+
   if (isAdmin) {
     principal.push(
-      {
-        key: 'seleccion',
-        icon: <UserSwitchOutlined />,
-        label: 'Selección y reclutamiento',
-        disabled: true,
-      },
       {
         key: 'reportes',
         icon: <BarChartOutlined />,
@@ -136,10 +150,20 @@ export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, 
   const puedeVerAsistencia = user?.permisos?.includes('asistencia.ver');
   const puedeVerNominas = user?.permisos?.includes('nominas.ver');
   const puedeControlAcceso = user?.permisos?.includes('control_acceso.marcar');
-  const menuItems = useMemo(
-    () => buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso),
-    [isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso],
-  );
+  const permisos = user?.permisos;
+  const menuItems = useMemo(() => {
+    const p = (...claves) => claves.some((clave) => permisos?.includes(clave));
+    const permisosSeleccion = {
+      algun: (permisos ?? []).some((clave) => clave.startsWith('seleccion.')),
+      seguimiento: p('seleccion.seguimiento', 'seleccion.vacantes.gestionar'),
+      solicitudes: p('seleccion.solicitudes.crear', 'seleccion.solicitudes.decidir', 'seleccion.seguimiento', 'seleccion.vacantes.gestionar'),
+      procesos: p('seleccion.seguimiento', 'seleccion.vacantes.gestionar', 'seleccion.candidatos.gestionar', 'seleccion.evaluaciones.gestionar'),
+      candidatos: p('seleccion.candidatos.gestionar', 'seleccion.evaluaciones.gestionar'),
+      banco: p('seleccion.candidatos.gestionar'),
+      evaluaciones: p('seleccion.evaluaciones.gestionar'),
+    };
+    return buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso, permisosSeleccion);
+  }, [isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso, permisos]);
 
   return (
     <Sider

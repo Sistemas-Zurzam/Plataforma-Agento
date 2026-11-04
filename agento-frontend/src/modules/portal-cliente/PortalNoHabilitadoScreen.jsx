@@ -12,8 +12,8 @@ export default function PortalNoHabilitadoScreen({ onLogout }) {
     <div className="flex min-h-svh items-center justify-center bg-gray-50 px-4">
       <Result
         status="info"
-        title="Portal Cliente no habilitado"
-        subTitle="Esta cuenta todavía no tiene el Portal Cliente disponible. Contacta a tu administrador."
+        title="Portal no habilitado"
+        subTitle="Esta cuenta todavía no tiene el portal disponible. Contacta a tu administrador."
         extra={
           <button
             type="button"

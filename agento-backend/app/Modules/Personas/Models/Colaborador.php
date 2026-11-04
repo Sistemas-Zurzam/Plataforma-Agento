@@ -53,6 +53,26 @@ class Colaborador extends Model
      */
     protected $table = 'colaboradores';
 
+    /**
+     * Búsqueda libre por nombre, apellido, documento o legajo. Cada palabra
+     * debe coincidir con algún campo, así "ZANDRO JAVIER IZQUIERDO" (nombres
+     * + apellidos) encuentra al colaborador aunque ningún campo contenga el
+     * texto completo. Sin CONCAT para no depender del motor.
+     */
+    public function scopeBuscarTexto($query, string $texto)
+    {
+        foreach (preg_split('/\s+/', trim($texto), -1, PREG_SPLIT_NO_EMPTY) as $palabra) {
+            $query->where(function ($campos) use ($palabra) {
+                $campos->where('nombres', 'like', "%{$palabra}%")
+                    ->orWhere('apellidos', 'like', "%{$palabra}%")
+                    ->orWhere('numero_documento', 'like', "%{$palabra}%")
+                    ->orWhere('legajo', 'like', "%{$palabra}%");
+            });
+        }
+
+        return $query;
+    }
+
     protected function casts(): array
     {
         return [

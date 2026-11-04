@@ -16,6 +16,7 @@ class AsistenciaPermisoResource extends JsonResource
             'fecha_fin' => $this->fecha_fin?->toDateString(),
             'motivo' => $this->motivo,
             'estado' => $this->estado,
+            'origen' => $this->origen,
             'colaborador' => [
                 'id' => $this->colaborador->id,
                 'nombre_completo' => trim($this->colaborador->nombres.' '.$this->colaborador->apellidos),

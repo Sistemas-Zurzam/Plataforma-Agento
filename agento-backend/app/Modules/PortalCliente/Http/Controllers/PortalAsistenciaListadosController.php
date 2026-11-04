@@ -3,6 +3,7 @@
 namespace App\Modules\PortalCliente\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\PortalCliente\Application\AlcancePortal;
 use App\Modules\PortalCliente\Http\Requests\PortalListadoGeneralRequest;
 use App\Modules\PortalCliente\Http\Resources\PortalHoraExtraResource;
 use App\Modules\PortalCliente\Http\Resources\PortalIncidenciaResource;
@@ -24,7 +25,7 @@ class PortalAsistenciaListadosController extends Controller
         $datos = $request->validated();
 
         return PortalIncidenciaResource::collection(
-            $this->asistencia->incidencias($request->user('api')->empresa, $datos, $datos['per_page'] ?? 15),
+            $this->asistencia->incidencias(AlcancePortal::desdeRequest($request), $datos, $datos['per_page'] ?? 15),
         );
     }
 
@@ -33,7 +34,7 @@ class PortalAsistenciaListadosController extends Controller
         $datos = $request->validated();
 
         return PortalHoraExtraResource::collection(
-            $this->asistencia->horasExtra($request->user('api')->empresa, $datos, $datos['per_page'] ?? 15),
+            $this->asistencia->horasExtra(AlcancePortal::desdeRequest($request), $datos, $datos['per_page'] ?? 15),
         );
     }
 
@@ -42,7 +43,7 @@ class PortalAsistenciaListadosController extends Controller
         $datos = $request->validated();
 
         return PortalPermisoResource::collection(
-            $this->asistencia->permisos($request->user('api')->empresa, $datos, $datos['per_page'] ?? 15),
+            $this->asistencia->permisos(AlcancePortal::desdeRequest($request), $datos, $datos['per_page'] ?? 15),
         );
     }
 }

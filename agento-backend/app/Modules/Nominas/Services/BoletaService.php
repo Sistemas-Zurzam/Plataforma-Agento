@@ -3,19 +3,21 @@
 namespace App\Modules\Nominas\Services;
 
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
+use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
-use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
+use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoDefinicionPlame;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Models\ConsumoComidaAplicacion;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Jobs\CalcularPlanillaJob;
 use App\Modules\Personas\Models\Colaborador;
@@ -23,6 +25,7 @@ use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -34,7 +37,6 @@ class BoletaService
         private readonly CalcularBoletaColaborador $calculador,
         private readonly CalcularReciboHonorarios $calculadorHonorarios,
         private readonly IncidenciasPendientesNominaService $incidenciasPendientes,
-        private readonly VerificarConsistenciaAsistenciaCiclo $consistenciaAsistencia,
         private readonly AsistenciaAuditoriaService $auditoria,
     ) {}
 
@@ -72,9 +74,6 @@ class BoletaService
         }
         if ((int) $colaborador->empresa_id !== (int) $empresa->id) {
             throw ValidationException::withMessages(['colaborador_id' => 'El colaborador no pertenece a la empresa del ciclo.']);
-        }
-        if ($fecha < $ciclo->fecha_inicio->toDateString() || $fecha > $ciclo->fecha_fin->toDateString()) {
-            throw ValidationException::withMessages(['fecha' => 'La fecha debe estar dentro del período de la planilla.']);
         }
         $condicion = ColaboradorCondicionLaboral::vigenteEn($colaborador->id, $fecha);
         if ($condicion?->es_trabajador_confianza || ! ($condicion?->contabilizar_horas_extra ?? $colaborador->contabilizar_horas_extra ?? true)) {
@@ -442,14 +441,14 @@ class BoletaService
 
     /**
      * "Monto total del servicio" (E20, campo 6) para una boleta de
-     * honorarios — se resuelve sin ambigüedad sumando el concepto
-     * HONORARIO_BRUTO ya calculado, nunca se duplica el dato en
+     * honorarios — suma los conceptos de ingreso ya calculados, incluidos
+     * los adicionales de honorarios. Nunca se duplica el dato en
      * boleta_comprobantes_rh (sección 34 del encargo).
      */
     public function montoTotalServicioRh(Boleta $boleta): float
     {
         return (float) $boleta->conceptos()
-            ->whereHas('concepto', fn ($q) => $q->where('codigo', 'HONORARIO_BRUTO'))
+            ->where('tipo', 'ingreso')
             ->sum('monto');
     }
 
@@ -464,9 +463,6 @@ class BoletaService
     public function calcularPlanilla(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): array
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
-        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin'], exigirPeriodoCerrado: false);
-
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([
                 'estado' => 'Este período está cerrado — no se puede recalcular. Reábrelo primero si necesitas corregirlo.',
@@ -515,9 +511,6 @@ class BoletaService
     public function iniciarCalculoAsync(Empresa $empresa, CicloRemunerativo $ciclo, int $usuarioId, ?string $motivoRecalculo = null): CicloRemunerativo
     {
         $this->verificarPertenencia($empresa, $ciclo);
-        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString(), $ciclo->fecha_corte_asistencia->toDateString());
-        $this->consistenciaAsistencia->verificar($empresa, $periodoAsistencia['inicio'], $periodoAsistencia['fin'], exigirPeriodoCerrado: false);
-
         if (in_array($ciclo->estado, ['cerrado', 'pagado'], true)) {
             throw ValidationException::withMessages([
                 'estado' => 'Este período está cerrado — no se puede recalcular. Reábrelo primero si necesitas corregirlo.',
@@ -545,6 +538,7 @@ class BoletaService
     private function calcularBoletaColaborador(CicloRemunerativo $ciclo, Colaborador $colaborador, int $usuarioId, ?string $motivoRecalculo, ?float $salarioBaseOverride = null): Boleta
     {
         return DB::transaction(function () use ($ciclo, $colaborador, $usuarioId, $motivoRecalculo, $salarioBaseOverride) {
+            $inicioCalculo = now();
             // Único punto de bifurcación entre los dos motores (Sección de
             // Recibos por Honorarios acordada con el usuario): un locador
             // nunca entra a CalcularBoletaColaborador ni a
@@ -661,6 +655,10 @@ class BoletaService
                 }
             }
 
+            // Vínculo consumo de comida → versión de boleta (ver
+            // ConsumoComidaImportacionService).
+            ConsumoComidaAplicacion::registrarIncorporacion($ciclo->id, $colaborador->id, $boleta->id, $inicioCalculo);
+
             return $boleta->load('conceptos.concepto');
         });
     }
@@ -703,6 +701,23 @@ class BoletaService
         if ($boleta->estado !== 'calculada') {
             throw ValidationException::withMessages([
                 'estado' => 'Solo se puede aprobar una boleta en estado "calculada".',
+            ]);
+        }
+
+        // No existe una regla de saldo negativo (recortar, trasladar o
+        // generar deuda): un neto negativo es un conflicto que RR.HH. debe
+        // resolver antes de aprobar.
+        if ((float) $boleta->neto_a_pagar < 0) {
+            throw ValidationException::withMessages([
+                'neto_a_pagar' => 'El neto a pagar de esta boleta es negativo: los descuentos superan los ingresos. Resuelve el conflicto antes de aprobarla.',
+            ]);
+        }
+
+        $consumosPendientes = ConsumoComidaAplicacion::where('ciclo_id', $boleta->ciclo_id)
+            ->where('colaborador_id', $boleta->colaborador_id)->pendientesDeRecalculo()->exists();
+        if ($consumosPendientes) {
+            throw ValidationException::withMessages([
+                'estado' => 'Hay descuentos por consumo de comida que esta boleta todavía no incorpora. Recalcula la planilla antes de aprobarla.',
             ]);
         }
 
@@ -784,9 +799,10 @@ class BoletaService
      * Recibe fechas planas (no un CicloRemunerativo) para poder reutilizarse
      * también desde previsualizarPlanilla(), que no tiene ni necesita un
      * ciclo persistido — evita una segunda copia de este filtro (Sección 98,
-     * "no duplicar motores").
+     * "no duplicar motores"). Público para que la importación de consumos de
+     * comida valide contra los mismos colaboradores que tendrán boleta.
      */
-    private function colaboradoresElegibles(Empresa $empresa, string $fechaInicio, string $fechaFin)
+    public function colaboradoresElegibles(Empresa $empresa, string $fechaInicio, string $fechaFin)
     {
         return Colaborador::where('empresa_id', $empresa->id)
             // Un cesado queda inactivo, pero igual cobra en la planilla del
@@ -817,25 +833,83 @@ class BoletaService
      *
      * @return array<int, array{colaborador_id:int, nombre:string, cargo:?string, sueldo_basico:?float,
      *   asistencia_procesada:bool, dias_falta:?float, minutos_tardanza:?int,
-     *   total_ingresos:?float, total_egresos:?float, neto_a_pagar:?float, estado:string, motivo:?string}>
+     *   total_ingresos:?float, total_egresos:?float, total_aportaciones:?float, neto_a_pagar:?float,
+     *   estado:string, motivo:?string, dias_devengados:?float, basico_devengado:?float,
+     *   dni:string, area:string, tipo:string, fecha_corte_asistencia:?string, lineas:?array}>
+     *
+     * Proyectado de planilla: la asistencia de cada colaborador se lee solo
+     * hasta su último día ya procesado (`fecha_corte_asistencia`, nunca
+     * después de $hoy); desde ahí hasta el fin del período se proyecta al
+     * sueldo, sin incidencias. `lineas` trae los conceptos calculados
+     * (ingresos/egresos/aportaciones) para el Excel con formato de Resumen
+     * contable.
+     *
+     * $hoy: con un período en curso, además del neto proyectado al período
+     * completo se informa el básico devengado a la fecha (días ya
+     * transcurridos menos faltas). Solo planilla dependiente.
+     *
+     * $prorratearRango: el período es un rango libre (ej. una quincena) y se
+     * paga sueldo/30 × días del rango — ver ProrateoRango.
+     *
+     * $corteAsistencia: fecha de corte elegida por el usuario — hasta ese día
+     * se usan los resultados reales de asistencia (faltas, tardanzas…) y
+     * desde el día siguiente se proyecta al sueldo, igual para todos. Null =
+     * automático: el último día procesado de cada colaborador.
      */
-    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte): array
+    public function previsualizarPlanilla(Empresa $empresa, string $fechaInicio, string $fechaFin, string $fechaCorte, ?Carbon $hoy = null, ?int $cicloId = null, bool $prorratearRango = false, ?string $corteAsistencia = null): array
     {
         $filas = [];
+        // Días del período (de 30, o los del rango) que todavía no ocurren.
+        // Un período ya terminado no tiene días por devengar.
+        $diasPorTranscurrir = 0;
+        if ($hoy && $hoy->lt(Carbon::parse($fechaFin))) {
+            $diasPeriodo = $prorratearRango ? ProrateoRango::diasDelRango($fechaInicio, $fechaFin) : 30;
+            $transcurridos = $hoy->lt(Carbon::parse($fechaInicio)) ? 0 : (int) round(Carbon::parse($fechaInicio)->diffInDays($hoy)) + 1;
+            $diasPorTranscurrir = max(0, $diasPeriodo - min($diasPeriodo, $transcurridos));
+        }
 
-        foreach ($this->colaboradoresElegibles($empresa, $fechaInicio, $fechaFin) as $colaborador) {
+        $colaboradores = $this->colaboradoresElegibles($empresa, $fechaInicio, $fechaFin)->load('area:id,nombre');
+
+        // Último día con asistencia procesada por colaborador, dentro del
+        // rango que lee la planilla real (incluye corte diferido).
+        $periodoAsistencia = PeriodoAsistenciaCiclo::resolver($fechaInicio, $fechaFin, $fechaCorte);
+        $limiteLectura = $hoy ? min($periodoAsistencia['fin'], $hoy->toDateString()) : $periodoAsistencia['fin'];
+        $ultimoDiaProcesado = AsistenciaResultadoDiario::whereIn('colaborador_id', $colaboradores->pluck('id'))
+            ->whereBetween('fecha', [$periodoAsistencia['inicio'], $limiteLectura])
+            ->groupBy('colaborador_id')
+            ->selectRaw('colaborador_id, MAX(fecha) as ultima')
+            ->pluck('ultima', 'colaborador_id');
+        $sinAsistencia = Carbon::parse($periodoAsistencia['inicio'])->subDay()->toDateString();
+
+        foreach ($colaboradores as $colaborador) {
             $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios'
                 || $colaborador->regimen_laboral === 'Locacion de Servicios';
             $calculador = $esHonorarios ? $this->calculadorHonorarios : $this->calculador;
+            $ultima = $corteAsistencia ?? $ultimoDiaProcesado->get($colaborador->id);
+            $finAsistencia = $ultima ? substr((string) $ultima, 0, 10) : $sinAsistencia;
 
             $fila = [
                 'colaborador_id' => $colaborador->id,
                 'nombre' => trim("{$colaborador->nombres} {$colaborador->apellidos}"),
                 'cargo' => $colaborador->cargo,
+                'dni' => (string) $colaborador->numero_documento,
+                'area' => $colaborador->area?->nombre ?? '',
+                'tipo' => $esHonorarios ? 'RH' : 'Planilla',
+                'fecha_corte_asistencia' => $ultima ? $finAsistencia : null,
             ];
 
             try {
-                $resultado = $calculador->calcular($colaborador, $fechaInicio, $fechaFin, $fechaCorte, null);
+                $resultado = $calculador->calcular($colaborador, $fechaInicio, $fechaFin, $fechaCorte, $cicloId, finAsistencia: $finAsistencia, prorratearRango: $prorratearRango);
+
+                $diasDevengados = null;
+                $basicoDevengado = null;
+                if (! $esHonorarios) {
+                    // dias_pagados ya descuenta faltas, ingreso tardío y cese;
+                    // un cesado no tiene días futuros que restar.
+                    $porTranscurrir = $colaborador->fecha_cese && $hoy && $colaborador->fecha_cese->lt($hoy) ? 0 : $diasPorTranscurrir;
+                    $diasDevengados = max(0, (float) $resultado['dias_pagados'] - $porTranscurrir);
+                    $basicoDevengado = round((float) $resultado['sueldo_basico'] / 30 * $diasDevengados, 2);
+                }
 
                 $filas[] = [
                     ...$fila,
@@ -845,9 +919,17 @@ class BoletaService
                     'minutos_tardanza' => $resultado['minutos_tardanza'],
                     'total_ingresos' => $resultado['total_ingresos'],
                     'total_egresos' => $resultado['total_egresos'],
+                    'total_aportaciones' => $resultado['total_aportaciones'],
                     'neto_a_pagar' => $resultado['neto_a_pagar'],
+                    'dias_devengados' => $diasDevengados,
+                    'basico_devengado' => $basicoDevengado,
                     'estado' => 'calculable',
                     'motivo' => null,
+                    'lineas' => [
+                        'ingresos' => $resultado['ingresos'],
+                        'egresos' => $resultado['egresos'],
+                        'aportaciones' => $resultado['aportaciones'],
+                    ],
                 ];
             } catch (Throwable $e) {
                 $filas[] = [
@@ -858,9 +940,13 @@ class BoletaService
                     'minutos_tardanza' => null,
                     'total_ingresos' => null,
                     'total_egresos' => null,
+                    'total_aportaciones' => null,
                     'neto_a_pagar' => null,
+                    'dias_devengados' => null,
+                    'basico_devengado' => null,
                     'estado' => 'no_calculable',
                     'motivo' => $e->getMessage(),
+                    'lineas' => null,
                 ];
             }
         }

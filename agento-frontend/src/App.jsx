@@ -6,6 +6,7 @@ import AppLayout from './layouts/AppLayout';
 import PortalClienteApp from './modules/portal-cliente/PortalClienteApp';
 import PortalNoHabilitadoScreen from './modules/portal-cliente/PortalNoHabilitadoScreen';
 import ControlAcceso from './modules/asistencia/pages/ControlAcceso';
+import PortalEmpleosApp from './modules/reclutamiento/portal/PortalEmpleosApp';
 
 function App() {
   const { logout } = useAuth();
@@ -16,6 +17,12 @@ function App() {
     await logout();
     clearCurrentUser();
   };
+
+  // Portal público de empleos: accesible sin sesión y sin el layout
+  // administrativo; nunca usa el JWT del personal interno.
+  if (window.location.pathname.toLowerCase().startsWith('/empleos')) {
+    return <PortalEmpleosApp />;
+  }
 
   if (initializing) {
     return (
@@ -39,6 +46,17 @@ function App() {
   if (user.role === 'cliente_empresa') {
     return user.portal_cliente_habilitado ? (
       <PortalClienteApp user={user} onLogout={handleLogout} />
+    ) : (
+      <PortalNoHabilitadoScreen onLogout={handleLogout} />
+    );
+  }
+
+  // GER (gerencia) trabaja solo en el Portal de Empresa (/portal), con el
+  // mismo feature flag resuelto por el backend. El alcance (empresa del JWT
+  // y áreas autorizadas) y cada permiso se vuelven a validar en la API.
+  if (user.role === 'gerencia') {
+    return user.portal_cliente_habilitado ? (
+      <PortalClienteApp user={user} onLogout={handleLogout} base="/portal" modo="gerencia" />
     ) : (
       <PortalNoHabilitadoScreen onLogout={handleLogout} />
     );

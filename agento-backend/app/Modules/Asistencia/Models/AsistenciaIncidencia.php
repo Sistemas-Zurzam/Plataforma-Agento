@@ -81,6 +81,11 @@ class AsistenciaIncidencia extends Model
     // incidencias semanales de descanso flexible).
     public const TIPO_AJUSTE_POST_PAGO_PENDIENTE = 'ajuste_post_pago_pendiente';
 
+    // Aviso: llegaron marcaciones a un día ajustado manualmente por RR.HH.;
+    // el motor no lo recalcula solo (ver ProcesarAsistenciaDiaria), así que
+    // alguien debe revisar si corresponde editar o restablecer el día.
+    public const TIPO_MARCACIONES_EN_DIA_AJUSTADO = 'marcaciones_en_dia_ajustado';
+
     // Estados posibles del ciclo de resolución de una incidencia.
     public const ESTADO_PENDIENTE = 'pendiente';
 

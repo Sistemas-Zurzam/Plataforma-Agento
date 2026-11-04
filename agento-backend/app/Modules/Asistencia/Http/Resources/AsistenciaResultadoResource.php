@@ -24,6 +24,9 @@ class AsistenciaResultadoResource extends JsonResource
             'minutos_extra_25' => $this->minutos_extra_25,
             'minutos_extra_35' => $this->minutos_extra_35,
             'minutos_extra_100' => $this->minutos_extra_100,
+            'ajustado_manualmente' => $this->estaAjustadoManualmente(),
+            'ajustado_at' => $this->ajustado_manualmente_at?->format('Y-m-d H:i:s'),
+            'motivo_ajuste' => $this->motivo_ajuste,
             'colaborador' => [
                 'id' => $this->colaborador->id,
                 'legajo' => $this->colaborador->legajo,

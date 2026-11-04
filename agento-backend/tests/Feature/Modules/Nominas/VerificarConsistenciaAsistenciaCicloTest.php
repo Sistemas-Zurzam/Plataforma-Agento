@@ -6,8 +6,12 @@ use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
+use App\Modules\Nominas\Models\CicloRemunerativo;
+use App\Modules\Nominas\Jobs\CalcularPlanillaJob;
+use App\Modules\Nominas\Services\BoletaService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Tests\Concerns\CreaColaboradorDePrueba;
@@ -36,6 +40,28 @@ class VerificarConsistenciaAsistenciaCicloTest extends TestCase
             'minutos_trabajados' => 480,
             'procesado_at' => now(),
         ]);
+    }
+
+    public function test_el_calculo_del_ciclo_se_puede_encolar_aunque_falte_cobertura_diaria(): void
+    {
+        Queue::fake();
+        $empresa = Empresa::factory()->create();
+        $this->crearColaborador($empresa, ['fecha_ingreso' => '2026-09-01']);
+        $ciclo = CicloRemunerativo::create([
+            'empresa_id' => $empresa->id,
+            'nombre' => 'Planilla octubre 2026',
+            'periodicidad' => 'mensual',
+            'fecha_inicio' => '2026-10-01',
+            'fecha_fin' => '2026-10-31',
+            'fecha_corte_asistencia' => '2026-10-27',
+            'fecha_pago' => '2026-10-31',
+            'estado' => 'abierto',
+        ]);
+
+        $resultado = app(BoletaService::class)->iniciarCalculoAsync($empresa, $ciclo, 1);
+
+        $this->assertSame('en_proceso', $resultado->calculo_estado);
+        Queue::assertPushed(CalcularPlanillaJob::class);
     }
 
     /**

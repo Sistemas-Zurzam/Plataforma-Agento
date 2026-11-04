@@ -24,14 +24,14 @@ import {
   UploadOutlined,
   WalletOutlined,
 } from '@ant-design/icons';
-import { App, Avatar, Button, DatePicker, Empty, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
-import dayjs from 'dayjs';
+import { App, Avatar, Button, Empty, Input, Select, Table, Tabs, Tag, Tooltip } from 'antd';
 import { useEffect, useMemo, useState } from 'react';
 import EmpresaActivaFiltro from '../../modules/configuracion/components/EmpresaActivaFiltro';
 import BoletaImprimibleModal from '../../modules/remuneraciones/components/BoletaImprimibleModal';
 import BoletasImprimirMasivoModal from '../../modules/remuneraciones/components/BoletasImprimirMasivoModal';
 import ComprobanteRhModal from '../../modules/remuneraciones/components/ComprobanteRhModal';
 import ConfiguracionNominaModal from '../../modules/remuneraciones/components/ConfiguracionNominaModal';
+import ConsumoComidaTab from '../../modules/remuneraciones/components/ConsumoComidaTab';
 import CtsGratificacionesTab from '../../modules/remuneraciones/components/CtsGratificacionesTab';
 import AfpNetModal from '../../modules/remuneraciones/components/AfpNetModal';
 import AportesPrevisionalesTab from '../../modules/remuneraciones/components/AportesPrevisionalesTab';
@@ -41,6 +41,8 @@ import EditarCorteAsistenciaModal from '../../modules/remuneraciones/components/
 import PdtPlameModal from '../../modules/remuneraciones/components/PdtPlameModal';
 import ImportarComprobantesRhModal from '../../modules/remuneraciones/components/ImportarComprobantesRhModal';
 import PlanillasComplementariasModal from '../../modules/remuneraciones/components/PlanillasComplementariasModal';
+import ProyectadoPlanillaTab from '../../modules/remuneraciones/components/ProyectadoPlanillaTab';
+import PropuestasPortalPanel from '../../modules/remuneraciones/components/PropuestasPortalPanel';
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
 import AgregarHorasExtraBoletaModal from '../../modules/remuneraciones/components/AgregarHorasExtraBoletaModal';
 import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
@@ -227,7 +229,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo, registrarHorasExtraEnBoleta, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
-    previsualizacion, previsualizacionLoading, fetchPrevisualizacion,
+    previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel, fetchPrevisualizacionDatosReporte,
     aportesPrevisionales, aportesPrevisionalesLoading, fetchAportesPrevisionales,
     fetchPlameValidacion, exportarPlame,
     fetchAfpNetValidacion, exportarAfpNet,
@@ -242,8 +244,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
 
   const [cicloId, setCicloId] = useState(null);
   const [tabActiva, setTabActiva] = useState('previsualizacion');
-  const [mesPrevisualizacion, setMesPrevisualizacion] = useState(() => dayjs());
-  const [busquedaPrevisualizacion, setBusquedaPrevisualizacion] = useState('');
   const [nuevoCicloOpen, setNuevoCicloOpen] = useState(false);
   const [cicloEditar, setCicloEditar] = useState(null);
   const [cicloCorteEditar, setCicloCorteEditar] = useState(null);
@@ -327,12 +327,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     setBoletasSeleccionadas([]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cicloId, tipoFiltro, busquedaPlanilla]);
-
-  useEffect(() => {
-    if (!puedeVer) return;
-    fetchPrevisualizacion(mesPrevisualizacion.year(), mesPrevisualizacion.month() + 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [puedeVer, mesPrevisualizacion, user?.empresa?.id]);
 
   const cicloActivo = ciclos.find((c) => c.id === cicloId);
 
@@ -976,48 +970,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [puedeGestionarCiclos, puedeCalcular, puedeAprobar, puedePagar]);
 
-  const columnasPrevisualizacion = useMemo(() => [
-    {
-      title: 'Colaborador',
-      key: 'colaborador',
-      width: 220,
-      render: (_, fila) => (
-        <div className="flex items-center gap-3">
-          <Avatar style={{ backgroundColor: colorForName(fila.nombre) }}>{initialsForName(fila.nombre)}</Avatar>
-          <div className="min-w-0">
-            <p className="truncate font-semibold text-gray-900">{fila.nombre}</p>
-            <p className="truncate text-xs text-gray-400">{fila.cargo ?? '—'}</p>
-          </div>
-        </div>
-      ),
-    },
-    { title: 'Sueldo base', dataIndex: 'sueldo_basico', width: 120, render: (v, f) => (f.estado === 'calculable' ? soles(v) : '—') },
-    { title: 'Faltas', key: 'faltas', width: 90, render: (_, f) => celdaAsistencia(f.dias_falta, f.asistencia_procesada) },
-    { title: 'Tardanza (min)', key: 'tardanza', width: 110, render: (_, f) => celdaAsistencia(f.minutos_tardanza, f.asistencia_procesada) },
-    { title: 'Total ingresos', dataIndex: 'total_ingresos', width: 130, render: (v, f) => (f.estado === 'calculable' ? <span className="text-green-600">{soles(v)}</span> : '—') },
-    { title: 'Descuentos', dataIndex: 'total_egresos', width: 120, render: (v, f) => (f.estado === 'calculable' ? <span className="text-red-500">{soles(v)}</span> : '—') },
-    { title: 'Neto estimado', dataIndex: 'neto_a_pagar', width: 130, render: (v, f) => (f.estado === 'calculable' ? <span className="font-semibold text-gray-900">{soles(v)}</span> : '—') },
-    {
-      title: 'Estado',
-      key: 'estado',
-      width: 220,
-      render: (_, f) => (
-        f.estado === 'calculable'
-          ? <Tag color="blue">Calculable</Tag>
-          : <Tooltip title={f.motivo}><Tag color="red">No calculable</Tag></Tooltip>
-      ),
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], []);
-
-  const previsualizacionFiltrada = useMemo(() => {
-    const texto = busquedaPrevisualizacion.trim().toLowerCase();
-    if (!texto) return previsualizacion;
-    return (previsualizacion ?? []).filter((fila) => (
-      fila.nombre?.toLowerCase().includes(texto) || fila.cargo?.toLowerCase().includes(texto)
-    ));
-  }, [previsualizacion, busquedaPrevisualizacion]);
-
   if (!puedeVer) {
     return <Empty description="No tienes permiso para ver Gestión de Remuneraciones" className="mt-16" />;
   }
@@ -1151,38 +1103,15 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         items={[
           {
             key: 'previsualizacion',
-            label: 'Previsualización mensual',
+            label: 'Proyectado de planilla',
             children: (
-              <div className="space-y-3">
-                <div className="flex flex-wrap items-center gap-2">
-                  <DatePicker
-                    picker="month"
-                    format="MMMM YYYY"
-                    allowClear={false}
-                    value={mesPrevisualizacion}
-                    onChange={(valor) => setMesPrevisualizacion(valor ?? dayjs())}
-                  />
-                  <Input.Search
-                    allowClear
-                    placeholder="Buscar colaborador por nombre o cargo"
-                    className="w-72"
-                    value={busquedaPrevisualizacion}
-                    onChange={(e) => setBusquedaPrevisualizacion(e.target.value)}
-                  />
-                  <span className="text-xs text-gray-400">
-                    Vista preliminar del período — no crea ni modifica ningún ciclo. Corrige aquí lo que haga falta antes de calcular/cerrar el ciclo formal.
-                  </span>
-                </div>
-                <Table
-                  rowKey="colaborador_id"
-                  loading={previsualizacionLoading}
-                  dataSource={previsualizacionFiltrada}
-                  columns={columnasPrevisualizacion}
-                  scroll={{ x: 1000 }}
-                  pagination={false}
-                  locale={{ emptyText: 'No hay colaboradores elegibles para este período' }}
-                />
-              </div>
+              <ProyectadoPlanillaTab
+                previsualizacion={previsualizacion}
+                previsualizacionLoading={previsualizacionLoading}
+                fetchPrevisualizacion={fetchPrevisualizacion}
+                exportarPrevisualizacionExcel={exportarPrevisualizacionExcel}
+                fetchPrevisualizacionDatosReporte={fetchPrevisualizacionDatosReporte}
+              />
             ),
           },
           {
@@ -1200,6 +1129,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
               />
             ),
           },
+          ...(puedeGestionarCiclos ? [{
+            key: 'propuestas-portal',
+            label: 'Propuestas de gerencia',
+            children: <PropuestasPortalPanel />,
+          }] : []),
           {
             key: 'planilla',
             label: 'Planilla mensual',
@@ -1314,6 +1248,15 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
               <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
             ),
           },
+          ...(puedeVer ? [{
+            key: 'consumo-comida',
+            label: 'Consumo de comida',
+            children: cicloId ? (
+              <ConsumoComidaTab key={cicloId} ciclo={cicloActivo} puedeGestionar={puedeGestionarCiclos} />
+            ) : (
+              <Empty description="Selecciona o crea un ciclo remunerativo para comenzar" className="mt-8" />
+            ),
+          }] : []),
           {
             key: 'cts-gratificaciones',
             label: 'CTS y gratificaciones',

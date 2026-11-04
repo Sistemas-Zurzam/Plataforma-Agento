@@ -453,14 +453,13 @@ class PlameValidator
                 $hallazgos[] = $this->hallazgoColaborador('PLAME_RH_COMPROBANTE_INCOMPLETO', 'error', ['cuarta'], self::GRUPO_RH, $colaborador, 'Indica retención de régimen pensionario pero falta el importe del aporte.', 'Completar el importe del aporte previsional.', entidad: 'boleta_comprobante_rh', entidadId: $comprobante->id);
             }
 
-            // Monto total del servicio — se reutiliza el mismo criterio que
-            // BoletaService::montoTotalServicioRh() (Sección 37): suma del
-            // concepto HONORARIO_BRUTO ya calculado, nunca se recalcula.
+            // Monto total del servicio — mismo criterio que
+            // BoletaService::montoTotalServicioRh(): suma de ingresos.
             $montoServicio = (float) $boleta->conceptos
-                ->filter(fn ($c) => $c->concepto?->codigo === 'HONORARIO_BRUTO')
+                ->where('tipo', 'ingreso')
                 ->sum('monto');
             if ($montoServicio <= 0) {
-                $hallazgos[] = $this->hallazgoColaborador('PLAME_RH_MONTO_SERVICIO_INDETERMINADO', 'error', ['cuarta'], self::GRUPO_RH, $colaborador, 'No se pudo determinar el monto total del servicio (concepto HONORARIO_BRUTO ausente o en cero).', 'Revisar el cálculo de la boleta de honorarios.', entidad: 'boleta', entidadId: $boleta->id);
+                $hallazgos[] = $this->hallazgoColaborador('PLAME_RH_MONTO_SERVICIO_INDETERMINADO', 'error', ['cuarta'], self::GRUPO_RH, $colaborador, 'No se pudo determinar el monto total del servicio (honorario y adicionales ausentes o en cero).', 'Revisar el cálculo de la boleta de honorarios.', entidad: 'boleta', entidadId: $boleta->id);
             }
         }
 

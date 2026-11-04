@@ -2,6 +2,7 @@
 
 namespace App\Modules\Asistencia\Models;
 
+use App\Models\User;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Personas\Models\Colaborador;
@@ -16,10 +17,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 #[ScopedBy([EmpresaScope::class])]
 #[Fillable([
     'empresa_id', 'periodo_id', 'colaborador_id', 'horario_asignacion_id',
-    'fecha', 'tipo_dia', 'estado', 'entrada_at', 'salida_at',
+    'fecha', 'tipo_dia', 'estado', 'estado_forzado', 'entrada_at', 'salida_at',
     'minutos_programados', 'minutos_trabajados', 'minutos_tardanza',
     'minutos_salida_anticipada', 'minutos_extra_observados',
     'minutos_extra_25', 'minutos_extra_35', 'minutos_extra_100', 'procesado_at',
+    'ajustado_manualmente_at', 'ajustado_por', 'motivo_ajuste',
 ])]
 class AsistenciaResultadoDiario extends Model
 {
@@ -52,7 +54,19 @@ class AsistenciaResultadoDiario extends Model
             'entrada_at' => 'datetime',
             'salida_at' => 'datetime',
             'procesado_at' => 'datetime',
+            'ajustado_manualmente_at' => 'datetime',
         ];
+    }
+
+    /** Día editado a mano por RR.HH.: los procesos automáticos no lo recalculan. */
+    public function estaAjustadoManualmente(): bool
+    {
+        return $this->ajustado_manualmente_at !== null;
+    }
+
+    public function ajustadoPor(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'ajustado_por');
     }
 
     public function empresa(): BelongsTo

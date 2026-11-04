@@ -2,10 +2,10 @@
 
 namespace App\Modules\Personas\Models;
 
+use App\Modules\Asistencia\Models\Horario;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Modules\Asistencia\Models\Horario;
 
 #[Fillable(['colaborador_id', 'fecha', 'tipo', 'origen', 'horario_excepcional_id'])]
 class ColaboradorCalendarioDia extends Model
@@ -33,6 +33,13 @@ class ColaboradorCalendarioDia extends Model
     public const ORIGEN_MANUAL = 'manual';
 
     public const ORIGEN_PLANIFICACION = 'planificacion';
+
+    /**
+     * Planificación hecha por gerencia desde el Portal de Empresa. Es un
+     * origen humano: igual que 'planificacion', nunca se purga como default
+     * automático.
+     */
+    public const ORIGEN_PORTAL = 'portal';
 
     public const ORIGEN_INCIDENCIA = 'incidencia';
 

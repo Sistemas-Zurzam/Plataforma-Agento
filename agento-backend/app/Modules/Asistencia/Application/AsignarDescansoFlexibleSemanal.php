@@ -8,12 +8,15 @@ use App\Modules\Asistencia\Models\AsistenciaMarcacion;
 use App\Modules\Asistencia\Models\AsistenciaPeriodo;
 use App\Modules\Asistencia\Models\AsistenciaPermiso;
 use App\Modules\Asistencia\Services\AsistenciaAuditoriaService;
+use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCalendarioDia;
 use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
+use App\Modules\Personas\Support\FeriadosPeru;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 /**
  * Descanso semanal flexible automático — Sección 3 del plan. Clasifica días
@@ -41,6 +44,7 @@ class AsignarDescansoFlexibleSemanal
         private readonly ProcesarAsistenciaDiaria $procesador,
         private readonly EvaluarIntegridadDescansoSemanal $evaluadorIntegridad,
         private readonly AsistenciaAuditoriaService $auditoria,
+        private readonly FechaOperativa $fechaOperativa,
     ) {}
 
     /**
@@ -114,7 +118,9 @@ class AsignarDescansoFlexibleSemanal
                 $this->persistirSegmento($empresa, $colaborador, $inicioSegmento, $finSegmento, $veredictos, $usuarioId);
             }
 
-            if ($finSegmento->gte($finSemana)) {
+            // La integridad semanal solo se evalúa con la semana ya terminada:
+            // los días de hoy en adelante todavía no se clasifican.
+            if ($finSegmento->gte($finSemana) && $finSemana->lt($this->fechaOperativa->hoy())) {
                 $this->evaluadorIntegridad->evaluar($empresa, $colaborador, $inicioSemana, $requeridos);
             }
         }
@@ -140,9 +146,14 @@ class AsignarDescansoFlexibleSemanal
             ->count();
         $remanente = max(0, $diasDescansoRequeridos - $yaAsignados);
 
+        // Solo días ya terminados: un día de hoy o futuro sin marcaciones
+        // todavía no prueba que el colaborador descansó (las marcaciones
+        // pueden llegar más tarde, p. ej. con el Excel semanal), y elegirlo
+        // como descanso convertía la jornada trabajada en HE al 100%.
+        $hoy = $this->fechaOperativa->hoy();
         $diasSinRolSinPermiso = [];
-        for ($fecha = $inicioSegmento->copy(); $fecha->lte($finSegmento); $fecha->addDay()) {
-            if (! $this->esSinRolYSinPermiso($colaborador, $fecha)) {
+        for ($fecha = $inicioSegmento->copy(); $fecha->lte($finSegmento) && $fecha->lt($hoy); $fecha->addDay()) {
+            if (! $this->esClasificable($colaborador, $fecha)) {
                 continue;
             }
             $diasSinRolSinPermiso[$fecha->toDateString()] = $this->contarMarcaciones($colaborador, $fecha) === 0;
@@ -199,15 +210,37 @@ class AsignarDescansoFlexibleSemanal
             return false;
         }
 
-        $tienePermiso = AsistenciaPermiso::query()
+        return ! $this->tienePermisoAprobado($colaborador, $fecha);
+    }
+
+    /**
+     * Un día ya clasificado por esta misma función se vuelve a evaluar en
+     * cada corrida: si después del primer cálculo llegaron marcaciones, el
+     * "descanso" elegido deja de serlo. Antes esa fila ya no contaba como
+     * sin_rol_definido y el descanso quedaba fijo aunque el día se trabajara.
+     */
+    private function esClasificable(Colaborador $colaborador, Carbon $fecha): bool
+    {
+        $origen = ColaboradorCalendarioDia::query()
+            ->where('colaborador_id', $colaborador->id)
+            ->whereDate('fecha', $fecha->toDateString())
+            ->value('origen');
+        if ($origen === ColaboradorCalendarioDia::ORIGEN_DESCANSO_FLEXIBLE_AUTOMATICO) {
+            return ! FeriadosPeru::esFeriado($fecha->toDateString()) && ! $this->tienePermisoAprobado($colaborador, $fecha);
+        }
+
+        return $this->esSinRolYSinPermiso($colaborador, $fecha);
+    }
+
+    private function tienePermisoAprobado(Colaborador $colaborador, Carbon $fecha): bool
+    {
+        return AsistenciaPermiso::query()
             ->where('empresa_id', $colaborador->empresa_id)
             ->where('colaborador_id', $colaborador->id)
             ->where('estado', 'aprobado')
             ->whereDate('fecha_inicio', '<=', $fecha->toDateString())
             ->whereDate('fecha_fin', '>=', $fecha->toDateString())
             ->exists();
-
-        return ! $tienePermiso;
     }
 
     private function contarMarcaciones(Colaborador $colaborador, Carbon $fecha): int
@@ -286,6 +319,24 @@ class AsignarDescansoFlexibleSemanal
                     null, $fila->toArray(),
                 );
                 $this->procesador->procesar($colaborador, Carbon::parse($fecha));
+            }
+
+            // Filas automáticas eliminadas que esta corrida ya no clasifica
+            // (p. ej. un "descanso" asignado a hoy por la versión anterior):
+            // el día vuelve a resolverse sin ella.
+            foreach ($previas as $previa) {
+                $fechaPrevia = $previa->fecha->toDateString();
+                if (array_key_exists($fechaPrevia, $veredictos)) {
+                    continue;
+                }
+                if (! $colaborador->resultadosAsistencia()->whereDate('fecha', $fechaPrevia)->exists()) {
+                    continue;
+                }
+                try {
+                    $this->procesador->procesar($colaborador, Carbon::parse($fechaPrevia));
+                } catch (HttpExceptionInterface) {
+                    // Rotativo sin rol: queda para su clasificación manual.
+                }
             }
         });
     }

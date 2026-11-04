@@ -128,7 +128,7 @@ final class CuartaGenerator
 
     /**
      * Mismo criterio que BoletaService::montoTotalServicioRh() (Sección
-     * 39): suma del concepto HONORARIO_BRUTO ya calculado. Se evalúa sobre
+     * 39): suma de los conceptos de ingreso ya calculados. Se evalúa sobre
      * la colección `conceptos.concepto` ya precargada por
      * PlameExportService (Sección 68/71) en vez de invocar el método del
      * Service (que dispara una query fresca por boleta) — mismo resultado,
@@ -137,7 +137,7 @@ final class CuartaGenerator
     private function montoTotalServicio(Boleta $boleta): float
     {
         return (float) $boleta->conceptos
-            ->filter(fn ($c) => $c->concepto?->codigo === 'HONORARIO_BRUTO')
+            ->where('tipo', 'ingreso')
             ->sum('monto');
     }
 

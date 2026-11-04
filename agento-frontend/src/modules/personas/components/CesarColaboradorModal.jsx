@@ -7,13 +7,20 @@ import { useEffect } from 'react';
  * ese mes sale en la boleta del ciclo; los beneficios se liquidan aparte en
  * Nóminas → Liquidaciones.
  */
-export default function CesarColaboradorModal({ open, colaborador, submitting, onGuardar, onCancel }) {
+export default function CesarColaboradorModal({ open, colaborador, submitting, onGuardar, onCancel, valoresIniciales }) {
   const esHonorarios = colaborador?.regimen_laboral === 'Locacion de Servicios';
   const [form] = Form.useForm();
 
+  // valoresIniciales: precarga opcional (p. ej. desde una solicitud de cese
+  // aprobada del Portal de Empresa); RR. HH. puede ajustarlos antes de guardar.
   useEffect(() => {
-    if (open) form.setFieldsValue({ fecha_cese: dayjs(), motivo_cese: null });
-  }, [open, form]);
+    if (open) {
+      form.setFieldsValue({
+        fecha_cese: valoresIniciales?.fecha_cese ? dayjs(valoresIniciales.fecha_cese) : dayjs(),
+        motivo_cese: valoresIniciales?.motivo_cese ?? null,
+      });
+    }
+  }, [open, form, valoresIniciales]);
 
   const guardar = (values) => onGuardar({ ...values, fecha_cese: values.fecha_cese.format('YYYY-MM-DD') });
 

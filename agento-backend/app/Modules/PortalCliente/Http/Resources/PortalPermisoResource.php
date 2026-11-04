@@ -6,21 +6,9 @@ use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
 /**
- * Exclusivo del portal. Se omite deliberadamente observacion_resolucion y
- * resuelto_por — la nota/decisión privada de RR.HH. al aprobar o rechazar,
- * no información para el cliente.
- *
- * `motivo` (StoreAsistenciaPermisoRequest: string libre, hasta 1000
- * caracteres, obligatorio) es lo que quien registra el permiso escribió
- * como razón — para tipos como "personal"/"capacitacion"/"comision_servicio"
- * es información operativa normal para el empleador ("trámite personal",
- * "capacitación en Excel"). Pero para tipo = "medico" no hay ninguna
- * restricción de formato que impida texto con detalle clínico (diagnóstico,
- * tratamiento) — dato sensible de salud que no puede garantizarse seguro.
- * Por eso, para permisos médicos se oculta el texto libre y se expone solo
- * la categoría ya visible en `tipo` — exactamente el fallback que pide la
- * tarea ("categoría segura") cuando no puede garantizarse que el campo no
- * contenga información sensible.
+ * Exclusivo del portal. El motivo de un permiso médico no se expone (dato
+ * de salud). No incluye efectos remunerativos ni datos de subsidio: el
+ * portal no calcula ni muestra impacto en planilla.
  */
 class PortalPermisoResource extends JsonResource
 {
@@ -37,9 +25,17 @@ class PortalPermisoResource extends JsonResource
             'fecha_inicio' => $this->fecha_inicio?->toDateString(),
             'fecha_fin' => $this->fecha_fin?->toDateString(),
             'estado' => $this->estado,
+            'origen' => $this->origen,
+            'siguiente_responsable' => $this->estado === 'pendiente' ? 'rrhh' : null,
             'motivo' => $esMedico ? null : $this->motivo,
             'motivo_oculto_por_privacidad' => $esMedico,
             'con_goce' => (bool) $this->con_goce,
+            // Respuesta de RR. HH. al resolver: visible para quien solicitó.
+            'respuesta_rrhh' => $this->estado !== 'pendiente' ? $this->observacion_resolucion : null,
+            'resuelto_at' => $this->resuelto_at?->toDateTimeString(),
+            'resuelto_por' => $this->whenLoaded('resueltoPor', fn () => $this->resueltoPor?->name),
+            'creado_at' => $this->created_at?->toDateTimeString(),
+            'actualizado_at' => $this->updated_at?->toDateTimeString(),
             'colaborador' => [
                 'id' => $this->colaborador->id,
                 'nombre_completo' => trim("{$this->colaborador->nombres} {$this->colaborador->apellidos}"),

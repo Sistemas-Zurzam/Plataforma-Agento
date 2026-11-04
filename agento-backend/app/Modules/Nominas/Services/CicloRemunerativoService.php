@@ -3,13 +3,12 @@
 namespace App\Modules\Nominas\Services;
 
 use App\Modules\Configuracion\Models\Empresa;
-use App\Modules\Nominas\Application\VerificarConsistenciaAsistenciaCiclo;
-use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaDatosPago;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
+use App\Modules\Nominas\Models\ConsumoComidaAplicacion;
 use App\Modules\Personas\Models\Colaborador;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -21,7 +20,6 @@ class CicloRemunerativoService
 {
     public function __construct(
         private readonly IncidenciasPendientesNominaService $incidenciasPendientes,
-        private readonly VerificarConsistenciaAsistenciaCiclo $consistenciaAsistencia,
     ) {}
 
     /**
@@ -192,11 +190,24 @@ class CicloRemunerativoService
             ]);
         }
 
-        $this->congelarDatosPago($ciclo);
+        // Con el ciclo bloqueado: una importación de consumos de comida que se
+        // esté aplicando (también bloquea el ciclo) termina antes de que esta
+        // verificación la vea, y no puede aplicarse después del cierre.
+        return DB::transaction(function () use ($ciclo) {
+            $ciclo = CicloRemunerativo::query()->lockForUpdate()->findOrFail($ciclo->id);
 
-        $ciclo->update(['estado' => 'cerrado']);
+            if (ConsumoComidaAplicacion::where('ciclo_id', $ciclo->id)->pendientesDeRecalculo()->exists()) {
+                throw ValidationException::withMessages([
+                    'estado' => 'No se puede cerrar el período: hay descuentos por consumo de comida aplicados o anulados que las boletas todavía no reflejan. Recalcula la planilla primero.',
+                ]);
+            }
 
-        return $ciclo;
+            $this->congelarDatosPago($ciclo);
+
+            $ciclo->update(['estado' => 'cerrado']);
+
+            return $ciclo;
+        });
     }
 
     /**
@@ -346,12 +357,9 @@ class CicloRemunerativoService
      * Registra una comisión/bono/adelanto/descuento operativo que RR.HH.
      * quiere que el motor incluya al calcular la boleta de este colaborador
      * en este ciclo (Sección 46). También aplica a locadores (Recibos por
-     * Honorarios) desde la incorporación de adelantos/descuentos operativos
-     * para RH — ver CalcularReciboHonorarios::conceptosDelPeriodo() — pero
-     * SOLO para conceptos de descuento (tipo=egreso): un locador no tiene
-     * relación laboral, así que un ingreso remunerativo de planilla
-     * dependiente (comisión, bonificación) no tiene cabida en su recibo por
-     * honorarios (E20 .4ta, no Tabla 22). No se permite si el período ya
+     * Honorarios): los descuentos y los adicionales por comisión/bonificación
+     * forman parte del servicio de 4ta categoría y no requieren Tabla 22.
+     * No se permite si el período ya
      * está cerrado/pagado — en ese estado ya no habrá un recálculo que lo
      * recoja, y dejaría un registro huérfano que sugiere falsamente que fue
      * considerado.
@@ -430,8 +438,8 @@ class CicloRemunerativoService
      * Reglas comunes a registrar/actualizar un concepto manual (Sección
      * 46/47): el período no puede estar cerrado/pagado, el colaborador debe
      * pertenecer a la empresa del ciclo, el concepto elegido debe existir y
-     * estar activo, y un locador (Recibos por Honorarios) solo admite
-     * conceptos de descuento.
+     * estar activo. Para locadores se permiten descuentos y los ingresos
+     * registrables de comisión y bonificación.
      *
      * @throws ValidationException
      */
@@ -446,9 +454,10 @@ class CicloRemunerativoService
         $concepto = ConceptoRemuneracion::where('id', $datos['concepto_id'])->where('activo', true)->firstOrFail();
 
         $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
-        if ($esHonorarios && $concepto->tipo !== 'egreso') {
+        $ingresosHonorariosPermitidos = ['COMISION', 'BONIFICACION', 'BONO_NO_REMUNERATIVO'];
+        if ($esHonorarios && $concepto->tipo === 'ingreso' && ! in_array($concepto->codigo, $ingresosHonorariosPermitidos, true)) {
             throw ValidationException::withMessages([
-                'concepto_id' => 'Un locador (Recibos por Honorarios) solo admite conceptos de descuento — los ingresos remunerativos son exclusivos de planilla dependiente.',
+                'concepto_id' => 'Para recibos por honorarios solo se permiten ingresos adicionales de comisión o bonificación, además de descuentos.',
             ]);
         }
 
@@ -459,6 +468,14 @@ class CicloRemunerativoService
     {
         if ($item->ciclo_id !== $ciclo->id || $item->colaborador_id !== $colaborador->id) {
             throw new AuthorizationException('Este concepto no pertenece a este colaborador/ciclo.');
+        }
+
+        // El descuento de una importación de consumos solo se retira anulando
+        // la importación: editarlo aquí rompería su trazabilidad.
+        if (ConsumoComidaAplicacion::where('colaborador_concepto_periodo_id', $item->id)->exists()) {
+            throw ValidationException::withMessages([
+                'concepto_id' => 'Este descuento proviene de una importación de consumo de comida: gestiónalo (o anúlalo) desde "Consumo de comida".',
+            ]);
         }
     }
 

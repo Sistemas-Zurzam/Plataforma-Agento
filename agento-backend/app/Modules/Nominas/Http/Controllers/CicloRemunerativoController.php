@@ -16,6 +16,7 @@ use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashExportService;
 use App\Modules\Nominas\Application\BbvaNetCash\BbvaNetCashValidator;
 use App\Modules\Nominas\Application\Plame\PlameExportService;
 use App\Modules\Nominas\Application\Plame\PlameValidator;
+use App\Modules\Nominas\Application\ReporteEjecutivo\ConceptosEfectivosPorBoleta;
 use App\Modules\Nominas\Application\ReporteEjecutivo\ReporteEjecutivoRemuneracionesCalculador;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpExportService;
 use App\Modules\Nominas\Application\TelecreditoBcp\TelecreditoBcpValidator;
@@ -33,7 +34,6 @@ use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ColaboradorConceptoPeriodo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
-use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Services\BoletaService;
 use App\Modules\Nominas\Services\CicloRemunerativoService;
 use App\Modules\Nominas\Services\ImportarComprobantesRhService;
@@ -102,8 +102,10 @@ class CicloRemunerativoController extends Controller
             ->where('estado', 'pagada')
             ->with([
                 'colaborador:id,nombres,apellidos,numero_documento,cargo,sede_id,area_id',
-                'colaborador.sede:id,nombre',
-                'colaborador.area:id,nombre',
+                // Sede/Área filtran por la empresa ACTIVA (EmpresaScope); el
+                // ciclo puede ser de otra empresa autorizada del usuario.
+                'colaborador.sede' => fn ($query) => $query->withoutGlobalScope(EmpresaScope::class)->select('id', 'nombre'),
+                'colaborador.area' => fn ($query) => $query->withoutGlobalScope(EmpresaScope::class)->select('id', 'nombre'),
                 'datosPago.banco:id,nombre',
             ])
             ->get()
@@ -139,9 +141,9 @@ class CicloRemunerativoController extends Controller
      */
     public function exportarReporteEjecutivoExcel(Request $request): Response
     {
-        [$datos, $boletas, $periodoLabel, $reintegrosPorBoleta] = $this->resolverReporteEjecutivo($request);
+        [$datos, $boletas, $periodoLabel] = $this->resolverReporteEjecutivo($request);
 
-        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas, $reintegrosPorBoleta);
+        $contenido = ReporteEjecutivoRemuneracionesExcelExporter::generar($periodoLabel, $boletas, ConceptosEfectivosPorBoleta::resolver($boletas));
         $sufijo = match ($datos['categoria'] ?? null) {
             'planilla' => '_planilla',
             'honorarios' => '_rh',
@@ -173,21 +175,28 @@ class CicloRemunerativoController extends Controller
      */
     public function datosReporteEjecutivo(Request $request): JsonResponse
     {
-        [, $boletas, $periodoLabel, $reintegrosPorBoleta] = $this->resolverReporteEjecutivo($request);
+        [, $boletas, $periodoLabel] = $this->resolverReporteEjecutivo($request);
 
-        $filas = ReporteEjecutivoRemuneracionesCalculador::filas($periodoLabel, $boletas, $reintegrosPorBoleta);
+        // Mismo detalle por concepto que el Excel (bonos/HE/descuentos
+        // separados, reintegros dentro de sus conceptos).
+        ['columnas' => $columnas, 'filas' => $filas] = ReporteEjecutivoRemuneracionesCalculador::detalle(
+            ReporteEjecutivoRemuneracionesCalculador::filas($periodoLabel, $boletas),
+            ConceptosEfectivosPorBoleta::resolver($boletas),
+        );
+        $claves = array_column($columnas, 'clave');
 
         return response()->json([
             'periodo' => $periodoLabel,
-            'empresas' => ReporteEjecutivoRemuneracionesCalculador::agruparPorEmpresa($filas)
+            'columnas' => $columnas,
+            'empresas' => $filas->groupBy('empresa')
                 ->map(fn ($grupo, $empresa) => [
                     'empresa' => $empresa,
-                    'colaboradores' => $grupo['colaboradores'],
-                    'filas' => $grupo['filas']->values(),
-                    'subtotal' => $grupo['subtotal'],
+                    'colaboradores' => $grupo->count(),
+                    'filas' => $grupo->values(),
+                    'subtotal' => ReporteEjecutivoRemuneracionesCalculador::sumarMontos($grupo, $claves),
                 ])
                 ->values(),
-            'total_general' => ReporteEjecutivoRemuneracionesCalculador::totalGeneral($filas),
+            'total_general' => ReporteEjecutivoRemuneracionesCalculador::sumarMontos($filas, $claves),
             'total_colaboradores' => $filas->count(),
         ]);
     }
@@ -198,7 +207,7 @@ class CicloRemunerativoController extends Controller
      * legible del período — compartido entre el Excel y el JSON del PDF
      * para no duplicar la consulta ni el criterio de elegibilidad.
      *
-     * @return array{0: array{periodo: string, estado: ?string, categoria: ?string}, 1: Collection<int, Boleta>, 2: string, 3: Collection<int, float>}
+     * @return array{0: array{periodo: string, estado: ?string, categoria: ?string}, 1: Collection<int, Boleta>, 2: string}
      */
     private function resolverReporteEjecutivo(Request $request): array
     {
@@ -236,7 +245,15 @@ class CicloRemunerativoController extends Controller
             ->when(($datos['categoria'] ?? null) === 'honorarios', fn ($query) => $query->where('regimen_laboral_snapshot', 'Locacion de Servicios'))
             ->when(($datos['categoria'] ?? null) === 'planilla', fn ($query) => $query->where('regimen_laboral_snapshot', '!=', 'Locacion de Servicios'))
             ->when($datos['cargos'] ?? null, fn ($query, $cargos) => $query->whereHas('colaborador', fn ($colaborador) => $colaborador->whereIn('cargo', $cargos)))
-            ->with(['colaborador:id,nombres,apellidos,numero_documento', 'conceptos.concepto:id,codigo', 'empresa:id,nombre_comercial'])
+            ->with([
+                'colaborador:id,nombres,apellidos,numero_documento,cargo,area_id',
+                // Área filtra por la empresa ACTIVA (EmpresaScope); el reporte
+                // abarca todas las empresas autorizadas del usuario.
+                'colaborador.area' => fn ($query) => $query->withoutGlobalScope(EmpresaScope::class)->select('id', 'nombre'),
+                'conceptos.concepto:id,codigo,nombre',
+                'conceptos.conceptoDefinicion:id,nombre',
+                'empresa:id,nombre_comercial',
+            ])
             ->get()
             // Orden estable en dos pasadas: por colaborador primero y luego por
             // empresa, para que el resultado final quede agrupado por empresa
@@ -252,16 +269,9 @@ class CicloRemunerativoController extends Controller
         $fechaPeriodo = Carbon::createFromFormat('Y-m', $datos['periodo']);
         $periodoLabel = ucfirst(mb_strtolower($fechaPeriodo->translatedFormat('F'), 'UTF-8')).' '.$fechaPeriodo->format('Y');
 
-        // Mismo criterio que ResumenContableService::complementariasPorEmpresa()
-        // (aprobada/pagada, nunca calculada) pero indexado por boleta en vez
-        // de por empresa, para desglosarlo a nivel de colaborador.
-        $reintegrosPorBoleta = PlanillaComplementariaDetalle::whereIn('boleta_original_id', $boletas->pluck('id'))
-            ->whereHas('complementaria', fn ($query) => $query->whereIn('estado', ['aprobada', 'pagada']))
-            ->selectRaw('boleta_original_id, COALESCE(SUM(diferencia_neta), 0) as total')
-            ->groupBy('boleta_original_id')
-            ->pluck('total', 'boleta_original_id');
-
-        return [$datos, $boletas, $periodoLabel, $reintegrosPorBoleta];
+        // Los reintegros de complementarias ya no van en columna aparte:
+        // ConceptosEfectivosPorBoleta los incorpora a sus conceptos.
+        return [$datos, $boletas, $periodoLabel];
     }
 
     /**
@@ -276,11 +286,7 @@ class CicloRemunerativoController extends Controller
      */
     private function empresaIdsAutorizadas(Request $request): array
     {
-        $usuario = $request->user('api');
-
-        return $usuario->esAdministradorGlobal()
-            ? Empresa::pluck('id')->all()
-            : $usuario->empresas()->pluck('empresas.id')->all();
+        return $request->user('api')->empresaIdsAutorizadas();
     }
 
     /**
@@ -445,7 +451,8 @@ class CicloRemunerativoController extends Controller
         // corresponde, para que el snapshot de la boleta conserve el
         // código PLAME correcto en vez de uno genérico.
         $conceptoCodigo = ConceptoRemuneracion::find($request->input('concepto_id'))?->codigo;
-        $requiereDefinicion = in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
+        $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
+        $requiereDefinicion = ! $esHonorarios && in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
 
         $datos = $request->validate([
             'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],
@@ -467,7 +474,8 @@ class CicloRemunerativoController extends Controller
     public function actualizarConcepto(Request $request, CicloRemunerativo $ciclo, Colaborador $colaborador, ColaboradorConceptoPeriodo $conceptoPeriodo): ColaboradorConceptoPeriodoResource
     {
         $conceptoCodigo = ConceptoRemuneracion::find($request->input('concepto_id'))?->codigo;
-        $requiereDefinicion = in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
+        $esHonorarios = $colaborador->tipo_contrato === 'locacion_servicios' || $colaborador->regimen_laboral === 'Locacion de Servicios';
+        $requiereDefinicion = ! $esHonorarios && in_array($conceptoCodigo, ['BONIFICACION', 'BONO_NO_REMUNERATIVO'], true);
 
         $datos = $request->validate([
             'concepto_id' => ['required', 'integer', 'exists:conceptos_remuneracion,id'],
