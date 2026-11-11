@@ -1429,7 +1429,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
     puedeVerMontosHorasExtra,
   );
   const columnaMontoHorasExtra = {
-    title: <Tooltip title="Referencial: sueldo u honorario / 240 × tasa del régimen × horas (aprobadas, o las observadas si aún no se aprueba). El monto final lo define el cálculo de la planilla.">Monto aprox.</Tooltip>,
+    title: <Tooltip title="Referencial: valor hora × tasa del régimen × horas (aprobadas, o las observadas si aún no se aprueba). Valor hora: (sueldo + asignación familiar) / 30 / jornada; honorarios / 240. El monto final lo define el cálculo de la planilla.">Monto aprox.</Tooltip>,
     key: 'monto_aproximado',
     width: 115,
     align: 'right',
@@ -1438,7 +1438,7 @@ export default function GestionAsistencias({ user, onUserRefresh, colaboradorId,
       if (!estimado) return cargandoMontosHorasExtra ? '…' : '—';
       if (estimado.monto === null) return <Tooltip title={estimado.nota}><Text type="secondary">—</Text></Tooltip>;
       return (
-        <Tooltip title={`${estimado.base} / 240 × ${estimado.tasa} × ${duracionEnTexto(estimado.minutos)}`}>
+        <Tooltip title={`Valor hora ${Number(estimado.valor_hora ?? estimado.base / 240).toFixed(2)} × ${estimado.tasa} × ${duracionEnTexto(estimado.minutos)}${estimado.nota ? ` — ${estimado.nota}` : ''}`}>
           <Text type={row.estado === 'rechazado' ? 'secondary' : undefined} delete={row.estado === 'rechazado'}>
             S/ {Number(estimado.monto).toFixed(2)}
           </Text>

@@ -1,5 +1,5 @@
 import { CalculatorOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons';
-import { Alert, App, Button, DatePicker, Input, InputNumber, Modal, Segmented, Select, Spin, Switch, Table, Tag } from 'antd';
+import { Alert, App, Button, Collapse, DatePicker, Input, InputNumber, Modal, Segmented, Select, Spin, Switch, Table, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../../services/api';
@@ -25,6 +25,7 @@ const iguales = (a, b, tipo) => {
   if (a === null || a === undefined || b === null || b === undefined) return a == b; // eslint-disable-line eqeqeq
   if (tipo === 'si_no') return Boolean(a) === Boolean(b);
   if (tipo === 'fecha') return String(a).slice(0, 10) === String(b).slice(0, 10);
+  if (tipo === 'opcion') return String(a) === String(b);
   return Math.abs(Number(a) - Number(b)) < 0.00005;
 };
 
@@ -39,6 +40,13 @@ const ESTADO_DATO = {
   faltante: ['Falta', 'red'],
   revisar: ['Revisar', 'gold'],
 };
+
+const TIPO_LINEA = { ingreso: ['Ingreso', 'green'], egreso: ['Descuento', 'red'], aportacion: ['Aporte empleador', 'blue'] };
+const ORIGEN_TRAMO = { historial: 'Historial', ficha: 'Ficha', supuesto: 'Supuesto', decision: 'Decisión' };
+const NATURALEZA = { complementaria_variable: 'Complementaria variable', principal_imprecisa: 'Principal (comisionista)' };
+const REGIMEN_VALIDACIONES = ['decision_regimen_superpuesto', 'decision_regimen_vacio', 'decision_tramo_locacion', 'decision_clasificacion_vinculo',
+  'decision_mype_sin_remype', 'decision_mype_anterior_remype', 'decision_categoria_mype'];
+const conSigno = (valor) => `${Number(valor) > 0 ? '+' : ''}${soles(valor)}`;
 
 /**
  * Registra la liquidación de beneficios de un colaborador ya cesado.
@@ -79,9 +87,14 @@ export default function LiquidarColaboradorModal({ open, colaborador, onCancel, 
     setSustento('');
     setCodigoNuevo(undefined);
     setModo('asistido');
+    // Al reabrir un borrador se recalcula con sus datos y decisiones manuales.
+    const previos = colaborador.datos_previos ?? {};
+    const hayPrevios = Object.keys(previos).length > 0;
     Promise.all([
       api.get('/liquidaciones-cese/catalogo').then(({ data }) => data.data),
-      api.get(`/liquidaciones-cese/propuesta/${colaborador.id}`).then(({ data }) => data.data).catch((error) => ({ error })),
+      (hayPrevios
+        ? api.post(`/liquidaciones-cese/propuesta/${colaborador.id}`, { datos: previos })
+        : api.get(`/liquidaciones-cese/propuesta/${colaborador.id}`)).then(({ data }) => data.data).catch((error) => ({ error })),
     ]).then(([catalogoData, propuestaData]) => {
       if (!activo) return;
       setCatalogo(catalogoData);
@@ -90,7 +103,8 @@ export default function LiquidarColaboradorModal({ open, colaborador, onCancel, 
         setModo('manual');
         setLineas([]);
       } else {
-        aplicarPropuesta(propuestaData, {});
+        aplicarPropuesta(propuestaData, previos);
+        if (hayPrevios) setValores({ ...valoresIniciales(propuestaData.datos_calculo), ...previos });
       }
     }).catch((error) => {
       if (activo) message.error(mensajeError(error, 'No se pudo cargar la liquidación'));
@@ -101,7 +115,8 @@ export default function LiquidarColaboradorModal({ open, colaborador, onCancel, 
 
   const datosCalculo = propuesta?.datos_calculo;
   const modificados = useMemo(() => datosModificados(valores, datosCalculo), [valores, datosCalculo]);
-  const pendienteRecalcular = JSON.stringify(modificados) !== JSON.stringify(datosAplicados);
+  const ordenado = (datos) => JSON.stringify(Object.entries(datos).sort(([a], [b]) => a.localeCompare(b)));
+  const pendienteRecalcular = ordenado(modificados) !== ordenado(datosAplicados);
   const hayDatosManuales = Object.keys(datosAplicados).length > 0;
 
   const recalcular = async () => {
@@ -140,10 +155,14 @@ export default function LiquidarColaboradorModal({ open, colaborador, onCancel, 
   const exigeSustento = modo === 'manual' || (modo === 'asistido' && hayDatosManuales);
 
   const totales = useMemo(() => {
-    const ingresos = lineas.filter((l) => l.tipo === 'ingreso').reduce((s, l) => s + Number(l.monto || 0), 0);
-    const egresos = lineas.filter((l) => l.tipo === 'egreso').reduce((s, l) => s + Number(l.monto || 0), 0);
-    return { ingresos, egresos, neto: ingresos - egresos };
+    const suma = (tipo) => lineas.filter((l) => l.tipo === tipo).reduce((s, l) => s + Number(l.monto || 0), 0);
+    const ingresos = suma('ingreso');
+    const egresos = suma('egreso');
+    return { ingresos, egresos, aportaciones: suma('aportacion'), neto: ingresos - egresos };
   }, [lineas]);
+
+  const validaciones = propuesta?.validaciones ?? [];
+  const regimenPorValidar = validaciones.some((v) => REGIMEN_VALIDACIONES.includes(v.clave) && !v.resuelta);
 
   const guardar = async () => {
     if (modo === 'asistido' && pendienteRecalcular) { message.warning('Cambiaste datos del cálculo: presiona "Recalcular" antes de registrar.'); return; }
@@ -182,8 +201,12 @@ export default function LiquidarColaboradorModal({ open, colaborador, onCancel, 
         maxDate={dayjs(colaborador?.fecha_cese)} onChange={(v) => cambiar(v ? v.format('YYYY-MM-DD') : null)} />;
     }
     if (d.tipo === 'si_no') return <Switch size="small" checked={Boolean(valor)} onChange={cambiar} checkedChildren="Sí" unCheckedChildren="No" />;
-    return <InputNumber size="small" className="w-full" min={d.tipo === 'dias' ? undefined : 0} precision={d.tipo === 'dias' ? 2 : 2}
-      prefix={d.tipo === 'monto' ? 'S/' : undefined} suffix={d.tipo === 'dias' ? 'días' : undefined}
+    if (d.tipo === 'opcion') {
+      return <Select size="small" className="w-full" allowClear placeholder="Seleccionar" value={valor ?? undefined} options={d.opciones}
+        status={d.estado !== 'ok' && (valor === null || valor === undefined) ? 'warning' : undefined} onChange={(v) => cambiar(v ?? null)} />;
+    }
+    return <InputNumber size="small" className="w-full" min={d.tipo === 'dias' ? undefined : 0} precision={2}
+      prefix={d.tipo === 'monto' ? 'S/' : undefined} suffix={d.tipo === 'dias' ? 'días' : d.tipo === 'numero' ? 'meses' : undefined}
       value={valor} status={d.estado === 'faltante' && (valor === null || valor === undefined) ? 'error' : undefined} onChange={cambiar} />;
   };
 
@@ -208,7 +231,7 @@ export default function LiquidarColaboradorModal({ open, colaborador, onCancel, 
         {l.formula && <p className="text-[11px] text-gray-400">{l.formula}</p>}
       </div>,
     },
-    { title: 'Tipo', width: 90, render: (_, l) => <Tag color={l.tipo === 'ingreso' ? 'green' : 'red'}>{l.tipo === 'ingreso' ? 'Ingreso' : 'Descuento'}</Tag> },
+    { title: 'Tipo', width: 110, render: (_, l) => <Tag color={TIPO_LINEA[l.tipo]?.[1]}>{TIPO_LINEA[l.tipo]?.[0] ?? l.tipo}</Tag> },
     ...(modo === 'asistido' ? [{ title: 'Calculado', width: 110, align: 'right', render: (_, l) => (l.propuesta ? soles(l.montoCalculado) : <span className="text-gray-400">—</span>) }] : []),
     {
       title: 'Monto', width: 140,
@@ -256,8 +279,69 @@ export default function LiquidarColaboradorModal({ open, colaborador, onCancel, 
                 </div>
                 <Button type={pendienteRecalcular ? 'primary' : 'default'} icon={<CalculatorOutlined />} loading={recalculando} disabled={!pendienteRecalcular} onClick={recalcular}>Recalcular</Button>
               </div>
-              <Table size="small" pagination={false} rowKey={([clave]) => clave} dataSource={Object.entries(datosCalculo ?? {})} columns={columnasDatos} />
+              <Table size="small" pagination={false} rowKey={([clave]) => clave} dataSource={Object.entries(datosCalculo ?? {}).filter(([, d]) => !d.es_decision)} columns={columnasDatos} />
             </div>
+
+            <div className="rounded-lg border border-gray-200 p-3">
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <p className="font-medium">Régimen laboral por período</p>
+                {regimenPorValidar && <Tag color="orange">Régimen laboral por validar</Tag>}
+              </div>
+              <Table size="small" pagination={false} rowKey={(t) => `${t.desde}-${t.regimen}`} dataSource={propuesta.regimen_tramos ?? []} columns={[
+                { title: 'Período', render: (_, t) => `${fecha(t.desde)} – ${fecha(t.hasta)}` },
+                { title: 'Régimen', dataIndex: 'regimen' },
+                { title: 'Vacaciones', width: 110, render: (_, t) => `${t.vacaciones_dias} d/año` },
+                { title: 'Origen', width: 100, render: (_, t) => <Tag>{ORIGEN_TRAMO[t.origen] ?? t.origen}</Tag> },
+              ]} />
+            </div>
+
+            {validaciones.length > 0 && (
+              <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <div>
+                  <p className="font-medium">Decisiones laborales</p>
+                  <p className="text-xs text-gray-600">La norma no resuelve estos puntos para este caso. Elige una opción, recalcula e indica el sustento. Con alguna pendiente, la liquidación se guarda como borrador y no se puede aprobar.</p>
+                </div>
+                {validaciones.map((v) => (
+                  <div key={v.clave} className="rounded-md border border-amber-100 bg-white p-2 text-sm">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong>{v.titulo}</strong>
+                      <Tag color={v.resuelta ? 'green' : 'orange'}>{v.resuelta ? 'Resuelta' : 'Pendiente'}</Tag>
+                    </div>
+                    <p className="mt-1">{v.pregunta}</p>
+                    <p className="text-[11px] text-gray-500">Conceptos: {v.conceptos?.join(', ')} · Fuente: {v.fuente}</p>
+                    {v.diferencias?.length > 0 && (
+                      <ul className="mt-1 text-[11px] text-gray-600">
+                        {v.diferencias.map((d) => <li key={d.opcion}>{d.etiqueta}: neto {soles(d.neto_pagar)} ({conSigno(d.diferencia_neto)} frente al cálculo mostrado)</li>)}
+                      </ul>
+                    )}
+                    <Select size="small" className="mt-2 w-full md:w-2/3" allowClear placeholder="Elegir decisión" options={v.opciones}
+                      value={valores[v.clave] ?? undefined} onChange={(valor) => setValores((actuales) => ({ ...actuales, [v.clave]: valor ?? null }))} />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {propuesta.bases_variables?.some((b) => b.componentes?.length > 0) && (
+              <Collapse size="small" items={[{
+                key: 'variables', label: 'Remuneraciones variables incluidas en las bases',
+                children: <div className="space-y-3">
+                  {propuesta.bases_variables.filter((b) => b.componentes?.length > 0).map((b) => (
+                    <div key={b.beneficio}>
+                      <p className="text-sm font-medium">{b.beneficio}: {soles(b.total)} <span className="text-xs font-normal text-gray-500">({fecha(b.desde)} – {fecha(b.hasta)})</span></p>
+                      <p className="text-[11px] text-gray-500">{b.regla}</p>
+                      <Table size="small" pagination={false} rowKey="codigo" dataSource={b.componentes} columns={[
+                        { title: 'Concepto', dataIndex: 'nombre' },
+                        { title: 'Naturaleza', render: (_, c) => NATURALEZA[c.naturaleza] ?? c.naturaleza },
+                        { title: 'Meses con pago', align: 'right', dataIndex: 'meses_con_pago' },
+                        { title: 'Suma', align: 'right', render: (_, c) => soles(c.suma) },
+                        { title: 'Divisor', align: 'right', dataIndex: 'divisor' },
+                        { title: 'Incluido', align: 'right', render: (_, c) => (c.regular ? soles(c.monto) : <span className="text-gray-400">No regular</span>) },
+                      ]} />
+                    </div>
+                  ))}
+                </div>,
+              }]} />
+            )}
 
             {!propuesta.puede_calcular
               ? <Alert type="error" showIcon message="Faltan datos para calcular" description="Completa los datos marcados como Falta y presiona Recalcular." />
@@ -265,6 +349,7 @@ export default function LiquidarColaboradorModal({ open, colaborador, onCancel, 
                 <p className="text-xs text-gray-500">
                   Remuneración computable: {soles(propuesta.remuneracion_computable)}. Puedes ajustar cualquier monto indicando el motivo. Si ajustas vacaciones, revisa también el AFP/ONP calculado sobre ellas.
                 </p>
+                {propuesta.requiere_validacion && <Alert type="warning" showIcon message="Hay decisiones laborales pendientes: puedes registrar la liquidación como borrador, pero no se podrá aprobar hasta resolverlas." />}
                 {propuesta.alertas?.map((alerta) => <Alert key={alerta} type="info" showIcon message={alerta} />)}
               </>}
           </>}
@@ -284,6 +369,7 @@ export default function LiquidarColaboradorModal({ open, colaborador, onCancel, 
               <div className="flex justify-between"><span>Total ingresos</span><strong className="text-green-600">{soles(totales.ingresos)}</strong></div>
               <div className="flex justify-between"><span>Total descuentos</span><strong className="text-red-500">{soles(totales.egresos)}</strong></div>
               <div className="flex justify-between text-base"><span className="font-semibold">Neto a pagar</span><strong>{soles(totales.neto)}</strong></div>
+              {totales.aportaciones > 0 && <div className="flex justify-between text-xs text-gray-500"><span>Aporte del empleador (no se descuenta al trabajador)</span><span>{soles(totales.aportaciones)}</span></div>}
             </div>
 
             <div>

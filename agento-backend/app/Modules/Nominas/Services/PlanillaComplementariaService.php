@@ -20,6 +20,7 @@ use App\Modules\Nominas\Models\PlanillaComplementaria;
 use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
+use App\Modules\Nominas\Support\ValorHoraOrdinaria;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use App\Modules\Personas\Support\FeriadosPeru;
@@ -520,13 +521,19 @@ class PlanillaComplementariaService
                         : ParametrosVigentesResolver::paraRegimen($empresa, $condicion?->regimen_laboral ?? $boleta->regimen_laboral_snapshot, $entrada['fecha']);
                     $factor = match ((string) $entrada['tasa']) { '25' => $parametros['horas_extra_tasa_x25'], '35' => $parametros['horas_extra_tasa_x35'], '100' => $parametros['horas_extra_tasa_nocturna'] };
                     $codigo = 'HE_'.(string) $entrada['tasa'];
-                    $monto = round(((float) $remuneracion->salario / 240) * $factor * ((int) $entrada['minutos'] / 60), 2);
+                    // Mismo valor hora que la boleta (D.S. 007-2002-TR art. 12): básico +
+                    // asignación familiar, entre la jornada real del mes de la hora extra.
+                    $af = ! $esHonorarios && $boleta->colaborador->tiene_hijos_asignacion_familiar ? (float) $parametros['asignacion_familiar_monto'] : 0.0;
+                    $mesHoraExtra = Carbon::parse($entrada['fecha']);
+                    $jornada = $esHonorarios ? null : ValorHoraOrdinaria::jornadaPromedio($boleta->colaborador_id, $mesHoraExtra->copy()->startOfMonth()->toDateString(), $mesHoraExtra->copy()->endOfMonth()->toDateString());
+                    $valorHora = $esHonorarios ? (float) $remuneracion->salario / 240 : ValorHoraOrdinaria::calcular((float) $remuneracion->salario, $af, $jornada);
+                    $monto = round($valorHora * $factor * ((int) $entrada['minutos'] / 60), 2);
                     $delta += $monto;
                     $lineaId = (string) Str::uuid();
                     $snapshot['ingresos'][] = ['id' => $lineaId, 'codigo' => $codigo, 'monto' => $monto,
-                        'base_utilizada' => round((float) $remuneracion->salario / 240, 4), 'tasa_aplicada' => $factor,
+                        'base_utilizada' => round($valorHora, 4), 'tasa_aplicada' => $factor,
                         'cantidad' => round((int) $entrada['minutos'] / 60, 4), 'motivo' => $entrada['motivo'] ?? null,
-                        'formula_texto' => "({$remuneracion->salario}/240) × {$factor} × {$entrada['minutos']} min / 60",
+                        'formula_texto' => '('.($esHonorarios ? "{$remuneracion->salario}/240" : ValorHoraOrdinaria::formula((float) $remuneracion->salario, $af, $jornada)).") × {$factor} × {$entrada['minutos']} min / 60",
                         'agregado_por' => $usuarioId, 'agregado_en' => now()->toDateTimeString()];
                     $snapshot['horas_extra_regularizadas'][] = ['linea_id' => $lineaId, 'origen' => $entrada['origen'],
                         'asistencia_hora_extra_id' => $entrada['asistencia_hora_extra_id'], 'fecha' => $entrada['fecha'],
@@ -1414,7 +1421,7 @@ class PlanillaComplementariaService
             ->concat($nuevasLineasPrevisionales)
             ->values()->all();
 
-        $essalud = $calculadora->calcularEsSalud($nuevaBase, $parametros, $colaborador->empresa->seguro_salud);
+        $essalud = $calculadora->calcularEsSalud($nuevaBase, $parametros, $colaborador->empresa->seguroSaludAplicable());
         $codigosEssalud = ['ESSALUD', 'SIS_APORTACION'];
         $snapshot['aportaciones'] = collect($snapshot['aportaciones'] ?? [])
             ->reject(fn (array $l) => in_array($l['codigo'], $codigosEssalud, true))

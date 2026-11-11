@@ -44,10 +44,19 @@ class LiquidacionCeseControllerTest extends TestCase
     private function liquidar(array $headers, $colaborador): int
     {
         $propuesta = $this->withHeaders($headers)->getJson("/api/liquidaciones-cese/propuesta/{$colaborador->id}")->assertOk()->json('data');
+        // Las validaciones laborales abiertas (p. ej. CTS de un semestre
+        // cerrado según la fecha de hoy) se resuelven con su primera opción
+        // y sustento, como haría RR.HH. antes de aprobar.
+        $decisiones = collect($propuesta['validaciones'])->reject(fn ($v) => $v['resuelta'])
+            ->mapWithKeys(fn ($v) => [$v['clave'] => $v['opciones'][0]['value']])->all();
+        if ($decisiones) {
+            $propuesta = $this->withHeaders($headers)->postJson("/api/liquidaciones-cese/propuesta/{$colaborador->id}", ['datos' => $decisiones])->assertOk()->json('data');
+        }
         $lineas = collect($propuesta['conceptos'])->map(fn ($c) => ['codigo' => $c['codigo'], 'monto' => $c['monto']])->all();
 
         return $this->withHeaders($headers)->postJson('/api/liquidaciones-cese', [
             'colaborador_id' => $colaborador->id, 'modo' => 'asistido', 'conceptos' => $lineas,
+            'datos' => $decisiones ?: null, 'sustento' => $decisiones ? 'Decisión validada por RR.HH. (prueba)' : null,
         ])->assertCreated()->json('data.id');
     }
 
@@ -89,6 +98,30 @@ class LiquidacionCeseControllerTest extends TestCase
 
         // Pagada: ya no se puede anular.
         $this->withHeaders($headers)->patchJson("/api/liquidaciones-cese/{$liquidacionId}/anular", ['motivo' => 'Error'])->assertStatus(422);
+    }
+
+    public function test_con_regimen_por_validar_queda_en_borrador_y_no_se_aprueba_hasta_resolver(): void
+    {
+        $this->seed(DatabaseSeeder::class);
+        $empresa = Empresa::firstOrFail();
+        [, $headers] = $this->autenticarEn($empresa);
+        app(ParametroLaboralService::class)->inicializarValoresPorDefecto($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['regimen_laboral' => null]);
+        $this->withHeaders($headers)->patchJson("/api/colaboradores/{$colaborador->id}/cesar", [
+            'fecha_cese' => now()->toDateString(), 'motivo_cese' => 'Fin de proyecto', 'causal_cese' => 'mutuo_disenso',
+        ])->assertOk()->assertJsonPath('data.causal_cese', 'mutuo_disenso');
+
+        $propuesta = $this->withHeaders($headers)->getJson("/api/liquidaciones-cese/propuesta/{$colaborador->id}")->assertOk()->json('data');
+        $this->assertTrue($propuesta['requiere_validacion']);
+        $lineas = collect($propuesta['conceptos'])->map(fn ($c) => ['codigo' => $c['codigo'], 'monto' => $c['monto']])->all();
+        $borradorId = $this->withHeaders($headers)->postJson('/api/liquidaciones-cese', [
+            'colaborador_id' => $colaborador->id, 'modo' => 'asistido', 'conceptos' => $lineas,
+        ])->assertCreated()->json('data.id');
+        $this->withHeaders($headers)->patchJson("/api/liquidaciones-cese/{$borradorId}/aprobar")
+            ->assertStatus(422)->assertJsonValidationErrors('validaciones');
+
+        $liquidacionId = $this->liquidar($headers, $colaborador);
+        $this->withHeaders($headers)->patchJson("/api/liquidaciones-cese/{$liquidacionId}/aprobar")->assertOk();
     }
 
     public function test_anular_no_revierte_el_cese_y_permite_liquidar_de_nuevo(): void

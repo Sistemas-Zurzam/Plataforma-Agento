@@ -311,7 +311,10 @@ export default function NuevoColaboradorModal({ open, user, onSubmit, onCancel, 
     // Remuneraciones, como hoy), actualizarConfiguracionNomina() exigiría
     // sistema_previsional y fallaría sin necesidad.
     const previsional = puedeGestionarNomina && (valores.sistema_previsional || valores.tiene_suspension_renta_4ta)
-      ? { regimen_laboral: valores.regimen_laboral, sistema_previsional: valores.sistema_previsional, afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta }
+      ? {
+          regimen_laboral: valores.regimen_laboral, sistema_previsional: valores.sistema_previsional, afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta,
+          condicion_vigencia_desde: valores.fecha_ingreso.format('YYYY-MM-DD'),
+        }
       : null;
 
     onSubmit(

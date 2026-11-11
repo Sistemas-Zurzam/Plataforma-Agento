@@ -5,14 +5,16 @@ namespace App\Modules\Nominas\Application;
 use App\Modules\Asistencia\Models\AsistenciaHoraExtra;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
+use App\Modules\Nominas\Support\ValorHoraOrdinaria;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use App\Modules\Personas\Support\FeriadosPeru;
+use Illuminate\Support\Carbon;
 use RuntimeException;
 
 /**
  * Monto REFERENCIAL de cada hora extra para la pestaña de Asistencia, con la
- * misma fórmula de los motores (sueldo u honorario / 240 × tasa del régimen
- * × horas). No es lo que pagará la boleta: no considera trabajador de
+ * misma fórmula de los motores (valor hora × tasa del régimen × horas; valor
+ * hora = remuneración ordinaria / 30 / jornada, o honorario / 240). No es lo que pagará la boleta: no considera trabajador de
  * confianza, "contabilizar horas extra" ni el tope del ciclo — eso lo decide
  * el cálculo de la planilla.
  */
@@ -27,7 +29,7 @@ class EstimarMontoHorasExtra
         $horasExtra = AsistenciaHoraExtra::query()
             ->where('empresa_id', $empresa->id)
             ->whereIn('id', $ids)
-            ->with('colaborador:id,empresa_id,tipo_contrato,regimen_laboral')
+            ->with('colaborador:id,empresa_id,tipo_contrato,regimen_laboral,tiene_hijos_asignacion_familiar')
             ->get();
 
         $montos = [];
@@ -91,13 +93,25 @@ class EstimarMontoHorasExtra
         }
 
         $base = (float) $remuneracion->salario;
+        // Dependientes: mismo valor hora que la boleta (básico + asignación
+        // familiar, jornada real del mes; D.S. 007-2002-TR art. 12).
+        $valorHora = $base / 240;
+        $nota = null;
+        if (! $esHonorarios) {
+            $af = $colaborador->tiene_hijos_asignacion_familiar ? (float) $parametros['asignacion_familiar_monto'] : 0.0;
+            $mes = Carbon::parse($fecha);
+            $jornada = ValorHoraOrdinaria::jornadaPromedio($colaborador->id, $mes->copy()->startOfMonth()->toDateString(), $mes->copy()->endOfMonth()->toDateString());
+            $valorHora = ValorHoraOrdinaria::calcular($base, $af, $jornada);
+            $nota = ValorHoraOrdinaria::avisoProvisional($jornada);
+        }
 
         return [
-            'monto' => round($base / 240 * (float) $tasa * $minutos / 60, 2),
+            'monto' => round($valorHora * (float) $tasa * $minutos / 60, 2),
             'minutos' => $minutos,
             'base' => $base,
             'tasa' => (float) $tasa,
-            'nota' => null,
+            'valor_hora' => round($valorHora, 4),
+            'nota' => $nota,
         ];
     }
 }

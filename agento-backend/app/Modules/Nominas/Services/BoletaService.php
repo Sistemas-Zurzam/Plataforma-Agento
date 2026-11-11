@@ -10,6 +10,8 @@ use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
+use App\Modules\Nominas\Application\Quinta\AjusteFinalQuintaCese;
+use App\Modules\Nominas\Models\QuintaAjusteCese;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ProrateoRango;
 use App\Modules\Nominas\Models\Boleta;
@@ -38,6 +40,7 @@ class BoletaService
         private readonly CalcularReciboHonorarios $calculadorHonorarios,
         private readonly IncidenciasPendientesNominaService $incidenciasPendientes,
         private readonly AsistenciaAuditoriaService $auditoria,
+        private readonly AjusteFinalQuintaCese $quintaCese,
     ) {}
 
     public function registrarHorasExtraEnBoleta(
@@ -560,6 +563,12 @@ class BoletaService
                 $ciclo->fecha_corte_asistencia->toDateString(),
                 $ciclo->id,
             ];
+            // Mes del cese: mismo bloqueo que el registro de la liquidación,
+            // para que el ajuste final de 5ta no se calcule en paralelo.
+            $esMesDelCese = ! $esHonorarios && AjusteFinalQuintaCese::esMesDelCese($colaborador, $ciclo->fecha_inicio->toDateString(), $ciclo->fecha_fin->toDateString());
+            if ($esMesDelCese) {
+                Colaborador::whereKey($colaborador->id)->lockForUpdate()->first();
+            }
             $resultado = $esHonorarios
                 ? $calculador->calcular(...[...$argumentosBase, $salarioBaseOverride])
                 : $calculador->calcular(...[...$argumentosBase, $ciclo->fecha_pago->toDateString(), $salarioBaseOverride]);
@@ -659,6 +668,14 @@ class BoletaService
             // ConsumoComidaImportacionService).
             ConsumoComidaAplicacion::registrarIncorporacion($ciclo->id, $colaborador->id, $boleta->id, $inicioCalculo);
 
+            // Aplicación del ajuste final de 5ta del cese en esta versión de la
+            // boleta (un reintento o recálculo la reemplaza, no la suma).
+            if ($esMesDelCese && ($quinta = $resultado['quinta_cese'] ?? null)) {
+                $monto = round(collect($resultado['egresos'])->where('codigo', 'RENTA_5TA')->sum('monto') - collect($resultado['ingresos'])->where('codigo', 'DEVOLUCION_RENTA_5TA')->sum('monto'), 2);
+                $this->quintaCese->registrarAplicacion($colaborador, QuintaAjusteCese::BOLETA, $boleta->id, $boleta->version, $monto,
+                    [...$quinta['desglose'], 'difiere' => $quinta['difiere']], 'borrador');
+            }
+
             return $boleta->load('conceptos.concepto');
         });
     }
@@ -722,6 +739,7 @@ class BoletaService
         }
 
         $boleta->update(['estado' => 'aprobada', 'aprobado_por' => $usuarioId, 'aprobado_at' => now()]);
+        $this->emitirQuintaCese($boleta);
 
         return $boleta;
     }
@@ -779,8 +797,18 @@ class BoletaService
             'pagado_at' => now(),
             'referencia_pago' => $referenciaPago,
         ]);
+        $this->emitirQuintaCese($boleta);
 
         return $boleta;
+    }
+
+    /** Si la boleta aplicó (o concilió) la 5ta del cese, esa aplicación queda emitida. */
+    private function emitirQuintaCese(Boleta $boleta): void
+    {
+        $colaborador = $boleta->colaborador()->first();
+        if ($colaborador?->fecha_cese) {
+            $this->quintaCese->actualizarEstado($colaborador, QuintaAjusteCese::BOLETA, $boleta->id, 'emitido');
+        }
     }
 
     private function verificarPertenenciaBoleta(Empresa $empresa, Boleta $boleta): void

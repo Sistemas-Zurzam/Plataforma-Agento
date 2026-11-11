@@ -55,7 +55,9 @@ export default function EmpresaFormModal({
   const puedeOptarPorSis = regimenLaboral === 'Micro Empresa' && !!inscritaRemype;
 
   useEffect(() => {
-    if (!puedeOptarPorSis && form.getFieldValue('seguro_salud') === 'sis') {
+    if (puedeOptarPorSis) {
+      form.setFieldValue('seguro_salud', 'sis');
+    } else if (form.getFieldValue('seguro_salud') === 'sis') {
       form.setFieldValue('seguro_salud', 'essalud');
     }
   }, [puedeOptarPorSis, form]);
@@ -65,7 +67,7 @@ export default function EmpresaFormModal({
       {
         ...values,
         fecha_inscripcion_remype: values.fecha_inscripcion_remype?.format('YYYY-MM-DD') ?? null,
-        seguro_salud: esLocador ? 'essalud' : values.seguro_salud,
+        seguro_salud: esLocador ? 'essalud' : puedeOptarPorSis ? 'sis' : values.seguro_salud,
       },
       form,
     );
@@ -235,7 +237,7 @@ export default function EmpresaFormModal({
             >
               <Select
                 options={[
-                  { value: 'essalud', label: 'EsSalud (9%, con piso legal)' },
+                  { value: 'essalud', label: 'EsSalud (9%, con piso legal)', disabled: puedeOptarPorSis },
                   { value: 'sis', label: 'SIS (monto fijo)', disabled: !puedeOptarPorSis },
                 ]}
               />

@@ -3,6 +3,7 @@
 namespace App\Modules\Nominas\Domain;
 
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
+use App\Modules\Nominas\Support\ValorHoraOrdinaria;
 use App\Modules\Personas\Models\Colaborador;
 use RuntimeException;
 
@@ -44,9 +45,11 @@ class PlanillaDependienteCalculator implements RegimenCalculator
         ];
     }
 
-    public function calcularHorasExtra(float $sueldoBasico, float $horas25, float $horas35, float $horas100, array $parametros): array
+    public function calcularHorasExtra(float $sueldoBasico, float $horas25, float $horas35, float $horas100, array $parametros, float $asignacionFamiliar = 0.0, ?float $horasJornada = null): array
     {
-        $valorHora = $sueldoBasico / 240;
+        // D.S. 007-2002-TR art. 12: remuneración ordinaria de un día / horas de la jornada.
+        $valorHora = ValorHoraOrdinaria::calcular($sueldoBasico, $asignacionFamiliar, $horasJornada);
+        $formulaValorHora = ValorHoraOrdinaria::formula($sueldoBasico, $asignacionFamiliar, $horasJornada);
         $lineas = [];
 
         $tramos = [
@@ -67,7 +70,7 @@ class PlanillaDependienteCalculator implements RegimenCalculator
                 'base_utilizada' => round($valorHora, 4),
                 'tasa_aplicada' => $tramo['tasa'],
                 'cantidad' => $tramo['horas'],
-                'formula_texto' => "({$sueldoBasico}/240) × {$tramo['tasa']} × {$tramo['horas']} h",
+                'formula_texto' => "({$formulaValorHora}) × {$tramo['tasa']} × {$tramo['horas']} h",
             ];
         }
 

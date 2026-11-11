@@ -113,6 +113,12 @@ class ConceptoRemuneracionSeeder extends Seeder
             ['codigo' => 'AFP_COMISION', 'nombre' => 'AFP — comisión de la administradora', 'tipo' => 'egreso', 'codigo_plame' => '0601'],
             ['codigo' => 'ONP', 'nombre' => 'ONP (13%)', 'tipo' => 'egreso', 'codigo_plame' => '0607'],
             ['codigo' => 'RENTA_5TA', 'nombre' => 'Retención de renta de 5ta categoría', 'tipo' => 'egreso', 'codigo_plame' => '0605'],
+            // Exceso de 5ta devuelto en el ajuste final del cese (Reglamento LIR art. 42 inc. a).
+            // No es remuneración: en PLAME reduce la retención del mes, no es un ingreso propio.
+            [
+                'codigo' => 'DEVOLUCION_RENTA_5TA', 'nombre' => 'Devolución de retención de 5ta en exceso', 'tipo' => 'ingreso',
+                'sunat_motivo_estado' => 'Devolución de retención de 5ta (ajuste final al cese): se declara como menor retención del mes, no como concepto remunerativo.',
+            ],
 
             // Aportaciones (costo del empleador — no afecta el neto del trabajador)
             ['codigo' => 'ESSALUD', 'nombre' => 'EsSalud (9%, con piso legal sobre RMV)', 'tipo' => 'aportacion', 'codigo_plame' => '0804'],

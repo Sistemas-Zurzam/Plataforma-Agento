@@ -80,6 +80,7 @@ class ColaboradorResource extends JsonResource
             'fecha_fin_contrato' => $this->fecha_fin_contrato?->toDateString(),
             'fecha_cese' => $this->fecha_cese?->toDateString(),
             'motivo_cese' => $this->motivo_cese,
+            'causal_cese' => $this->causal_cese,
             'modalidad_trabajo' => $this->modalidad_trabajo,
             'tolerancia_particular_minutos' => $this->tolerancia_particular_minutos,
             'cts_cuenta' => $this->cts_cuenta,

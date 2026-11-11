@@ -112,7 +112,15 @@ class LiquidacionCeseController extends Controller
         if ($liquidacion->estado !== 'calculada') {
             throw ValidationException::withMessages(['estado' => 'Solo una liquidación calculada puede aprobarse.']);
         }
-        $liquidacion->update(['estado' => 'aprobada', 'aprobado_por' => $request->user('api')->id, 'aprobado_at' => now()]);
+        // Emisión definitiva: con una regla laboral sin resolver queda como borrador.
+        if ($pendientes = $this->liquidaciones->validacionesPendientes($liquidacion)) {
+            throw ValidationException::withMessages(['validaciones' => 'Queda en borrador hasta resolver: '.collect($pendientes)->pluck('titulo')->implode('; ').'.']);
+        }
+        DB::transaction(function () use ($request, $liquidacion) {
+            $liquidacion->update(['estado' => 'aprobada', 'aprobado_por' => $request->user('api')->id, 'aprobado_at' => now()]);
+            // La 5ta del cese que aplica esta liquidación queda emitida.
+            $this->liquidaciones->actualizarEstadoQuinta($liquidacion, 'emitido');
+        });
         return response()->json(['data' => $liquidacion->fresh(['colaborador', 'conceptos'])]);
     }
 
@@ -153,6 +161,8 @@ class LiquidacionCeseController extends Controller
                 'estado' => 'anulada', 'es_version_vigente' => false, 'anulado_por' => $request->user('api')->id,
                 'anulado_at' => now(), 'motivo_anulacion' => $datos['motivo'],
             ]);
+            // Su 5ta deja de contar: la boleta del cese conciliará sin ella.
+            $this->liquidaciones->actualizarEstadoQuinta($bloqueada, 'anulado');
         });
 
         return response()->json(['message' => 'Liquidación anulada. El colaborador sigue cesado y puede volver a liquidarse.']);
@@ -169,6 +179,16 @@ class LiquidacionCeseController extends Controller
             'datos.gratificacion_percibida_cts' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
             'datos.gratificacion_semestre_pagada' => ['nullable', 'boolean'],
             'datos.dias_vacaciones_gozados' => ['nullable', 'numeric', 'min:-9999', 'max:9999'],
+            'datos.causal_cese' => ['nullable', Rule::in(array_keys(Colaborador::CAUSALES_CESE))],
+            'datos.cobertura_salud' => ['nullable', Rule::in(['essalud', 'eps', 'sis'])],
+            'datos.comision_principal' => ['nullable', 'boolean'],
+            'datos.periodo_prueba_meses' => ['nullable', 'numeric', 'min:0', 'max:12'],
+            'datos.gerente_no_goza_vacaciones' => ['nullable', 'boolean'],
+            'datos.remuneraciones_otros_empleadores' => ['nullable', 'numeric', 'min:0', 'max:99999999'],
+            'datos.retenciones_otros_empleadores' => ['nullable', 'numeric', 'min:0', 'max:9999999'],
+            // Decisiones de validaciones laborales: el servicio verifica que la
+            // opción exista para la validación que la pide.
+            ...collect(LiquidacionCeseService::DECISIONES)->mapWithKeys(fn ($clave) => ["datos.{$clave}" => ['nullable', 'string', 'max:60']])->all(),
         ];
     }
 

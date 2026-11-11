@@ -260,6 +260,7 @@ class ColaboradorController extends Controller
             'cuspp' => ['nullable', 'string', 'size:12', ...($esHonorarios ? [] : ['required_unless:sistema_previsional,onp'])],
             'tiene_hijos_asignacion_familiar' => ['nullable', 'boolean'],
             'tiene_suspension_renta_4ta' => ['nullable', 'boolean'],
+            'condicion_vigencia_desde' => ['nullable', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'before_or_equal:today'],
         ]);
 
         if (! $esHonorarios && $datos['sistema_previsional'] !== 'onp') {
@@ -268,7 +269,12 @@ class ColaboradorController extends Controller
         }
 
         return new ColaboradorResource(
-            $this->colaboradores->actualizarConfiguracionNomina($this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador, $datos),
+            $this->colaboradores->actualizarConfiguracionNomina(
+                $this->empresaAutorizadaDelColaborador($request, $colaborador),
+                $colaborador,
+                $datos,
+                $datos['condicion_vigencia_desde'] ?? null,
+            ),
         );
     }
 
@@ -335,12 +341,15 @@ class ColaboradorController extends Controller
         $datos = $request->validate([
             'fecha_cese' => ['required', 'date', 'after_or_equal:'.$colaborador->fecha_ingreso->toDateString(), 'before_or_equal:today'],
             'motivo_cese' => ['required', 'string', 'max:255'],
+            // Causal tipificada (TUO D.Leg. 728 art. 16). Nullable en la API:
+            // los ceses que llegan por solicitud del portal la completan en la liquidación.
+            'causal_cese' => ['nullable', Rule::in(array_keys(Colaborador::CAUSALES_CESE))],
         ]);
 
         return new ColaboradorResource(
             $this->colaboradores->cesar(
                 $this->empresaAutorizadaDelColaborador($request, $colaborador), $colaborador,
-                $datos['fecha_cese'], $datos['motivo_cese'],
+                $datos['fecha_cese'], $datos['motivo_cese'], $datos['causal_cese'] ?? null,
             ),
         );
     }

@@ -87,7 +87,8 @@ export default function GestionLiquidaciones({ user }) {
           {
             key: 'liquidaciones',
             label: 'Historial de liquidaciones',
-            children: <LiquidacionesCeseTab empresaId={user?.empresa?.id} puedeAprobar={puede('nominas.aprobar')} puedePagar={puede('nominas.pagar')} recargarSenal={recargarLista} />,
+            children: <LiquidacionesCeseTab empresaId={user?.empresa?.id} puedeAprobar={puede('nominas.aprobar')} puedePagar={puede('nominas.pagar')} recargarSenal={recargarLista}
+              onResolver={puedeCalcular ? setLiquidando : undefined} />,
           },
         ]}
       />

@@ -226,7 +226,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     verBoleta, imprimirBoletasMasivo, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
-    resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
+    resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio, registrarDepositoBeneficio,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo, registrarHorasExtraEnBoleta, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
     previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel, fetchPrevisualizacionDatosReporte,
@@ -1265,6 +1265,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                 fetchResumenBeneficio={fetchResumenBeneficio}
                 calcularBeneficio={calcularBeneficio}
                 pagarBeneficio={pagarBeneficio}
+                registrarDepositoBeneficio={registrarDepositoBeneficio}
                 resumen={resumenBeneficio}
                 loading={resumenBeneficioLoading}
                 puedeCalcular={puedeCalcular}

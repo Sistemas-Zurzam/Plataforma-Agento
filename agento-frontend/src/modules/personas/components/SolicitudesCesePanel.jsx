@@ -174,6 +174,7 @@ export default function SolicitudesCesePanel({ onVolver }) {
           motivo_cese: ejecucion.motivo?.slice(0, 255),
         } : undefined}
         submitting={ejecutando}
+        mostrarCausal={false}
         onGuardar={ejecutar}
         onCancel={() => setEjecucion(null)}
       />

@@ -483,7 +483,7 @@ class ColaboradorService
      * en su lugar tiene_suspension_renta_4ta, propio del motor de Recibos
      * por Honorarios.
      */
-    public function actualizarConfiguracionNomina(Empresa $empresa, Colaborador $colaborador, array $datos): Colaborador
+    public function actualizarConfiguracionNomina(Empresa $empresa, Colaborador $colaborador, array $datos, ?string $vigenciaCondicionLaboral = null): Colaborador
     {
         if ($colaborador->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
@@ -502,7 +502,7 @@ class ColaboradorService
             'tiene_suspension_renta_4ta' => $esHonorarios ? ($datos['tiene_suspension_renta_4ta'] ?? false) : false,
         ]);
 
-        $this->registrarCondicionLaboralSiCambio($colaborador);
+        $this->registrarCondicionLaboralSiCambio($colaborador, $vigenciaCondicionLaboral);
 
         return $this->obtenerDetalle($empresa, $colaborador);
     }
@@ -573,13 +573,13 @@ class ColaboradorService
      * sueldo del mes del cese lo paga la boleta normal del ciclo, prorrateada
      * hasta esta fecha (ProrateoCese).
      */
-    public function cesar(Empresa $empresa, Colaborador $colaborador, string $fechaCese, string $motivo): Colaborador
+    public function cesar(Empresa $empresa, Colaborador $colaborador, string $fechaCese, string $motivo, ?string $causal = null): Colaborador
     {
         if ($colaborador->empresa_id !== $empresa->id) {
             throw new AuthorizationException('Este colaborador no pertenece a la empresa activa.');
         }
 
-        DB::transaction(function () use ($colaborador, $fechaCese, $motivo) {
+        DB::transaction(function () use ($colaborador, $fechaCese, $motivo, $causal) {
             $bloqueado = Colaborador::whereKey($colaborador->id)->lockForUpdate()->firstOrFail();
             if (! $bloqueado->activo || $bloqueado->fecha_cese) {
                 throw ValidationException::withMessages(['colaborador' => 'El colaborador ya fue cesado.']);
@@ -588,6 +588,7 @@ class ColaboradorService
                 'activo' => false,
                 'fecha_cese' => $fechaCese,
                 'motivo_cese' => $motivo,
+                'causal_cese' => $causal,
                 'fecha_fin_contrato' => $colaborador->fecha_fin_contrato ?? $fechaCese,
             ]);
             $bloqueado->asignacionesHorario()
@@ -645,7 +646,7 @@ class ColaboradorService
             $liquidacion = LiquidacionCese::query()->where('empresa_id', $empresa->id)->where('colaborador_id', $bloqueado->id)->where('es_version_vigente', true)->first();
             if ($liquidacion && $liquidacion->estado !== 'anulada') throw ValidationException::withMessages(['liquidacion' => 'Existe una liquidación vigente. Anúlala desde Liquidaciones antes de reactivar al colaborador.']);
             $fechaCese = $bloqueado->fecha_cese->toDateString();
-            $bloqueado->update(['activo' => true, 'fecha_cese' => null, 'motivo_cese' => null]);
+            $bloqueado->update(['activo' => true, 'fecha_cese' => null, 'motivo_cese' => null, 'causal_cese' => null]);
             $bloqueado->asignacionesHorario()->whereDate('vigencia_hasta', $fechaCese)->update(['vigencia_hasta' => null]);
 
             return $fechaCese;
@@ -680,6 +681,7 @@ class ColaboradorService
                 'activo' => true,
                 'fecha_cese' => null,
                 'motivo_cese' => null,
+                'causal_cese' => null,
             ]);
         });
 

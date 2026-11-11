@@ -18,7 +18,7 @@ interface RegimenCalculator
     public function calcularBasico(float $sueldoBasico, float $diasFalta, float $horasPermisoSinGoce): array;
 
     /** @return array<int, array> */
-    public function calcularHorasExtra(float $sueldoBasico, float $horas25, float $horas35, float $horas100, array $parametros): array;
+    public function calcularHorasExtra(float $sueldoBasico, float $horas25, float $horas35, float $horas100, array $parametros, float $asignacionFamiliar = 0.0, ?float $horasJornada = null): array;
 
     public function calcularAsignacionFamiliar(bool $calificaPorHijos, array $parametros): ?array;
 

@@ -1,20 +1,37 @@
-import { BankOutlined, CalculatorOutlined, CheckCircleOutlined, ClockCircleOutlined, GiftOutlined, TeamOutlined } from '@ant-design/icons';
-import { App, Button, Empty, Input, Select, Table, Tag, Tooltip } from 'antd';
+import { BankOutlined, CalculatorOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined, GiftOutlined, TeamOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Empty, Input, Modal, Select, Table, Tag, Tooltip } from 'antd';
 import { useEffect, useState } from 'react';
 import { colorForName, initialsForName } from '../../../utils/avatarColor';
 
 const PERIODOS = [
-  { key: 'gratificacion_julio', titulo: 'Gratificación Julio', subtitulo: 'Enero – Junio', icon: <GiftOutlined /> },
-  { key: 'gratificacion_diciembre', titulo: 'Gratificación Diciembre', subtitulo: 'Julio – Diciembre', icon: <GiftOutlined /> },
-  { key: 'cts_mayo', titulo: 'CTS Mayo', subtitulo: 'Noviembre (año anterior) – Abril', icon: <BankOutlined /> },
-  { key: 'cts_noviembre', titulo: 'CTS Noviembre', subtitulo: 'Mayo – Octubre', icon: <BankOutlined /> },
+  { key: 'gratificacion_julio', titulo: 'Gratificación Julio', subtitulo: 'Enero - Junio', icon: <GiftOutlined /> },
+  { key: 'gratificacion_diciembre', titulo: 'Gratificación Diciembre', subtitulo: 'Julio - Diciembre', icon: <GiftOutlined /> },
+  { key: 'cts_mayo', titulo: 'CTS Mayo', subtitulo: 'Noviembre (año anterior) - Abril', icon: <BankOutlined /> },
+  { key: 'cts_noviembre', titulo: 'CTS Noviembre', subtitulo: 'Mayo - Octubre', icon: <BankOutlined /> },
 ];
 
-const ESTADO_COLOR = { sin_calcular: 'default', calculado: 'gold', pagado: 'green' };
-const ESTADO_LABEL = { sin_calcular: 'Sin calcular', calculado: 'Calculado', pagado: 'Pagado' };
+const ESTADO_COLOR = { sin_calcular: 'default', calculado: 'gold', pagado: 'green', pendiente_deposito: 'orange', depositado_parcial: 'blue', conciliado: 'green', observado: 'red' };
+const ESTADO_LABEL = { sin_calcular: 'Sin calcular', calculado: 'Calculado', pagado: 'Pagado', pendiente_deposito: 'Pendiente', depositado_parcial: 'Parcial', conciliado: 'Conciliado', observado: 'Observado' };
 
 function soles(valor) {
   return `S/ ${Number(valor ?? 0).toLocaleString('es-PE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function textoAlertaCts(texto) {
+  return String(texto ?? '')
+    .replace(/revisiÃ³n/gi, 'revision')
+    .replace(/revisiÃƒÂ³n/gi, 'revision')
+    .replace(/rÃ©gimen/gi, 'regimen')
+    .replace(/vÃ­nculo/gi, 'vinculo')
+    .replace(/clasificaciÃ³n/gi, 'clasificacion')
+    .replace(/perÃ­odo/gi, 'periodo')
+    .replace(/dÃ­as/gi, 'dias')
+    .replace(/Ã³/g, 'o')
+    .replace(/Ã©/g, 'e')
+    .replace(/Ã¡/g, 'a')
+    .replace(/Ã­/g, 'i')
+    .replace(/Ãº/g, 'u')
+    .replace(/Ã±/g, 'n');
 }
 
 function TarjetaStat({ icono, valor, etiqueta, color }) {
@@ -30,18 +47,19 @@ function TarjetaStat({ icono, valor, etiqueta, color }) {
 }
 
 /**
- * Consume el mismo catálogo/motor que Planilla Mensual — nunca recalcula:
+ * Consume el mismo catálogo/motor que Planilla Mensual - nunca recalcula:
  * suma las líneas GRATIFICACION_LEGAL/BONIFICACION_EXTRAORDINARIA/
  * CTS_PROVISION ya persistidas en boleta_conceptos para el rango de meses
  * del período elegido. "Calcular" congela esa suma en un snapshot
  * versionado (igual que una Boleta) para que quede reproducible aunque las
  * boletas mensuales se recalculen después.
  */
-export default function CtsGratificacionesTab({ fetchResumenBeneficio, calcularBeneficio, pagarBeneficio, resumen, loading, puedeCalcular, puedePagar }) {
+export default function CtsGratificacionesTab({ fetchResumenBeneficio, calcularBeneficio, pagarBeneficio, registrarDepositoBeneficio, resumen, loading, puedeCalcular, puedePagar }) {
   const { message, modal } = App.useApp();
   const [periodo, setPeriodo] = useState('gratificacion_julio');
   const [anio, setAnio] = useState(new Date().getFullYear());
   const [calculando, setCalculando] = useState(false);
+  const [detalleObservado, setDetalleObservado] = useState(null);
 
   useEffect(() => {
     fetchResumenBeneficio(periodo, anio);
@@ -51,10 +69,12 @@ export default function CtsGratificacionesTab({ fetchResumenBeneficio, calcularB
   const periodoActivo = PERIODOS.find((p) => p.key === periodo);
   const esGratificacion = periodo.startsWith('gratificacion');
 
+  const verObservaciones = (fila) => setDetalleObservado(fila);
+
   const handleCalcular = () => {
     modal.confirm({
       title: `Calcular ${periodoActivo?.titulo} ${anio}`,
-      content: 'Se congelará un snapshot con los montos ya provisionados en las boletas mensuales de este período. Si vuelves a calcular más adelante, se crea una nueva versión — la anterior queda en el historial.',
+      content: 'Se congelará un snapshot con los montos ya provisionados en las boletas mensuales de este período. Si vuelves a calcular más adelante, se crea una nueva versión - la anterior queda en el historial.',
       okText: 'Calcular',
       cancelText: 'Cancelar',
       onOk: async () => {
@@ -121,12 +141,22 @@ export default function CtsGratificacionesTab({ fetchResumenBeneficio, calcularB
     { title: 'Sueldo base', dataIndex: 'sueldo_basico', render: soles },
     { title: 'Meses', dataIndex: 'meses', align: 'center' },
     { title: esGratificacion ? 'Grat. bruta' : 'CTS bruta', dataIndex: 'bruta', render: soles },
+    ...(!esGratificacion ? [{ title: 'Estimado (revisión)', dataIndex: 'importe_estimado_sujeto_revision', render: (v) => v == null ? '-' : <span className="text-orange-600">{soles(v)}</span> }] : []),
     ...(esGratificacion ? [{ title: 'Bonif. extraordinaria', dataIndex: 'bonificacion_extraordinaria', render: (v) => <span className="text-blue-500">{soles(v)}</span> }] : []),
-    { title: esGratificacion ? 'Grat. neta' : 'CTS neta', dataIndex: 'neta', render: (v) => <span className="font-semibold text-green-600">{soles(v)}</span> },
+    { title: esGratificacion ? 'Grat. neta' : 'CTS aprobable', dataIndex: 'importe_aprobable', render: (v, fila) => <span className={`font-semibold ${fila.estado === 'observado' ? 'text-orange-600' : 'text-green-600'}`}>{fila.estado === 'observado' ? 'Pendiente de revision' : soles(v ?? fila.neta)}</span> },
     {
       title: 'Estado',
       dataIndex: 'estado',
-      render: (estado) => <Tag color={ESTADO_COLOR[estado] ?? 'default'}>{ESTADO_LABEL[estado] ?? estado}</Tag>,
+      render: (estado, fila) => (
+        <div className="flex items-center gap-2">
+          <Tag color={ESTADO_COLOR[estado] ?? 'default'}>{ESTADO_LABEL[estado] ?? estado}</Tag>
+          {estado === 'observado' && (
+            <Button size="small" icon={<ExclamationCircleOutlined />} onClick={() => verObservaciones(fila)}>
+              Ver motivo
+            </Button>
+          )}
+        </div>
+      ),
     },
   ];
 
@@ -166,7 +196,7 @@ export default function CtsGratificacionesTab({ fetchResumenBeneficio, calcularB
           />
           {resumen && (
             <Tag color={ESTADO_COLOR[resumen.calculado ? resumen.estado : 'sin_calcular']}>
-              {resumen.calculado ? `${ESTADO_LABEL[resumen.estado]} · versión ${resumen.version}` : 'Vista previa — todavía no calculado'}
+              {resumen.calculado ? `${ESTADO_LABEL[resumen.estado]} · versión ${resumen.version}` : 'Vista previa - todavía no calculado'}
             </Tag>
           )}
         </div>
@@ -204,6 +234,33 @@ export default function CtsGratificacionesTab({ fetchResumenBeneficio, calcularB
         pagination={false}
         locale={{ emptyText: <Empty description="Sin boletas calculadas en este período" /> }}
       />
+      {detalleObservado && (
+        <Modal
+          open
+          title={`Observaciones CTS: ${detalleObservado.colaborador}`}
+          onCancel={() => setDetalleObservado(null)}
+          footer={<Button onClick={() => setDetalleObservado(null)}>Cerrar</Button>}
+        >
+          <div className="space-y-3">
+            <Alert
+              type="warning"
+              showIcon
+              message="Importe pendiente de revision"
+              description={detalleObservado.importe_estimado_sujeto_revision == null
+                ? "No hay un estimado fiable porque falta informacion necesaria para completar el calculo."
+                : `Estimado sujeto a revision: ${soles(detalleObservado.importe_estimado_sujeto_revision)}. Aprobable ahora: ${soles(detalleObservado.importe_aprobable ?? 0)}. No depositar hasta resolver los puntos observados.`}
+            />
+            {(detalleObservado.alertas ?? []).length > 0 ? (
+              <ul className="list-disc space-y-2 pl-5 text-sm text-gray-700">
+                {detalleObservado.alertas.map((alerta, index) => <li key={`${index}-${alerta}`}>{textoAlertaCts(alerta)}</li>)}
+              </ul>
+            ) : (
+              <p className="text-sm text-gray-500">El calculo esta observado, pero la respuesta no incluye el detalle de las alertas. Recalcula el periodo para actualizar el desglose.</p>
+            )}
+            {detalleObservado.dato_faltante && <Alert type="info" showIcon message="Dato pendiente" description={textoAlertaCts(detalleObservado.dato_faltante)} />}
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }

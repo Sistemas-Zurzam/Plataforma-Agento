@@ -18,9 +18,19 @@ class ConfirmarGratificacionPagadaTest extends TestCase
 {
     use CreaColaboradorDePrueba, RefreshDatabase;
 
+    /**
+     * Reloj fijo: las filas confirman gratificaciones pagadas en julio de
+     * 2026 y crearColaborador() fija el ingreso en "hoy − 3 meses". Con el día
+     * real de ejecución el ingreso quedaba después del pago (p. ej. corriendo
+     * en noviembre). Desde esta referencia el ingreso es 01/05/2026 y las
+     * fechas "futuras" del escenario se construyen sobre el mismo hoy.
+     */
+    private const HOY = '2026-08-15';
+
     protected function setUp(): void
     {
         parent::setUp();
+        $this->travelTo(Carbon::parse(self::HOY));
         $this->seed(DatabaseSeeder::class);
     }
 

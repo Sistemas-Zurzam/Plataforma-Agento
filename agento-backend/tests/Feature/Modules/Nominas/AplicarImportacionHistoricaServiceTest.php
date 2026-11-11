@@ -13,6 +13,7 @@ use App\Modules\Nominas\Models\SaldoVacacionalHistorico;
 use App\Modules\Nominas\Services\AplicarImportacionHistoricaService;
 use Database\Seeders\DatabaseSeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Tests\Concerns\CreaColaboradorDePrueba;
 use Tests\TestCase;
@@ -27,9 +28,19 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
 {
     use CreaColaboradorDePrueba, RefreshDatabase;
 
+    /**
+     * Reloj fijo: los lotes usan cortes de mayo/julio de 2026 y
+     * crearColaborador() fija el ingreso en "hoy − 3 meses". Con el día real
+     * de ejecución el ingreso terminaba después del corte (p. ej. corriendo en
+     * noviembre) y el aplicador rechazaba la fila. Desde esta referencia el
+     * ingreso es 01/05/2026, anterior a todos los cortes del escenario.
+     */
+    private const HOY = '2026-08-15';
+
     protected function setUp(): void
     {
         parent::setUp();
+        $this->travelTo(Carbon::parse(self::HOY));
         // User::factory() (usuario que aplica el lote) depende de que exista
         // el rol por defecto — mismo requisito que LiquidacionCeseServiceTest.
         $this->seed(DatabaseSeeder::class);

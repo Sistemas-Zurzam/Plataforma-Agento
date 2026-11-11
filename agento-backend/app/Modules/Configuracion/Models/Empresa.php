@@ -54,6 +54,16 @@ class Empresa extends Model
         ];
     }
 
+    /** Seguro de salud que debe usarse en la planilla según el régimen vigente. */
+    public function seguroSaludAplicable(): string
+    {
+        if ($this->regimen_laboral === 'Micro Empresa' && $this->inscrita_remype) {
+            return 'sis';
+        }
+
+        return $this->seguro_salud ?: 'essalud';
+    }
+
     /**
      * Users with access to this empresa, with their role in it.
      */

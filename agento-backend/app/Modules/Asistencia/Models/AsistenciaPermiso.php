@@ -12,7 +12,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[ScopedBy([EmpresaScope::class])]
-#[Fillable(['empresa_id', 'colaborador_id', 'tipo', 'tipo_ausencia_id', 'con_goce', 'pagador_subsidio', 'fecha_inicio', 'fecha_fin', 'motivo', 'estado', 'origen', 'registrado_por', 'resuelto_por', 'resuelto_at', 'observacion_resolucion'])]
+#[Fillable(['empresa_id', 'colaborador_id', 'tipo', 'tipo_ausencia_id', 'con_goce', 'pagador_subsidio', 'fecha_inicio', 'fecha_fin', 'motivo', 'estado', 'origen', 'registrado_por', 'resuelto_por', 'resuelto_at', 'observacion_resolucion', 'cts_clasificacion', 'cts_sustento_referencia', 'cts_dias_acumulados_anuales'])]
 class AsistenciaPermiso extends Model
 {
     protected $table = 'asistencia_permisos';

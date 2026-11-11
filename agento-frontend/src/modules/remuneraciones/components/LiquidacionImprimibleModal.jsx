@@ -15,6 +15,16 @@ const ESTADOS = { calculada: 'blue', aprobada: 'cyan', pagada: 'green', anulada:
 const MODOS = { asistido: 'Cálculo asistido', manual: 'Cálculo manual', legado: 'Liquidación anterior (incluye sueldo del mes)' };
 const MEDIOS = { transferencia: 'Transferencia', cheque: 'Cheque', efectivo: 'Efectivo', otro: 'Otro' };
 
+// Valor legible de un dato del cálculo (las opciones muestran su etiqueta).
+const valorDato = (d, valor) => {
+  if (valor === null || valor === undefined) return 'sin dato';
+  if (d.tipo === 'monto') return soles(valor);
+  if (d.tipo === 'fecha') return fecha(valor);
+  if (d.tipo === 'si_no') return valor ? 'Sí' : 'No';
+  if (d.tipo === 'opcion') return d.opciones?.find((o) => o.value === valor)?.label ?? valor;
+  return valor;
+};
+
 /**
  * Hoja de liquidación de beneficios por cese — window.print() con CSS que
  * oculta el resto de la página, mismo patrón que BoletaImprimibleModal.
@@ -36,6 +46,9 @@ export default function LiquidacionImprimibleModal({ open, onCancel, liquidacion
   const conceptos = detalle?.conceptos ?? [];
   const ingresos = conceptos.filter((c) => c.tipo === 'ingreso');
   const egresos = conceptos.filter((c) => c.tipo === 'egreso');
+  const aportes = conceptos.filter((c) => c.tipo === 'aportacion');
+  const datos = Object.entries(detalle?.datos_calculo ?? {});
+  const decisiones = datos.filter(([, d]) => d.es_decision);
   const esOficial = detalle?.estado === 'pagada';
   const colaborador = detalle?.colaborador;
 
@@ -81,7 +94,10 @@ export default function LiquidacionImprimibleModal({ open, onCancel, liquidacion
               <p className="text-lg font-semibold text-gray-900">{`${colaborador?.nombres ?? ''} ${colaborador?.apellidos ?? ''}`.trim()}</p>
               <p className="text-xs text-gray-500">{colaborador?.tipo_documento?.toUpperCase()} {colaborador?.numero_documento} · {colaborador?.cargo}</p>
               <p className="text-xs text-gray-500">Período laborado: {fecha(colaborador?.fecha_ingreso)} al {fecha(detalle.fecha_cese)} · Régimen: {detalle.regimen_laboral_snapshot}</p>
-              <p className="text-xs text-gray-500">Motivo de cese: {detalle.motivo_cese}</p>
+              <p className="text-xs text-gray-500">Motivo de cese: {detalle.motivo_cese}{detalle.datos_calculo?.causal_cese ? ` · Causal: ${valorDato(detalle.datos_calculo.causal_cese, detalle.datos_calculo.causal_cese.valor)}` : ''}</p>
+              {detalle.regimen_tramos?.length > 0 && (
+                <p className="text-xs text-gray-500">Régimen por período: {detalle.regimen_tramos.map((t) => `${t.regimen} (${fecha(t.desde)}–${fecha(t.hasta)})`).join(' · ')}</p>
+              )}
               <p className="text-xs text-gray-500">{MODOS[detalle.modo] ?? detalle.modo}</p>
             </div>
             <Tag color={ESTADOS[detalle.estado]}>{detalle.estado} — v{detalle.version}</Tag>
@@ -102,19 +118,39 @@ export default function LiquidacionImprimibleModal({ open, onCancel, liquidacion
             <div className="flex justify-between text-base"><span className="font-semibold">Neto a pagar</span><span className="font-bold">{soles(detalle.neto_pagar)}</span></div>
           </div>
 
+          {aportes.length > 0 && (
+            <div className="mt-3 text-[11px] text-gray-600">
+              <p className="font-semibold">Aportes del empleador (no se descuentan al trabajador)</p>
+              {aportes.map((c) => <p key={c.id} className="flex justify-between"><span>{c.nombre}<span className="block text-gray-400">{c.formula_texto}</span></span><span>{soles(c.monto)}</span></p>)}
+            </div>
+          )}
+
           {detalle.datos_calculo && (
             <div className="mt-3 text-[11px] text-gray-600">
               <p className="font-semibold">Datos del cálculo</p>
               <ul className="mt-1 grid grid-cols-1 gap-x-4 sm:grid-cols-2">
-                {Object.entries(detalle.datos_calculo).map(([clave, d]) => (
+                {datos.filter(([, d]) => !d.es_decision).map(([clave, d]) => (
                   <li key={clave}>
-                    {d.etiqueta}: <strong>{d.tipo === 'monto' ? soles(d.valor) : d.tipo === 'fecha' ? fecha(d.valor) : d.tipo === 'si_no' ? (d.valor ? 'Sí' : 'No') : d.valor}</strong>
-                    {d.origen === 'manual' && <span className="text-blue-600"> (ingresado; sistema: {d.valor_sistema === null ? 'sin dato' : d.tipo === 'monto' ? soles(d.valor_sistema) : d.tipo === 'fecha' ? fecha(d.valor_sistema) : String(d.valor_sistema)})</span>}
+                    {d.etiqueta}: <strong>{valorDato(d, d.valor)}</strong>
+                    {d.origen === 'manual' && <span className="text-blue-600"> (ingresado; sistema: {valorDato(d, d.valor_sistema)})</span>}
                   </li>
                 ))}
               </ul>
             </div>
           )}
+
+          {decisiones.length > 0 && (
+            <div className="mt-3 text-[11px] text-gray-600">
+              <p className="font-semibold">Decisiones laborales</p>
+              <ul className="mt-1 space-y-1">
+                {decisiones.map(([clave, d]) => (
+                  <li key={clave}>{d.etiqueta}: <strong className={d.valor === null ? 'text-amber-700' : ''}>{d.valor === null ? 'Pendiente de validación laboral' : valorDato(d, d.valor)}</strong></li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {detalle.parametros_version && <p className="mt-2 text-[10px] text-gray-400">Parámetros utilizados: {detalle.parametros_version}</p>}
 
           {detalle.sustento && <p className="mt-3 text-[11px] text-gray-600"><strong>Sustento:</strong> {detalle.sustento}</p>}
 

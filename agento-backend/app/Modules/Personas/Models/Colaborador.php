@@ -23,7 +23,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
     'fecha_nacimiento', 'pais_residencia', 'domiciliado', 'ciudad_residencia', 'distrito_residencia',
     'direccion', 'email', 'celular_colaborador', 'celular_referencia',
     'cargo', 'tipo_contrato', 'regimen_laboral', 'tipo_trabajador', 'categoria_trabajador', 'es_trabajador_confianza',
-    'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'fecha_ingreso', 'fecha_fin_contrato', 'fecha_cese', 'motivo_cese',
+    'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'fecha_ingreso', 'fecha_fin_contrato', 'fecha_cese', 'motivo_cese', 'causal_cese',
     'cts_cuenta', 'sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_hijos_asignacion_familiar',
     'tiene_suspension_renta_4ta',
     'banco', 'banco_id', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci',
@@ -47,6 +47,27 @@ class Colaborador extends Model
      * dependa del código SUNAT como valor interno.
      */
     public const CATEGORIAS_TRABAJADOR = ['empleado', 'obrero'];
+
+    /**
+     * Causales de extinción del vínculo (TUO D.Leg. 728, D.S. 003-97-TR,
+     * art. 16). El despido se separa según tenga causa (art. 34, sin
+     * indemnización) o sea arbitrario (art. 34 y 38/76: indemnización), y el
+     * cese durante el período de prueba (art. 10) porque no la genera.
+     * motivo_cese sigue siendo el texto libre; los ceses anteriores a este
+     * catálogo quedan con causal NULL ("sin tipificar").
+     */
+    public const CAUSALES_CESE = [
+        'renuncia' => 'Renuncia o retiro voluntario',
+        'vencimiento_contrato' => 'Vencimiento del plazo o término de la obra/servicio',
+        'mutuo_disenso' => 'Mutuo disenso',
+        'despido_causa_justa' => 'Despido por causa justa (conducta o capacidad)',
+        'despido_arbitrario' => 'Despido arbitrario (sin expresión de causa o no probada)',
+        'periodo_prueba' => 'Cese durante el período de prueba',
+        'causa_objetiva' => 'Terminación por causa objetiva',
+        'fallecimiento' => 'Fallecimiento',
+        'invalidez' => 'Invalidez absoluta permanente',
+        'jubilacion' => 'Jubilación',
+    ];
     /**
      * Eloquent pluralizaría "Colaborador" como "colaboradors" (regla en
      * inglés); la tabla real es "colaboradores".

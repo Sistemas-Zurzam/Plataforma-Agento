@@ -18,6 +18,9 @@ use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ProrateoCese;
 use App\Modules\Nominas\Support\ProrateoIngresoTardio;
 use App\Modules\Nominas\Support\ProrateoRango;
+use App\Modules\Nominas\Support\ValorHoraOrdinaria;
+use App\Modules\Nominas\Application\Quinta\AjusteFinalQuintaCese;
+use App\Modules\Nominas\Models\QuintaAjusteCese;
 use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorHorarioAsignacion;
@@ -38,6 +41,7 @@ class CalcularBoletaColaborador
     public function __construct(
         private readonly AsistenciaOperacionService $asistenciaOperacion,
         private readonly FechaOperativa $fechaOperativa,
+        private readonly AjusteFinalQuintaCese $quintaCese,
     ) {}
 
     /**
@@ -172,7 +176,10 @@ class CalcularBoletaColaborador
             $ingresos[] = $basico['linea'];
         }
 
-        foreach ($calculadora->calcularHorasExtra($sueldoBasico, $asistencia['horas_he25'], $asistencia['horas_he35'], $asistencia['horas_he100'], $parametros) as $linea) {
+        // Valor hora con la remuneración ordinaria (básico + asignación
+        // familiar) y la jornada real del período (D.S. 007-2002-TR art. 12).
+        $asignacionFamiliar = $calculadora->calcularAsignacionFamiliar((bool) $colaborador->tiene_hijos_asignacion_familiar, $parametros);
+        foreach ($calculadora->calcularHorasExtra($sueldoBasico, $asistencia['horas_he25'], $asistencia['horas_he35'], $asistencia['horas_he100'], $parametros, (float) ($asignacionFamiliar['monto'] ?? 0), $asistencia['horas_jornada']) as $linea) {
             $tasa = str_replace('HE_', '', $linea['codigo']);
             if ($detalle = $asistencia['detalle_horas_extra'][$tasa] ?? null) {
                 // La pantalla de boleta ya muestra formula_texto debajo del
@@ -182,8 +189,12 @@ class CalcularBoletaColaborador
             }
             $ingresos[] = $linea;
         }
+        if ($asistencia['horas_he25'] + $asistencia['horas_he35'] + $asistencia['horas_he100'] > 0
+            && ($aviso = ValorHoraOrdinaria::avisoProvisional($asistencia['horas_jornada']))) {
+            $alertas[] = $aviso;
+        }
 
-        if ($asignacionFamiliar = $calculadora->calcularAsignacionFamiliar((bool) $colaborador->tiene_hijos_asignacion_familiar, $parametros)) {
+        if ($asignacionFamiliar) {
             $ingresos[] = $asignacionFamiliar;
         }
 
@@ -325,8 +336,22 @@ class CalcularBoletaColaborador
         // calcularRenta5ta() usa como "ingreso mensual afecto" tanto para el
         // mes en curso como para la proyección de gratificación — no hay
         // reconstrucción interna de la base que este cambio deje sin efecto.
-        $renta5ta = $this->calcularRenta5ta($colaborador, $baseAfectaRenta5taNetaAsistencia, $parametros, $fechaCorte, $cicloId);
-        if ($renta5ta) {
+        // Mes del cese: ajuste final único compartido con la liquidación
+        // (Reglamento LIR art. 41 d), nunca la retención mensual proyectada.
+        $quintaCese = null;
+        if (AjusteFinalQuintaCese::esMesDelCese($colaborador, $fechaInicio, $fechaFin) && ! empty($parametros['tramos_renta_5ta'])) {
+            $quintaCese = $this->quintaCese->calcular($colaborador, QuintaAjusteCese::BOLETA, $baseAfectaRenta5taNetaAsistencia, $parametros, ['ciclo_id' => $cicloId]);
+            if ($linea = $this->quintaCese->linea($quintaCese)) {
+                if ($linea['tipo'] === 'egreso') {
+                    $egresos[] = $linea;
+                } else {
+                    $ingresos[] = $linea;
+                }
+            }
+            if ($quintaCese['mensaje']) {
+                $alertas[] = 'Renta de 5ta: '.$quintaCese['mensaje'];
+            }
+        } elseif ($renta5ta = $this->calcularRenta5ta($colaborador, $baseAfectaRenta5taNetaAsistencia, $parametros, $fechaCorte, $cicloId)) {
             $egresos[] = $renta5ta;
         }
 
@@ -334,7 +359,7 @@ class CalcularBoletaColaborador
         // V3 Fase 6D/6E.1 — EsSalud ya restaba la tardanza desde antes; ahora
         // reutiliza $baseRemunerativaNetaAsistencia (tardanza + HI, calculada
         // una sola vez más arriba) en vez de repetir la resta acá.
-        $essalud = $calculadora->calcularEsSalud($baseRemunerativaNetaAsistencia, $parametros, $colaborador->empresa->seguro_salud);
+        $essalud = $calculadora->calcularEsSalud($baseRemunerativaNetaAsistencia, $parametros, $colaborador->empresa->seguroSaludAplicable());
         $aportaciones[] = $essalud['linea'];
         if ($essalud['piso_activado']) {
             $alertas[] = 'Se aplicó el piso legal de EsSalud (9% de la RMV vigente) porque el cálculo sobre la base remunerativa fue menor.';
@@ -366,6 +391,7 @@ class CalcularBoletaColaborador
             'snapshot_parametros_version' => $parametros['version_id'],
             'snapshot_reglas_version' => 'planilla-dependiente-v1',
             'alertas' => $alertas,
+            'quinta_cese' => $quintaCese,
         ];
     }
 
@@ -649,6 +675,8 @@ class CalcularBoletaColaborador
             'horas_he35' => round((float) ($minutosHeAprobados['35'] ?? 0) / 60, 2),
             'horas_he100' => round((float) ($minutosHeAprobados['100'] ?? 0) / 60, 2),
             'detalle_horas_extra' => $detalleHorasExtra,
+            'horas_jornada' => ($programados = $resultados->where('minutos_programados', '>', 0))->isNotEmpty()
+                ? round($programados->avg('minutos_programados') / 60, 4) : null,
         ];
     }
 

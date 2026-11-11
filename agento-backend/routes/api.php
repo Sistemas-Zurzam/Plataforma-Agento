@@ -290,6 +290,8 @@ Route::middleware('jwt')->group(function () {
     Route::get('/beneficios-sociales/resumen', [BeneficioSocialController::class, 'resumen'])->middleware('permiso:nominas.ver');
     Route::post('/beneficios-sociales/calcular', [BeneficioSocialController::class, 'calcular'])->middleware('permiso:nominas.calcular');
     Route::patch('/beneficios-sociales/{beneficio}/pagar', [BeneficioSocialController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
+    Route::post('/beneficios-sociales/detalles/{detalle}/depositos', [BeneficioSocialController::class, 'registrarDeposito'])->middleware('permiso:nominas.pagar');
+    Route::post('/beneficios-sociales/detalles/{detalle}/depositos-cts', [BeneficioSocialController::class, 'registrarDepositoCts'])->middleware('permiso:nominas.pagar');
     Route::get('/liquidaciones-cese', [LiquidacionCeseController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/liquidaciones-cese/pendientes', [LiquidacionCeseController::class, 'pendientes'])->middleware('permiso:nominas.ver');
     Route::get('/liquidaciones-cese/catalogo', [LiquidacionCeseController::class, 'catalogo'])->middleware('permiso:nominas.ver');

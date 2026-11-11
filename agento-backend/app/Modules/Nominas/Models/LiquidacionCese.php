@@ -9,7 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['empresa_id', 'colaborador_id', 'fecha_cese', 'motivo_cese', 'remuneracion_snapshot', 'regimen_laboral_snapshot', 'modo', 'sustento', 'datos_calculo', 'incluir_remuneracion', 'incluir_cts', 'incluir_gratificacion', 'incluir_vacaciones', 'total_ingresos', 'total_egresos', 'neto_pagar', 'alertas', 'estado', 'version', 'es_version_vigente', 'calculado_por', 'calculado_at', 'aprobado_por', 'aprobado_at', 'pagado_por', 'pagado_at', 'referencia_pago', 'fecha_pago', 'medio_pago', 'anulado_por', 'anulado_at', 'motivo_anulacion'])]
+#[Fillable(['empresa_id', 'colaborador_id', 'fecha_cese', 'motivo_cese', 'causal_cese', 'remuneracion_snapshot', 'regimen_laboral_snapshot', 'regimen_tramos', 'modo', 'sustento', 'datos_calculo', 'validaciones', 'bases_variables', 'parametros_version', 'incluir_remuneracion', 'incluir_cts', 'incluir_gratificacion', 'incluir_vacaciones', 'total_ingresos', 'total_egresos', 'total_aportaciones', 'neto_pagar', 'alertas', 'estado', 'version', 'es_version_vigente', 'calculado_por', 'calculado_at', 'aprobado_por', 'aprobado_at', 'pagado_por', 'pagado_at', 'referencia_pago', 'fecha_pago', 'medio_pago', 'anulado_por', 'anulado_at', 'motivo_anulacion'])]
 class LiquidacionCese extends Model
 {
     public const MODO_ASISTIDO = 'asistido';
@@ -26,8 +26,8 @@ class LiquidacionCese extends Model
             'incluir_remuneracion' => 'boolean', 'incluir_cts' => 'boolean',
             'incluir_gratificacion' => 'boolean', 'incluir_vacaciones' => 'boolean',
             'es_version_vigente' => 'boolean', 'remuneracion_snapshot' => 'decimal:2',
-            'total_ingresos' => 'decimal:2', 'total_egresos' => 'decimal:2', 'neto_pagar' => 'decimal:2',
-            'alertas' => 'array', 'datos_calculo' => 'array', 'aprobado_at' => 'datetime', 'pagado_at' => 'datetime', 'anulado_at' => 'datetime',
+            'total_ingresos' => 'decimal:2', 'total_egresos' => 'decimal:2', 'total_aportaciones' => 'decimal:2', 'neto_pagar' => 'decimal:2',
+            'alertas' => 'array', 'datos_calculo' => 'array', 'regimen_tramos' => 'array', 'validaciones' => 'array', 'bases_variables' => 'array', 'aprobado_at' => 'datetime', 'pagado_at' => 'datetime', 'anulado_at' => 'datetime',
         ];
     }
 

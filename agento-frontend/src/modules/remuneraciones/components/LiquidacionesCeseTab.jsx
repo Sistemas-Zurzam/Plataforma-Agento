@@ -1,5 +1,5 @@
-import { CheckOutlined, CloseCircleOutlined, DollarOutlined, PrinterOutlined, ReloadOutlined } from '@ant-design/icons';
-import { App, Button, DatePicker, Form, Input, Modal, Select, Space, Table, Tag } from 'antd';
+import { CalculatorOutlined, CheckOutlined, CloseCircleOutlined, DollarOutlined, PrinterOutlined, ReloadOutlined } from '@ant-design/icons';
+import { App, Button, DatePicker, Form, Input, Modal, Select, Space, Table, Tag, Tooltip } from 'antd';
 import dayjs from 'dayjs';
 import { useCallback, useEffect, useState } from 'react';
 import api from '../../../services/api';
@@ -23,12 +23,20 @@ const MEDIOS = [
   { value: 'otro', label: 'Otro' },
 ];
 
+// Decisiones laborales sin resolver: la liquidación queda como borrador.
+const pendientes = (fila) => (fila.validaciones ?? []).filter((v) => v.bloqueante && !v.resuelta);
+
 const mensajeError = (error, porDefecto) => {
   const errores = error.response?.data?.errors;
   return errores ? Object.values(errores)[0]?.[0] : (error.response?.data?.message ?? porDefecto);
 };
 
-export default function LiquidacionesCeseTab({ empresaId, puedeAprobar, puedePagar, recargarSenal }) {
+/**
+ * Historial de liquidaciones. onResolver(colaborador) abre el cálculo de nuevo
+ * para un borrador con decisiones laborales pendientes: la nueva versión
+ * reemplaza al borrador y conserva los datos y decisiones ya ingresados.
+ */
+export default function LiquidacionesCeseTab({ empresaId, puedeAprobar, puedePagar, recargarSenal, onResolver }) {
   const { message, modal } = App.useApp();
   const [filas, setFilas] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -125,10 +133,25 @@ export default function LiquidacionesCeseTab({ empresaId, puedeAprobar, puedePag
     { title: 'Fecha de cese', dataIndex: 'fecha_cese', render: fecha },
     { title: 'Modo', dataIndex: 'modo', render: (v) => <Tag color={MODOS[v]?.[1]}>{MODOS[v]?.[0] ?? v}</Tag> },
     { title: 'Neto', dataIndex: 'neto_pagar', render: (v) => <strong>{soles(v)}</strong> },
-    { title: 'Estado', dataIndex: 'estado', render: (v) => <Tag color={colores[v]}>{v}</Tag> },
+    { title: 'Estado', dataIndex: 'estado', render: (v, fila) => <Space size={4} wrap>
+      <Tag color={colores[v]}>{v}</Tag>
+      {v === 'calculada' && pendientes(fila).length > 0 && <Tag color="orange">Por validar</Tag>}
+    </Space> },
     { title: 'Acciones', render: (_, fila) => <Space wrap>
       <Button size="small" icon={<PrinterOutlined />} onClick={() => setImprimiendoId(fila.id)}>Ver</Button>
-      {fila.estado === 'calculada' && puedeAprobar && <Button size="small" icon={<CheckOutlined />} onClick={() => aprobar(fila)}>Aprobar</Button>}
+      {fila.estado === 'calculada' && puedeAprobar && (pendientes(fila).length > 0
+        ? <Tooltip title={`Borrador: resuelve ${pendientes(fila).map((v) => v.titulo).join('; ')} (vuelve a liquidar con la decisión).`}>
+          <Button size="small" icon={<CheckOutlined />} disabled>Aprobar</Button>
+        </Tooltip>
+        : <Button size="small" icon={<CheckOutlined />} onClick={() => aprobar(fila)}>Aprobar</Button>)}
+      {fila.estado === 'calculada' && fila.modo === 'asistido' && onResolver && (
+        <Button size="small" icon={<CalculatorOutlined />} onClick={() => onResolver({
+          id: fila.colaborador_id, nombre: `${fila.colaborador?.nombres ?? ''} ${fila.colaborador?.apellidos ?? ''}`.trim(),
+          fecha_ingreso: fila.colaborador?.fecha_ingreso, fecha_cese: fila.fecha_cese, motivo_cese: fila.motivo_cese,
+          // Datos y decisiones ingresados en el borrador: se vuelven a aplicar.
+          datos_previos: Object.fromEntries(Object.entries(fila.datos_calculo ?? {}).filter(([, d]) => d.origen === 'manual').map(([clave, d]) => [clave, d.valor])),
+        })}>{pendientes(fila).length > 0 ? 'Resolver' : 'Recalcular'}</Button>
+      )}
       {fila.estado === 'aprobada' && puedePagar && <Button size="small" type="primary" icon={<DollarOutlined />} onClick={() => abrirPago(fila)}>Pagar</Button>}
       {['calculada', 'aprobada'].includes(fila.estado) && puedeAprobar && <Button size="small" danger icon={<CloseCircleOutlined />} onClick={() => anular(fila)}>Anular</Button>}
     </Space> },

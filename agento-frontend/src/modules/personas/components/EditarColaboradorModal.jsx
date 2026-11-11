@@ -108,7 +108,10 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
       // V3 P4/P5 — null cuando el usuario no puede gestionar nómina (la
       // pestaña ni siquiera se renderizó, no hay nada que guardar acá).
       puedeGestionarNomina
-        ? { regimen_laboral: regimenLaboral, sistema_previsional, afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta }
+        ? {
+            regimen_laboral: regimenLaboral, sistema_previsional, afp_id, tipo_comision, cuspp, tiene_suspension_renta_4ta,
+            condicion_vigencia_desde: condicion_vigencia_desde?.format('YYYY-MM-DD') ?? dayjs().format('YYYY-MM-DD'),
+          }
         : null,
     );
   };

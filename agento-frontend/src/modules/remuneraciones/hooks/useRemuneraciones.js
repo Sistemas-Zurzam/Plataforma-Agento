@@ -380,6 +380,12 @@ export function useRemuneraciones() {
     return data;
   }, []);
 
+  const registrarDepositoBeneficio = useCallback(async (detalleId, deposito) => {
+    const { data } = await api.post(`/beneficios-sociales/detalles/${detalleId}/depositos-cts`, deposito);
+    setResumenBeneficio(data);
+    return data;
+  }, []);
+
   const actualizarConfiguracionNomina = useCallback(async (colaboradorId, values) => {
     const { data } = await api.put(`/colaboradores/${colaboradorId}/configuracion-nomina`, values);
     return data.data;
@@ -772,6 +778,7 @@ export function useRemuneraciones() {
     fetchResumenBeneficio,
     calcularBeneficio,
     pagarBeneficio,
+    registrarDepositoBeneficio,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo,
     registrarConceptoPeriodo,
