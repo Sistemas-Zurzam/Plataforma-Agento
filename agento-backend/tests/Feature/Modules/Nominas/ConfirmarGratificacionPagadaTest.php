@@ -27,7 +27,7 @@ class ConfirmarGratificacionPagadaTest extends TestCase
     private function crearLoteConDetalleGratificacion(array $atributos = []): array
     {
         $empresa = Empresa::factory()->create();
-        $colaborador = $this->crearColaborador($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2025-01-02']);
         $importacion = NominaImportacionHistorica::factory()->create(['empresa_id' => $empresa->id, 'estado' => 'validado']);
         $detalle = NominaImportacionHistoricaDetalle::factory()->create([
             'importacion_id' => $importacion->id, 'empresa_id' => $empresa->id,
