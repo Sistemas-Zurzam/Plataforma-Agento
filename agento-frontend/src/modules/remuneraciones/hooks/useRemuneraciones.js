@@ -565,8 +565,8 @@ export function useRemuneraciones() {
     window.URL.revokeObjectURL(url);
   }, []);
 
-  const descargarExcelComplementarias = useCallback(async (ruta, nombreDefecto) => {
-    const response = await api.get(ruta, { responseType: 'blob' });
+  const descargarExcelComplementarias = useCallback(async (ruta, nombreDefecto, params) => {
+    const response = await api.get(ruta, { responseType: 'blob', params });
     const disposicion = response.headers?.['content-disposition'] ?? '';
     const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? nombreDefecto;
     const url = window.URL.createObjectURL(response.data);
@@ -583,8 +583,8 @@ export function useRemuneraciones() {
     descargarExcelComplementarias(`/ciclos-remunerativos/${cicloId}/complementarias/excel`, 'Planillas_complementarias.xlsx'),
   [descargarExcelComplementarias]);
 
-  const exportarComisionesHorasExtraExcel = useCallback((cicloId) =>
-    descargarExcelComplementarias(`/ciclos-remunerativos/${cicloId}/complementarias/comisiones-horas-extra/excel`, 'Comisiones_horas_extra.xlsx'),
+  const exportarComisionesHorasExtraExcel = useCallback((cicloId, rango) =>
+    descargarExcelComplementarias(`/ciclos-remunerativos/${cicloId}/complementarias/comisiones-horas-extra/excel`, 'Comisiones_horas_extra.xlsx', rango),
   [descargarExcelComplementarias]);
 
   /**
