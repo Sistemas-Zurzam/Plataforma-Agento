@@ -4,6 +4,7 @@ namespace App\Modules\Nominas\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use App\Modules\Configuracion\Models\EmpresaCuentaBancaria;
+use App\Modules\Nominas\Infrastructure\PlanillaComplementaria\Export\ComisionesHorasExtraExcelExporter;
 use App\Modules\Nominas\Infrastructure\PlanillaComplementaria\Export\PlanillaComplementariaExcelExporter;
 use App\Modules\Nominas\Models\CicloRemunerativo;
 use App\Modules\Nominas\Models\ConceptoRemuneracion;
@@ -56,6 +57,22 @@ class PlanillaComplementariaController extends Controller
 
         $contenido = PlanillaComplementariaExcelExporter::generar($ciclo->loadMissing('empresa'), $items);
         $nombre = sprintf('%s_%s_reintegros.xlsx', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
+
+        return response($contenido, 200, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'Content-Disposition' => 'attachment; filename="'.$nombre.'"',
+            'Content-Length' => (string) strlen($contenido),
+        ]);
+    }
+
+    public function exportarComisionesHorasExtraExcel(Request $request, CicloRemunerativo $ciclo): Response
+    {
+        $empresa = $this->empresa($request, $ciclo);
+        $items = $this->service->listar($empresa, $ciclo);
+        abort_if($items->isEmpty(), 422, 'El ciclo no tiene planillas complementarias para exportar.');
+
+        $contenido = ComisionesHorasExtraExcelExporter::generar($ciclo->loadMissing('empresa'), $items);
+        $nombre = sprintf('%s_%s_comisiones_horas_extra.xlsx', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
 
         return response($contenido, 200, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',

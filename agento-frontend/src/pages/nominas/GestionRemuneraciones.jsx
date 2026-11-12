@@ -236,6 +236,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     exportarPlanillaPagadaExcel,
     exportarReporteEjecutivoExcel,
     exportarComplementariasExcel,
+    exportarComisionesHorasExtraExcel,
     fetchTelecreditoBcpValidacion, exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion, exportarBbvaNetCash,
     exportarExcelBono, importarExcelBono, importarComprobantesRh, crearComisionesComplementaria,
@@ -251,6 +252,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [calculando, setCalculando] = useState(false);
   const [exportandoPlanilla, setExportandoPlanilla] = useState(false);
   const [exportandoComplementarias, setExportandoComplementarias] = useState(false);
+  const [exportandoComisionesHe, setExportandoComisionesHe] = useState(false);
 
   const [configuracionColaborador, setConfiguracionColaborador] = useState(null);
   const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
@@ -601,6 +603,23 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       message.error('No se pudo generar el Excel de planillas complementarias');
     } finally {
       setExportandoComplementarias(false);
+    }
+  };
+
+  const handleExportarComisionesHorasExtra = async () => {
+    if (!cicloActivo) return;
+
+    setExportandoComisionesHe(true);
+    try {
+      await exportarComisionesHorasExtraExcel(cicloActivo.id);
+      message.success('Reporte de comisiones y horas extra generado');
+    } catch (e) {
+      // La respuesta es un blob: el mensaje del backend (422 sin complementarias) no llega como JSON.
+      message.error(e.response?.status === 422
+        ? 'El ciclo no tiene planillas complementarias para exportar'
+        : 'No se pudo generar el reporte de comisiones y horas extra');
+    } finally {
+      setExportandoComisionesHe(false);
     }
   };
 
@@ -1060,6 +1079,16 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             onClick={handleExportarComplementarias}
           >
             Excel reintegros
+          </Button>
+        </Tooltip>
+        <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Comisiones y horas extra registradas en las planillas complementarias del ciclo' : 'Disponible para ciclos pagados'}>
+          <Button
+            icon={<FileExcelOutlined />}
+            disabled={cicloActivo?.estado !== 'pagado'}
+            loading={exportandoComisionesHe}
+            onClick={handleExportarComisionesHorasExtra}
+          >
+            Reporte comisiones y HE
           </Button>
         </Tooltip>
         <Tooltip title={cicloActivo ? '' : 'Selecciona un ciclo remunerativo primero'}>

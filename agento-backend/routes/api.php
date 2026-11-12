@@ -318,7 +318,8 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/boletas/{boleta}/comprobante-rh', [BoletaController::class, 'guardarComprobanteRh'])->middleware('permiso:nominas.gestionar_ciclos');
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias', [PlanillaComplementariaController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias/excel', [PlanillaComplementariaController::class, 'exportarExcel'])->middleware('permiso:nominas.ver');
-    Route::get('/ciclos-remunerativos/{ciclo}/complementarias/descansos-semanales', [PlanillaComplementariaController::class, 'descansosSemanales'])->middleware('permiso:nominas.calcular');
+    Route::get('/ciclos-remunerativos/{ciclo}/complementarias/comisiones-horas-extra/excel', [PlanillaComplementariaController::class, 'exportarComisionesHorasExtraExcel'])->middleware('permiso:nominas.ver');
+    Route::get('/ciclos-remunerativos/{ciclo}/complementarias/descansos-semanales',[PlanillaComplementariaController::class, 'descansosSemanales'])->middleware('permiso:nominas.calcular');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/descansos-semanales', [PlanillaComplementariaController::class, 'reintegrarDescansosSemanales'])->middleware('permiso:nominas.calcular');
     Route::get('/ciclos-remunerativos/{ciclo}/complementarias/descuentos', [PlanillaComplementariaController::class, 'descuentos'])->middleware('permiso:nominas.calcular');
     Route::post('/ciclos-remunerativos/{ciclo}/complementarias/reintegrar-descuentos', [PlanillaComplementariaController::class, 'reintegrarDescuentos'])->middleware('permiso:nominas.calcular');
