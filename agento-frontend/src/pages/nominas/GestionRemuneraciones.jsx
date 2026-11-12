@@ -46,6 +46,7 @@ import PropuestasPortalPanel from '../../modules/remuneraciones/components/Propu
 import RegistrarConceptoModal from '../../modules/remuneraciones/components/RegistrarConceptoModal';
 import AgregarHorasExtraBoletaModal from '../../modules/remuneraciones/components/AgregarHorasExtraBoletaModal';
 import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
+import ReporteComisionesHeModal from '../../modules/remuneraciones/components/ReporteComisionesHeModal';
 import TelecreditoBcpModal from '../../modules/remuneraciones/components/TelecreditoBcpModal';
 import { useRemuneraciones } from '../../modules/remuneraciones/hooks/useRemuneraciones';
 import { colorForName, initialsForName } from '../../utils/avatarColor';
@@ -252,7 +253,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [calculando, setCalculando] = useState(false);
   const [exportandoPlanilla, setExportandoPlanilla] = useState(false);
   const [exportandoComplementarias, setExportandoComplementarias] = useState(false);
-  const [exportandoComisionesHe, setExportandoComisionesHe] = useState(false);
+  const [reporteComisionesHeOpen, setReporteComisionesHeOpen] = useState(false);
 
   const [configuracionColaborador, setConfiguracionColaborador] = useState(null);
   const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
@@ -603,23 +604,6 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       message.error('No se pudo generar el Excel de planillas complementarias');
     } finally {
       setExportandoComplementarias(false);
-    }
-  };
-
-  const handleExportarComisionesHorasExtra = async () => {
-    if (!cicloActivo) return;
-
-    setExportandoComisionesHe(true);
-    try {
-      await exportarComisionesHorasExtraExcel(cicloActivo.id);
-      message.success('Reporte de comisiones y horas extra generado');
-    } catch (e) {
-      // La respuesta es un blob: el mensaje del backend (422 sin complementarias) no llega como JSON.
-      message.error(e.response?.status === 422
-        ? 'El ciclo no tiene planillas complementarias para exportar'
-        : 'No se pudo generar el reporte de comisiones y horas extra');
-    } finally {
-      setExportandoComisionesHe(false);
     }
   };
 
@@ -1081,12 +1065,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
             Excel reintegros
           </Button>
         </Tooltip>
-        <Tooltip title={cicloActivo?.estado === 'pagado' ? 'Comisiones y horas extra registradas en las planillas complementarias del ciclo' : 'Disponible para ciclos pagados'}>
+        <Tooltip title={cicloActivo ? 'Comisiones y horas extra de las planillas complementarias, por rango de meses' : 'Selecciona un ciclo remunerativo primero'}>
           <Button
             icon={<FileExcelOutlined />}
-            disabled={cicloActivo?.estado !== 'pagado'}
-            loading={exportandoComisionesHe}
-            onClick={handleExportarComisionesHorasExtra}
+            disabled={!cicloActivo}
+            onClick={() => setReporteComisionesHeOpen(true)}
           >
             Reporte comisiones y HE
           </Button>
@@ -1415,6 +1398,13 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         boletaIds={boletasSeleccionadas}
         fetchValidacion={fetchBbvaNetCashValidacion}
         exportarBbvaNetCash={exportarBbvaNetCash}
+      />
+
+      <ReporteComisionesHeModal
+        open={reporteComisionesHeOpen}
+        onCancel={() => setReporteComisionesHeOpen(false)}
+        ciclo={cicloActivo}
+        exportarComisionesHorasExtraExcel={exportarComisionesHorasExtraExcel}
       />
 
       <ResumenContableModal

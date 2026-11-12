@@ -52,6 +52,21 @@ class PlanillaComplementariaService
             ->latest()->get();
     }
 
+    /**
+     * Complementarias de todos los ciclos de la empresa que inician entre
+     * $desde y $hasta, en orden cronológico (reporte de comisiones y HE).
+     */
+    public function listarPorPeriodo(Empresa $empresa, \Carbon\CarbonInterface $desde, \Carbon\CarbonInterface $hasta): Collection
+    {
+        $cicloIds = CicloRemunerativo::where('empresa_id', $empresa->id)
+            ->whereBetween('fecha_inicio', [$desde->toDateString(), $hasta->toDateString()])->pluck('id');
+
+        return PlanillaComplementaria::where('empresa_id', $empresa->id)->whereIn('ciclo_id', $cicloIds)
+            ->with(['ciclo', 'detalles.colaborador:id,nombres,apellidos,numero_documento'])->get()
+            ->sortBy(fn (PlanillaComplementaria $item) => $item->ciclo->fecha_inicio->format('Y-m-d').sprintf('%012d', $item->id))
+            ->values();
+    }
+
     public function crearComisiones(Empresa $empresa, CicloRemunerativo $ciclo, array $comisiones, string $motivo, int $usuarioId): PlanillaComplementaria
     {
         $boletaIds = array_column($comisiones, 'boleta_id');

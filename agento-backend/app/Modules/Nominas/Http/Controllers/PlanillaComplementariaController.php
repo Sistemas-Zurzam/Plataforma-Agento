@@ -13,6 +13,7 @@ use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Services\PlanillaComplementariaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -67,12 +68,32 @@ class PlanillaComplementariaController extends Controller
 
     public function exportarComisionesHorasExtraExcel(Request $request, CicloRemunerativo $ciclo): Response
     {
+        // La empresa sale del ciclo (validado contra el usuario); el rango solo
+        // elige qué ciclos de esa empresa entran. Sin rango: solo este ciclo.
         $empresa = $this->empresa($request, $ciclo);
-        $items = $this->service->listar($empresa, $ciclo);
-        abort_if($items->isEmpty(), 422, 'El ciclo no tiene planillas complementarias para exportar.');
+        $datos = $request->validate([
+            'desde' => ['nullable', 'date_format:Y-m', 'required_with:hasta'],
+            'hasta' => ['nullable', 'date_format:Y-m', 'required_with:desde'],
+        ]);
 
-        $contenido = ComisionesHorasExtraExcelExporter::generar($ciclo->loadMissing('empresa'), $items);
-        $nombre = sprintf('%s_%s_comisiones_horas_extra.xlsx', Str::slug($empresa->nombre_comercial), $ciclo->fecha_inicio->format('Y_m'));
+        if (isset($datos['desde'])) {
+            $desde = Carbon::createFromFormat('!Y-m', $datos['desde']);
+            $hasta = Carbon::createFromFormat('!Y-m', $datos['hasta'])->endOfMonth();
+            if ($desde->gt($hasta) || $desde->diffInMonths($hasta) >= 24) {
+                throw ValidationException::withMessages(['hasta' => 'Elige un rango de hasta 24 meses, con el mes final igual o posterior al inicial.']);
+            }
+            $items = $this->service->listarPorPeriodo($empresa, $desde, $hasta);
+            $periodo = $desde->format('Y_m') === $hasta->format('Y_m') ? $desde->format('Y_m') : $desde->format('Y_m').'_a_'.$hasta->format('Y_m');
+            $etiqueta = $desde->format('m/Y') === $hasta->format('m/Y') ? $desde->format('m/Y') : $desde->format('m/Y').' a '.$hasta->format('m/Y');
+        } else {
+            $items = $this->service->listar($empresa, $ciclo)->each(fn ($item) => $item->setRelation('ciclo', $ciclo));
+            $periodo = $ciclo->fecha_inicio->format('Y_m');
+            $etiqueta = $ciclo->nombre;
+        }
+        abort_if($items->isEmpty(), 422, 'No hay planillas complementarias en el periodo elegido.');
+
+        $contenido = ComisionesHorasExtraExcelExporter::generar($empresa, $etiqueta, $items);
+        $nombre = sprintf('%s_%s_comisiones_horas_extra.xlsx', Str::slug($empresa->nombre_comercial), $periodo);
 
         return response($contenido, 200, [
             'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
