@@ -1,7 +1,7 @@
 import { FileExcelOutlined } from '@ant-design/icons';
 import { App, Button, DatePicker, Modal } from 'antd';
 import dayjs from 'dayjs';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 
 const MAXIMO_MESES = 24;
 
@@ -12,14 +12,16 @@ const MAXIMO_MESES = 24;
  */
 export default function ReporteComisionesHeModal({ open, onCancel, ciclo, exportarComisionesHorasExtraExcel }) {
   const { message } = App.useApp();
-  const [rango, setRango] = useState(null);
+  // null = rango por defecto (mes del ciclo activo); vuelve a null al cerrar.
+  const [rangoElegido, setRangoElegido] = useState(null);
   const [exportando, setExportando] = useState(false);
+  const mesCiclo = ciclo?.fecha_inicio ? dayjs(ciclo.fecha_inicio) : dayjs();
+  const rango = rangoElegido ?? [mesCiclo, mesCiclo];
 
-  useEffect(() => {
-    if (!open) return;
-    const mes = ciclo?.fecha_inicio ? dayjs(ciclo.fecha_inicio) : dayjs();
-    setRango([mes, mes]);
-  }, [open, ciclo?.fecha_inicio]);
+  const cerrar = () => {
+    setRangoElegido(null);
+    onCancel();
+  };
 
   const meses = rango ? rango[1].startOf('month').diff(rango[0].startOf('month'), 'month') + 1 : 0;
   const excedeMaximo = meses > MAXIMO_MESES;
@@ -33,7 +35,7 @@ export default function ReporteComisionesHeModal({ open, onCancel, ciclo, export
         hasta: rango[1].format('YYYY-MM'),
       });
       message.success('Reporte de comisiones y horas extra generado');
-      onCancel();
+      cerrar();
     } catch (e) {
       // La respuesta es un blob: el mensaje del backend (422) no llega como JSON.
       message.error(e.response?.status === 422
@@ -47,11 +49,11 @@ export default function ReporteComisionesHeModal({ open, onCancel, ciclo, export
   return (
     <Modal
       open={open}
-      onCancel={onCancel}
+      onCancel={cerrar}
       title="Reporte de comisiones y horas extra"
       destroyOnHidden
       footer={[
-        <Button key="cancelar" onClick={onCancel}>Cancelar</Button>,
+        <Button key="cancelar" onClick={cerrar}>Cancelar</Button>,
         <Button key="descargar" type="primary" icon={<FileExcelOutlined />} loading={exportando}
           disabled={!rango || excedeMaximo} onClick={descargar}>
           Descargar Excel
@@ -66,7 +68,7 @@ export default function ReporteComisionesHeModal({ open, onCancel, ciclo, export
         format="MM/YYYY"
         allowClear={false}
         value={rango}
-        onChange={setRango}
+        onChange={setRangoElegido}
         className="w-full"
       />
       {excedeMaximo && (
