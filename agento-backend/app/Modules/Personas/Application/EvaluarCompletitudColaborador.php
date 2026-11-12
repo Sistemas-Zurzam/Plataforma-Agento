@@ -20,6 +20,8 @@ class EvaluarCompletitudColaborador
         'documento_identidad' => 'Copia de documento de identidad',
         'recibo_servicio' => 'Recibo de luz o agua',
         'contrato_firmado' => 'Contrato firmado',
+        'certificado_unico_laboral' => 'Certificado Único Laboral (CUL)',
+        'curriculum_vitae' => 'Currículum vitae (CV)',
     ];
 
     /**

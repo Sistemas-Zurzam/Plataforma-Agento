@@ -372,7 +372,7 @@ class ColaboradorController extends Controller
     public function guardarDocumento(Request $request, Colaborador $colaborador): ColaboradorResource
     {
         $datos = $request->validate([
-            'tipo' => ['required', Rule::in(['documento_identidad', 'recibo_servicio', 'contrato_firmado'])],
+            'tipo' => ['required', Rule::in(['documento_identidad', 'recibo_servicio', 'contrato_firmado', 'certificado_unico_laboral', 'curriculum_vitae'])],
             'archivo' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,webp', 'max:10240'],
         ]);
 

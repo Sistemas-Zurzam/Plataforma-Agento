@@ -36,6 +36,8 @@ export const DOCUMENTOS_REQUERIDOS = [
   { tipo: 'documento_identidad', nombre: 'Copia de documento de identidad' },
   { tipo: 'recibo_servicio', nombre: 'Recibo de luz o agua' },
   { tipo: 'contrato_firmado', nombre: 'Contrato firmado' },
+  { tipo: 'certificado_unico_laboral', nombre: 'Certificado Único Laboral (CUL)' },
+  { tipo: 'curriculum_vitae', nombre: 'Currículum vitae (CV)' },
 ];
 
 function etiquetaContrato(valor) {

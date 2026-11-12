@@ -64,7 +64,7 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
     public function test_aplica_un_lote_con_filas_validas_de_los_tres_tipos_soportados(): void
     {
         $empresa = Empresa::factory()->create();
-        $colaborador = $this->crearColaborador($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2025-01-02']);
         $lote = $this->crearLoteAprobado($empresa);
 
         $this->crearDetalle($lote, [
@@ -109,7 +109,7 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
     public function test_rechaza_aplicar_un_lote_que_no_esta_aprobado(): void
     {
         $empresa = Empresa::factory()->create();
-        $colaborador = $this->crearColaborador($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2025-01-02']);
         $lote = NominaImportacionHistorica::factory()->create(['empresa_id' => $empresa->id, 'estado' => 'borrador']);
         $this->crearDetalle($lote, [
             'colaborador_id' => $colaborador->id, 'fecha_ingreso_vinculo' => $colaborador->fecha_ingreso,
@@ -131,7 +131,7 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
     public function test_rechaza_un_lote_sin_filas_validas(): void
     {
         $empresa = Empresa::factory()->create();
-        $colaborador = $this->crearColaborador($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2025-01-02']);
         $lote = $this->crearLoteAprobado($empresa);
         $this->crearDetalle($lote, [
             'colaborador_id' => $colaborador->id, 'fecha_ingreso_vinculo' => $colaborador->fecha_ingreso,
@@ -170,7 +170,7 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
     public function test_aplica_solo_la_fila_valida_ignorando_las_observadas(): void
     {
         $empresa = Empresa::factory()->create();
-        $colaborador = $this->crearColaborador($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2025-01-02']);
         $lote = $this->crearLoteAprobado($empresa);
 
         $filaValida = $this->crearDetalle($lote, [
@@ -210,7 +210,7 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
     public function test_una_fila_invalida_revierte_el_lote_completo(): void
     {
         $empresa = Empresa::factory()->create();
-        $colaborador = $this->crearColaborador($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2025-01-02']);
         $lote = $this->crearLoteAprobado($empresa);
 
         $filaValida = $this->crearDetalle($lote, [
@@ -330,7 +330,7 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
     public function test_rechaza_si_la_fecha_de_ingreso_del_vinculo_no_coincide_con_el_colaborador(): void
     {
         $empresa = Empresa::factory()->create();
-        $colaborador = $this->crearColaborador($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2025-01-02']);
         $lote = $this->crearLoteAprobado($empresa);
         $this->crearDetalle($lote, [
             'colaborador_id' => $colaborador->id,
@@ -353,7 +353,7 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
     public function test_no_aplica_una_fila_observada_aunque_su_estado_validacion_sea_valido(): void
     {
         $empresa = Empresa::factory()->create();
-        $colaborador = $this->crearColaborador($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2025-01-02']);
         $lote = $this->crearLoteAprobado($empresa);
         $this->crearDetalle($lote, [
             'colaborador_id' => $colaborador->id, 'fecha_ingreso_vinculo' => $colaborador->fecha_ingreso,
@@ -370,7 +370,7 @@ class AplicarImportacionHistoricaServiceTest extends TestCase
     public function test_una_cts_confirmada_manualmente_se_aplica_con_su_referencia_y_fecha_confirmadas(): void
     {
         $empresa = Empresa::factory()->create();
-        $colaborador = $this->crearColaborador($empresa);
+        $colaborador = $this->crearColaborador($empresa, ['fecha_ingreso' => '2025-01-02']);
         $lote = $this->crearLoteAprobado($empresa);
         $this->crearDetalle($lote, [
             'colaborador_id' => $colaborador->id, 'fecha_ingreso_vinculo' => $colaborador->fecha_ingreso,
