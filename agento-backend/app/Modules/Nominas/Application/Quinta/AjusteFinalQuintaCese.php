@@ -6,6 +6,7 @@ use App\Modules\Nominas\Application\Liquidacion\BasesVariablesLiquidacion;
 use App\Modules\Nominas\Domain\Liquidacion\CatalogoConceptosLiquidacion;
 use App\Modules\Nominas\Models\BeneficioSocialDetalle;
 use App\Modules\Nominas\Models\Boleta;
+use App\Modules\Nominas\Models\ConceptoRemuneracion;
 use App\Modules\Nominas\Models\LiquidacionCese;
 use App\Modules\Nominas\Models\QuintaAjusteCese;
 use App\Modules\Personas\Models\Colaborador;
@@ -31,9 +32,19 @@ use Illuminate\Support\Facades\DB;
  * En cualquier orden el total retenido del año termina igual al impuesto
  * anual. Las retenciones de documentos emitidos se toman como previas y esos
  * documentos no se modifican.
+ *
+ * Una planilla complementaria del mismo ejercicio (reintegro o bono puesto a
+ * disposición en el mes del cese o después) también entra al ajuste: concilia
+ * solo la renta que agrega frente a la versión anterior de su boleta, o
+ * difiere si el documento asignado aún no existe (calcularComplementaria()).
+ * Su aplicación se registra por boleta original: la versión más reciente
+ * reemplaza a la anterior.
  */
 class AjusteFinalQuintaCese
 {
+    /** Marca de las líneas de conciliación del cese dentro de un snapshot de complementaria. */
+    public const MARCA_LINEA = 'ajuste_quinta_cese';
+
     public function __construct(private readonly BasesVariablesLiquidacion $planilla) {}
 
     public static function esMesDelCese(Colaborador $colaborador, string $inicio, string $fin): bool
@@ -74,6 +85,95 @@ class AjusteFinalQuintaCese
             $otro = $this->boletaDelCese($colaborador) ? ['gravado' => 0.0, 'aplicado' => 0.0] : null;
         }
 
+        $resultado = $this->componer($colaborador, $anio, $previo, $otro, $gravadoDocumento, 0.0, $otrosGravado, $otrosRetenido, $parametros);
+        $ajuste = $resultado['ajuste'];
+        $existeOtro = $otro !== null;
+        $difiere = $documento !== $asignado && ! $existeOtro;
+        $monto = $difiere ? 0.0 : $ajuste;
+        $mensaje = match (true) {
+            $difiere => 'El ajuste final de 5ta se aplicará en la '.self::nombre($asignado).' (estimado hoy: '.($ajuste >= 0 ? 'retención' : 'devolución').' de S/ '.number_format(abs($ajuste), 2).').',
+            $documento !== $asignado => 'Concilia el ajuste final ya aplicado en la '.self::nombre($asignado).': solo la diferencia por los ingresos de este documento.',
+            default => null,
+        };
+
+        return [
+            'aplica' => abs($monto) >= 0.01, 'monto' => $monto, 'ajuste' => $ajuste, 'asignado' => $asignado,
+            'difiere' => $difiere, 'existe_otro' => $existeOtro, 'mensaje' => $mensaje, 'desglose' => $resultado['desglose'],
+        ];
+    }
+
+    /**
+     * Una complementaria de un colaborador cesado en el mismo ejercicio pone a
+     * su disposición renta gravada (reintegros, bonos) en el mes del cese o
+     * después: entra al ajuste final (Reglamento LIR art. 41 inc. d, "todo
+     * otro ingreso puesto a disposición") y no a la proyección mensual del
+     * art. 40, que supone meses por trabajar.
+     */
+    public static function aplicaAComplementaria(Colaborador $colaborador, string $inicioCiclo): bool
+    {
+        return $colaborador->fecha_cese !== null && $colaborador->fecha_cese->year === Carbon::parse($inicioCiclo)->year;
+    }
+
+    /** Clave de la aplicación de las complementarias de una boleta: la versión más reciente reemplaza a la anterior. */
+    public static function claveComplementaria(int $boletaOriginalId): string
+    {
+        return 'complementaria:'.$boletaOriginalId;
+    }
+
+    /**
+     * Conciliación de una complementaria. $snapshot es la versión completa de
+     * la boleta que la complementaria reemplaza (así la lee quintaDelAnio()
+     * una vez aprobada): solo lo que difiere de la versión anterior es
+     * ingreso nuevo, y las retenciones de esa versión ya practicadas cuentan
+     * como previas. Las líneas de conciliación propias se recalculan siempre
+     * completas, nunca se acumulan.
+     *
+     * Si el documento que aplica el ajuste final todavía no existe, la
+     * complementaria no retiene (difiere): ese documento contará su renta.
+     *
+     * @param  array{ingresos?: array, egresos?: array}  $snapshot
+     * @return array{aplica: bool, monto: float, ajuste: float, asignado: string, difiere: bool, existe_otro: bool, desglose: array<string, float>, mensaje: ?string}
+     */
+    public function calcularComplementaria(Colaborador $colaborador, int $cicloId, array $snapshot, array $parametros): array
+    {
+        $anio = $colaborador->fecha_cese->year;
+        $registro = $this->registro($colaborador);
+        $asignado = $registro?->documento_asignado ?? QuintaAjusteCese::BOLETA;
+        $liquidacion = $this->liquidacionVigente($colaborador);
+        $existeAsignado = $asignado === QuintaAjusteCese::LIQUIDACION ? $liquidacion !== null : $this->boletaDelCese($colaborador) !== null;
+
+        $propias = fn (array $l) => empty($l[self::MARCA_LINEA]);
+        $afectos = ConceptoRemuneracion::whereIn('codigo', collect($snapshot['ingresos'] ?? [])->pluck('codigo')->filter()->unique())
+            ->where('afecta_renta_5ta', true)->pluck('codigo')->all();
+        $gravadoDocumento = (float) collect($snapshot['ingresos'] ?? [])->filter(fn ($l) => in_array($l['codigo'] ?? null, $afectos, true))->sum('monto');
+        $retenidoDocumento = (float) collect($snapshot['egresos'] ?? [])->filter($propias)->where('codigo', 'RENTA_5TA')->sum('monto')
+            - (float) collect($snapshot['ingresos'] ?? [])->filter($propias)->where('codigo', 'DEVOLUCION_RENTA_5TA')->sum('monto');
+
+        $resultado = $this->componer($colaborador, $anio, $this->planilla->quintaDelAnio($colaborador, $anio, $cicloId), $liquidacion,
+            $gravadoDocumento, $retenidoDocumento, (float) ($registro?->otros_empleadores_gravado ?? 0), (float) ($registro?->otros_empleadores_retenido ?? 0), $parametros);
+        $ajuste = $resultado['ajuste'];
+        $monto = $existeAsignado ? $ajuste : 0.0;
+
+        return [
+            'aplica' => abs($monto) >= 0.01, 'monto' => $monto, 'ajuste' => $ajuste, 'asignado' => $asignado,
+            'difiere' => ! $existeAsignado, 'existe_otro' => $existeAsignado,
+            'mensaje' => $existeAsignado
+                ? 'Concilia el ajuste final de 5ta del cese aplicado en la '.self::nombre($asignado).': solo la diferencia por la renta que agrega esta complementaria.'
+                : 'El ajuste final de 5ta se aplicará en la '.self::nombre($asignado).', que contará la renta de esta complementaria una vez aprobada.',
+            'desglose' => $resultado['desglose'],
+        ];
+    }
+
+    /**
+     * Impuesto anual sobre toda la renta conocida menos las retenciones de
+     * los demás documentos: el mismo cálculo para todos los documentos.
+     *
+     * @param  array{gravado: float, retenido: float}  $previo
+     * @param  array{gravado: float, aplicado: float}|null  $otro
+     * @return array{ajuste: float, desglose: array<string, float>}
+     */
+    private function componer(Colaborador $colaborador, int $anio, array $previo, ?array $otro, float $gravadoDocumento, float $retenidoDocumento, float $otrosGravado, float $otrosRetenido, array $parametros): array
+    {
         $gratificaciones = (float) BeneficioSocialDetalle::where('colaborador_id', $colaborador->id)
             ->whereHas('beneficioSocial', fn ($q) => $q->whereIn('tipo', ['gratificacion_julio', 'gratificacion_diciembre'])->where('anio', $anio)
                 ->where('estado', 'pagado')->where('es_version_vigente', true))
@@ -83,30 +183,26 @@ class AjusteFinalQuintaCese
         $deduccion = (float) $parametros['deduccion_5ta_uit'] * (float) $parametros['uit'];
         $rentaNeta = max(0.0, $gravado - $deduccion);
         $impuesto = round($this->impuesto($rentaNeta, $parametros), 2);
-        $retenciones = round($previo['retenido'] + $otrosRetenido + ($otro['aplicado'] ?? 0), 2);
+        $retenciones = round($previo['retenido'] + $otrosRetenido + ($otro['aplicado'] ?? 0) + $retenidoDocumento, 2);
         $ajuste = round($impuesto - $retenciones, 2);
 
-        $existeOtro = $otro !== null;
-        $difiere = $documento !== $asignado && ! $existeOtro;
-        $monto = $difiere ? 0.0 : $ajuste;
-        $nombre = fn ($d) => $d === QuintaAjusteCese::BOLETA ? 'boleta del mes del cese' : 'liquidación por cese';
-        $mensaje = match (true) {
-            $difiere => 'El ajuste final de 5ta se aplicará en la '.$nombre($asignado).' (estimado hoy: '.($ajuste >= 0 ? 'retención' : 'devolución').' de S/ '.number_format(abs($ajuste), 2).').',
-            $documento !== $asignado => 'Concilia el ajuste final ya aplicado en la '.$nombre($asignado).': solo la diferencia por los ingresos de este documento.',
-            default => null,
-        };
-
         return [
-            'aplica' => abs($monto) >= 0.01, 'monto' => $monto, 'ajuste' => $ajuste, 'asignado' => $asignado,
-            'difiere' => $difiere, 'existe_otro' => $existeOtro, 'mensaje' => $mensaje,
+            'ajuste' => $ajuste,
             'desglose' => [
                 'gravado_boletas' => $previo['gravado'], 'gratificaciones' => round($gratificaciones, 2), 'otros_empleadores' => $otrosGravado,
                 'gravado_otro_documento' => round((float) ($otro['gravado'] ?? 0), 2), 'gravado_este_documento' => round($gravadoDocumento, 2),
                 'gravado_total' => $gravado, 'deduccion_7_uit' => $deduccion, 'renta_neta' => round($rentaNeta, 2), 'impuesto_anual' => $impuesto,
                 'retenido_boletas' => $previo['retenido'], 'retenido_otros_empleadores' => $otrosRetenido,
-                'aplicado_otro_documento' => round((float) ($otro['aplicado'] ?? 0), 2), 'retenciones_previas' => $retenciones, 'ajuste' => $ajuste,
+                'aplicado_otro_documento' => round((float) ($otro['aplicado'] ?? 0), 2),
+                'retenido_este_documento' => round($retenidoDocumento, 2),
+                'retenciones_previas' => $retenciones, 'ajuste' => $ajuste,
             ],
         ];
+    }
+
+    private static function nombre(string $documento): string
+    {
+        return $documento === QuintaAjusteCese::BOLETA ? 'boleta del mes del cese' : 'liquidación por cese';
     }
 
     /** Línea de retención (egreso) o devolución (ingreso) del documento. */

@@ -8,6 +8,7 @@ use App\Modules\Configuracion\Models\Afp;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\CalcularBoletaColaborador;
 use App\Modules\Nominas\Application\CalcularReciboHonorarios;
+use App\Modules\Nominas\Application\Quinta\AjusteFinalQuintaCese;
 use App\Modules\Nominas\Domain\BbvaNetCash\BbvaNetCashExportException;
 use App\Modules\Nominas\Infrastructure\BbvaNetCash\Export\BbvaNetCashTxtExporter;
 use App\Modules\Nominas\Infrastructure\TelecreditoBcp\Export\TelecreditoBcpTxtExporter;
@@ -21,6 +22,7 @@ use App\Modules\Nominas\Models\PlanillaComplementariaDetalle;
 use App\Modules\Nominas\Support\ParametrosVigentesResolver;
 use App\Modules\Nominas\Support\PeriodoAsistenciaCiclo;
 use App\Modules\Nominas\Support\ValorHoraOrdinaria;
+use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Personas\Models\ColaboradorCondicionLaboral;
 use App\Modules\Personas\Models\ColaboradorRemuneracion;
 use App\Modules\Personas\Support\FeriadosPeru;
@@ -38,6 +40,7 @@ class PlanillaComplementariaService
     public function __construct(
         private readonly CalcularBoletaColaborador $calculador,
         private readonly CalcularReciboHonorarios $calculadorHonorarios,
+        private readonly AjusteFinalQuintaCese $quintaCese,
     ) {}
 
     public function listar(Empresa $empresa, CicloRemunerativo $ciclo): Collection
@@ -666,6 +669,20 @@ class PlanillaComplementariaService
                     'total_egresos' => $original->total_egresos,
                     'total_aportaciones' => $original->total_aportaciones,
                 ];
+
+                // Cesado en el ejercicio: el recálculo no vuelve a proyectar ni
+                // reemplaza la 5ta ya practicada; conserva esas líneas y solo
+                // concilia la renta nueva con el ajuste final del cese.
+                if (! $esHonorarios && AjusteFinalQuintaCese::aplicaAComplementaria($colaborador, $ciclo->fecha_inicio->toDateString())) {
+                    $anterior = $this->baseParaReintegro($original);
+                    $esQuinta = fn (array $l) => in_array($l['codigo'] ?? null, ['RENTA_5TA', 'DEVOLUCION_RENTA_5TA'], true);
+                    foreach (['ingresos', 'egresos'] as $bloque) {
+                        $nuevo[$bloque] = collect($nuevo[$bloque] ?? [])->reject($esQuinta)
+                            ->concat(collect($anterior[$bloque] ?? [])->filter($esQuinta))->values()->all();
+                    }
+                    $this->aplicarQuintaCese($colaborador, $ciclo, $nuevo);
+                    $this->recalcularTotalesSnapshot($nuevo);
+                }
 
                 PlanillaComplementariaDetalle::create([
                     'planilla_complementaria_id' => $complementaria->id,
@@ -1475,8 +1492,16 @@ class PlanillaComplementariaService
 
     private function recalcularRentaQuinta(PlanillaComplementariaDetalle $detalle, array &$snapshot, float $deltaBase): void
     {
-        $colaborador = $detalle->colaborador;
         $ciclo = $detalle->boletaOriginal->ciclo;
+        // Colaborador completo: el de cargar() trae solo columnas de presentación.
+        $cesado = Colaborador::withoutGlobalScopes()->with('empresa')->findOrFail($detalle->colaborador_id);
+        if (AjusteFinalQuintaCese::aplicaAComplementaria($cesado, $ciclo->fecha_inicio->toDateString())) {
+            $this->aplicarQuintaCese($cesado, $ciclo, $snapshot);
+
+            return;
+        }
+
+        $colaborador = $detalle->colaborador;
         $fechaCorte = $ciclo->fecha_corte_asistencia->toDateString();
         $parametros = ParametrosVigentesResolver::paraRegimen($colaborador->empresa, $colaborador->regimen_laboral ?: 'General', $fechaCorte);
         $lineaActual = collect($snapshot['egresos'] ?? [])->firstWhere('codigo', 'RENTA_5TA');
@@ -1489,6 +1514,49 @@ class PlanillaComplementariaService
         if ($nueva) {
             $snapshot['egresos'][] = $nueva;
         }
+    }
+
+    /**
+     * 5ta de una complementaria de un colaborador cesado en el ejercicio: las
+     * retenciones de la versión anterior de la boleta se conservan tal cual
+     * (ya practicadas) y la complementaria solo agrega la línea que concilia
+     * con el ajuste final del cese (AjusteFinalQuintaCese). Esa línea se
+     * recalcula completa en cada cambio, así que repetir el cálculo nunca la
+     * acumula. Si el documento que aplica el ajuste aún no existe, no se
+     * retiene aquí: ese documento contará esta renta.
+     *
+     * @return array<string, mixed> resultado de AjusteFinalQuintaCese::calcularComplementaria()
+     */
+    private function aplicarQuintaCese(Colaborador $colaborador, CicloRemunerativo $ciclo, array &$snapshot): array
+    {
+        $marca = AjusteFinalQuintaCese::MARCA_LINEA;
+        foreach (['ingresos', 'egresos'] as $bloque) {
+            $snapshot[$bloque] = collect($snapshot[$bloque] ?? [])->reject(fn (array $l) => ! empty($l[$marca]))->values()->all();
+        }
+
+        $parametros = ParametrosVigentesResolver::paraRegimen($colaborador->empresa, $colaborador->regimen_laboral ?: 'General', $ciclo->fecha_corte_asistencia->toDateString());
+        $calculo = $this->quintaCese->calcularComplementaria($colaborador, $ciclo->id, $snapshot, $parametros);
+        if ($linea = $this->quintaCese->linea($calculo)) {
+            $bloque = $linea['tipo'] === 'egreso' ? 'egresos' : 'ingresos';
+            unset($linea['tipo'], $linea['nombre']);
+            $snapshot[$bloque][] = [...$linea, $marca => true];
+        }
+        $snapshot['quinta_cese'] = [
+            'monto' => $calculo['monto'], 'asignado' => $calculo['asignado'], 'difiere' => $calculo['difiere'],
+            'mensaje' => $calculo['mensaje'], 'desglose' => $calculo['desglose'],
+        ];
+
+        return $calculo;
+    }
+
+    /** Monto con signo de la línea de conciliación del cese (retención +, devolución −). */
+    private static function montoQuintaCese(array $snapshot): float
+    {
+        $marca = AjusteFinalQuintaCese::MARCA_LINEA;
+        $suma = fn (string $bloque, string $codigo) => (float) collect($snapshot[$bloque] ?? [])
+            ->filter(fn (array $l) => ! empty($l[$marca]) && ($l['codigo'] ?? null) === $codigo)->sum('monto');
+
+        return round($suma('egresos', 'RENTA_5TA') - $suma('ingresos', 'DEVOLUCION_RENTA_5TA'), 2);
     }
 
     /**
@@ -1573,14 +1641,70 @@ class PlanillaComplementariaService
         $snapshot['neto_a_pagar'] = round($snapshot['total_ingresos'] - $snapshot['total_egresos'], 2);
     }
 
+    /**
+     * La aprobación emite la complementaria. Para colaboradores cesados en el
+     * ejercicio, la conciliación de 5ta del cese se vuelve a calcular con el
+     * colaborador bloqueado (mismo bloqueo que la liquidación y la boleta del
+     * mes del cese): si cambió desde el borrador, se guarda el importe nuevo y
+     * se pide revisarlo antes de aprobar; si no cambió, se registra como
+     * aplicada en el ajuste del cese.
+     */
     public function aprobar(Empresa $empresa, PlanillaComplementaria $item, int $usuarioId): PlanillaComplementaria
     {
         $this->verificarItem($empresa, $item);
-        if ($item->estado !== 'calculada') {
-            throw ValidationException::withMessages(['estado' => 'Solo se puede aprobar una complementaria calculada.']);
+        // Se leen fuera de la transacción: dentro, el bloqueo va primero para
+        // que las lecturas siguientes vean lo ya confirmado por otro proceso.
+        $colaboradorIds = $item->detalles()->pluck('colaborador_id')->unique()->sort()->values()->all();
+        $cambios = [];
+
+        $aprobada = DB::transaction(function () use ($item, $usuarioId, $colaboradorIds, &$cambios) {
+            $cesados = Colaborador::withoutGlobalScopes()->whereIn('id', $colaboradorIds)->whereNotNull('fecha_cese')
+                ->orderBy('id')->lockForUpdate()->get()->keyBy('id');
+            $bloqueada = PlanillaComplementaria::whereKey($item->id)->lockForUpdate()->firstOrFail();
+            if ($bloqueada->estado !== 'calculada') {
+                throw ValidationException::withMessages(['estado' => 'Solo se puede aprobar una complementaria calculada.']);
+            }
+
+            $aplicaciones = [];
+            foreach ($bloqueada->detalles()->with('boletaOriginal.ciclo')->get() as $detalle) {
+                $colaborador = $cesados->get($detalle->colaborador_id);
+                $ciclo = $detalle->boletaOriginal->ciclo;
+                if (! $colaborador || ! isset($detalle->calculo_snapshot['quinta_cese'])
+                    || ! AjusteFinalQuintaCese::aplicaAComplementaria($colaborador, $ciclo->fecha_inicio->toDateString())) {
+                    continue;
+                }
+                $snapshot = $detalle->calculo_snapshot;
+                $antes = self::montoQuintaCese($snapshot);
+                $calculo = $this->aplicarQuintaCese($colaborador->loadMissing('empresa'), $ciclo, $snapshot);
+                $despues = self::montoQuintaCese($snapshot);
+                if (abs($despues - $antes) >= 0.01) {
+                    $this->guardarSnapshotYDiferencias($detalle, $snapshot);
+                    $cambios[] = trim("{$colaborador->nombres} {$colaborador->apellidos}").': S/ '.number_format($antes, 2).' → S/ '.number_format($despues, 2);
+
+                    continue;
+                }
+                $aplicaciones[] = [$colaborador, $detalle, $despues, $calculo];
+            }
+            if ($cambios !== []) {
+                return null; // Se confirma el borrador actualizado, sin aprobar.
+            }
+
+            // Se actualiza la instancia recibida (el llamador sigue usándola).
+            $item->update(['estado' => 'aprobada', 'aprobado_por' => $usuarioId, 'aprobado_at' => now()]);
+            foreach ($aplicaciones as [$colaborador, $detalle, $monto, $calculo]) {
+                $this->quintaCese->registrarAplicacion($colaborador, AjusteFinalQuintaCese::claveComplementaria($detalle->boleta_original_id), $detalle->id,
+                    count($detalle->calculo_snapshot['reaperturas'] ?? []) + 1, $monto, [...$calculo['desglose'], 'difiere' => $calculo['difiere']], 'emitido');
+            }
+
+            return $item;
+        });
+
+        if ($cambios !== []) {
+            throw ValidationException::withMessages(['quinta' => 'La renta de 5ta del cese cambió desde el cálculo de la complementaria ('.implode('; ', $cambios)
+                .'). Se actualizó el borrador: revisa los importes y vuelve a aprobar.']);
         }
-        $item->update(['estado' => 'aprobada', 'aprobado_por' => $usuarioId, 'aprobado_at' => now()]);
-        return $this->cargar($item);
+
+        return $this->cargar($aprobada);
     }
 
     public function reabrir(Empresa $empresa, PlanillaComplementaria $item, int $usuarioId, string $motivo): PlanillaComplementaria
@@ -1607,6 +1731,11 @@ class PlanillaComplementariaService
                 $snapshot = $detalle->calculo_snapshot;
                 $snapshot['reaperturas'][] = $reapertura;
                 $detalle->update(['calculo_snapshot' => $snapshot]);
+                // Vuelve a borrador: su conciliación de 5ta del cese deja de contar
+                // hasta que se apruebe otra vez.
+                if (isset($snapshot['quinta_cese']) && ($colaborador = Colaborador::withoutGlobalScopes()->find($detalle->colaborador_id))?->fecha_cese) {
+                    $this->quintaCese->actualizarEstado($colaborador, AjusteFinalQuintaCese::claveComplementaria($detalle->boleta_original_id), $detalle->id, 'anulado');
+                }
             }
 
             $item->update([

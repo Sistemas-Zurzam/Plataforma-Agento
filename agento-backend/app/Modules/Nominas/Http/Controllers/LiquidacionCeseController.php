@@ -117,9 +117,16 @@ class LiquidacionCeseController extends Controller
             throw ValidationException::withMessages(['validaciones' => 'Queda en borrador hasta resolver: '.collect($pendientes)->pluck('titulo')->implode('; ').'.']);
         }
         DB::transaction(function () use ($request, $liquidacion) {
-            $liquidacion->update(['estado' => 'aprobada', 'aprobado_por' => $request->user('api')->id, 'aprobado_at' => now()]);
+            // Mismo bloqueo que la boleta del mes del cese y las complementarias:
+            // la emisión de la 5ta del cese no se intercala con su cálculo.
+            Colaborador::withoutGlobalScopes()->whereKey($liquidacion->colaborador_id)->lockForUpdate()->first();
+            $bloqueada = LiquidacionCese::whereKey($liquidacion->id)->lockForUpdate()->firstOrFail();
+            if ($bloqueada->estado !== 'calculada' || ! $bloqueada->es_version_vigente) {
+                throw ValidationException::withMessages(['estado' => 'La liquidación ya no está calculada: actualiza la lista.']);
+            }
+            $bloqueada->update(['estado' => 'aprobada', 'aprobado_por' => $request->user('api')->id, 'aprobado_at' => now()]);
             // La 5ta del cese que aplica esta liquidación queda emitida.
-            $this->liquidaciones->actualizarEstadoQuinta($liquidacion, 'emitido');
+            $this->liquidaciones->actualizarEstadoQuinta($bloqueada, 'emitido');
         });
         return response()->json(['data' => $liquidacion->fresh(['colaborador', 'conceptos'])]);
     }
