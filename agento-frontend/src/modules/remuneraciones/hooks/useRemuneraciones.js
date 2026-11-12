@@ -571,10 +571,10 @@ export function useRemuneraciones() {
     window.URL.revokeObjectURL(url);
   }, []);
 
-  const exportarComplementariasExcel = useCallback(async (cicloId) => {
-    const response = await api.get(`/ciclos-remunerativos/${cicloId}/complementarias/excel`, { responseType: 'blob' });
+  const descargarExcelComplementarias = useCallback(async (ruta, nombreDefecto) => {
+    const response = await api.get(ruta, { responseType: 'blob' });
     const disposicion = response.headers?.['content-disposition'] ?? '';
-    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? 'Planillas_complementarias.xlsx';
+    const nombreArchivo = disposicion.match(/filename="?([^";]+)"?/)?.[1] ?? nombreDefecto;
     const url = window.URL.createObjectURL(response.data);
     const enlace = document.createElement('a');
     enlace.href = url;
@@ -584,6 +584,14 @@ export function useRemuneraciones() {
     enlace.remove();
     window.URL.revokeObjectURL(url);
   }, []);
+
+  const exportarComplementariasExcel = useCallback((cicloId) =>
+    descargarExcelComplementarias(`/ciclos-remunerativos/${cicloId}/complementarias/excel`, 'Planillas_complementarias.xlsx'),
+  [descargarExcelComplementarias]);
+
+  const exportarComisionesHorasExtraExcel = useCallback((cicloId) =>
+    descargarExcelComplementarias(`/ciclos-remunerativos/${cicloId}/complementarias/comisiones-horas-extra/excel`, 'Comisiones_horas_extra.xlsx'),
+  [descargarExcelComplementarias]);
 
   /**
    * Completamente independiente de PLAME/AFPnet (Sección 3 del encargo
@@ -800,6 +808,7 @@ export function useRemuneraciones() {
     exportarPlanillaPagadaExcel,
     exportarReporteEjecutivoExcel,
     exportarComplementariasExcel,
+    exportarComisionesHorasExtraExcel,
     fetchTelecreditoBcpValidacion,
     exportarTelecreditoBcp,
     fetchBbvaNetCashValidacion,
