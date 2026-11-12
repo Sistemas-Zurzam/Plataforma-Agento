@@ -19,9 +19,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * CTS semestral, calculada con remuneraciÃ³n computable de abril/octubre.
+ * CTS semestral, calculada con remuneración computable de abril/octubre.
  * TUO CTS (D.S. 001-97-TR), arts. 9, 16-18, 21-22, 25-26;
- * D.S. 013-2013-PRODUCE art. 50 (pequeÃ±a empresa: 15 remuneraciones
+ * D.S. 013-2013-PRODUCE art. 50 (pequeña empresa: 15 remuneraciones
  * diarias por ano, limite 90). No modifica el flujo de cese.
  */
 class BeneficioSocialService
@@ -73,10 +73,10 @@ class BeneficioSocialService
         DB::transaction(function()use($detalle,$datos,$usuarioId,$key,$b){
             $detalle->newQuery()->whereKey($detalle->id)->lockForUpdate()->firstOrFail();
             if($detalle->depositos()->where('idempotencia',$key)->exists()) return;
-            if(BeneficioSocialDeposito::where('referencia',$datos['referencia'])->exists())throw ValidationException::withMessages(['referencia'=>'La referencia de depÃ³sito ya fue registrada.']);
+            if(BeneficioSocialDeposito::where('referencia',$datos['referencia'])->exists())throw ValidationException::withMessages(['referencia'=>'La referencia de depósito ya fue registrada.']);
             if($b->estado!=='calculado'||!$b->es_version_vigente)throw ValidationException::withMessages(['estado'=>'Solo se reciben depositos contra la version CTS vigente y calculada.']);
             $acumulado=(float)$detalle->depositos()->sum('importe');
-            if(round($acumulado+(float)$datos['importe'],2)>round((float)$detalle->neta,2)) throw ValidationException::withMessages(['importe'=>'El depÃ³sito supera el saldo calculado.']);
+            if(round($acumulado+(float)$datos['importe'],2)>round((float)$detalle->neta,2)) throw ValidationException::withMessages(['importe'=>'El depósito supera el saldo calculado.']);
             $detalle->depositos()->create(['fecha_deposito'=>$datos['fecha_deposito'],'importe'=>$datos['importe'],'entidad'=>$datos['entidad'],'referencia'=>$datos['referencia'],'constancia'=>$datos['constancia']??null,'idempotencia'=>$key,'registrado_por'=>$usuarioId]);
             $detalle->refresh(); $detalle->estado_deposito=round((float)$detalle->depositos()->sum('importe'),2)>=(float)$detalle->neta?'conciliado':(round((float)$detalle->depositos()->sum('importe'),2)>0?'depositado_parcial':'pendiente_deposito'); $detalle->save();
         });
