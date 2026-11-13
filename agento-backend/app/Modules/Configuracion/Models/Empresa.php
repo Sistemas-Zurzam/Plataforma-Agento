@@ -28,9 +28,17 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'activa',
     'descanso_flexible_automatico',
     'bono_asistencia_habilitado',
+    'servicio_planilla',
+    'servicio_reclutamiento',
 ])]
 class Empresa extends Model
 {
+    /**
+     * Servicios que Agento presta a la empresa. Habilitan las secciones del
+     * Portal de Empresa y los módulos internos (ver EnsureServicioContratado).
+     */
+    public const SERVICIOS = ['planilla', 'reclutamiento'];
+
     /** @use HasFactory<EmpresaFactory> */
     use HasFactory;
 
@@ -49,9 +57,24 @@ class Empresa extends Model
             'activa' => 'boolean',
             'descanso_flexible_automatico' => 'boolean',
             'bono_asistencia_habilitado' => 'boolean',
+            'servicio_planilla' => 'boolean',
+            'servicio_reclutamiento' => 'boolean',
             'inscrita_remype' => 'boolean',
             'fecha_inscripcion_remype' => 'date',
         ];
+    }
+
+    public function tieneServicio(string $servicio): bool
+    {
+        return in_array($servicio, self::SERVICIOS, true) && (bool) $this->{"servicio_{$servicio}"};
+    }
+
+    /**
+     * @return array{planilla: bool, reclutamiento: bool}
+     */
+    public function servicios(): array
+    {
+        return ['planilla' => $this->tieneServicio('planilla'), 'reclutamiento' => $this->tieneServicio('reclutamiento')];
     }
 
     /** Seguro de salud que debe usarse en la planilla según el régimen vigente. */

@@ -25,6 +25,15 @@ class ContratarRequest extends FormRequest
      */
     public function rules(): array
     {
+        // Empresa sin servicio de planilla: colocación, solo fecha de ingreso
+        // y salario acordado (no hay alta en Personas).
+        if ($this->esColocacion()) {
+            return [
+                'fecha_ingreso' => ['required', 'date'],
+                'salario' => ['required', 'numeric', 'min:0'],
+            ];
+        }
+
         return [
             'sede_id' => ['required', 'integer'],
             'horario_id' => ['nullable', 'integer', 'required_unless:es_trabajador_confianza,true'],
@@ -52,9 +61,16 @@ class ContratarRequest extends FormRequest
     public function withValidator(Validator $validator): void
     {
         $validator->after(function (Validator $v) {
-            if ($this->input('tipo_trabajador') === 'trabajador' && blank($this->input('categoria_trabajador'))) {
+            if (! $this->esColocacion() && $this->input('tipo_trabajador') === 'trabajador' && blank($this->input('categoria_trabajador'))) {
                 $v->errors()->add('categoria_trabajador', 'Indica si es empleado u obrero.');
             }
         });
+    }
+
+    private function esColocacion(): bool
+    {
+        $empresa = $this->user('api')?->empresa;
+
+        return $empresa !== null && ! $empresa->tieneServicio('planilla');
     }
 }

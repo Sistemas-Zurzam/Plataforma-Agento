@@ -3,6 +3,7 @@
 use App\Http\Middleware\JwtMiddleware;
 use App\Modules\Configuracion\Http\Middleware\EnsureIsEmpresaAdmin;
 use App\Modules\Configuracion\Http\Middleware\EnsurePermission;
+use App\Modules\Configuracion\Http\Middleware\EnsureServicioContratado;
 use App\Modules\PortalCliente\Http\Middleware\EnsurePortalClienteHabilitado;
 use App\Modules\PortalCliente\Http\Middleware\EnsurePortalEmpresaVigente;
 use App\Modules\Reclutamiento\Domain\TransicionInvalidaException;
@@ -26,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'jwt' => JwtMiddleware::class,
             'empresa.admin' => EnsureIsEmpresaAdmin::class,
             'permiso' => EnsurePermission::class,
+            'servicio' => EnsureServicioContratado::class,
             'portal.habilitado' => EnsurePortalClienteHabilitado::class,
             'portal.empresa' => EnsurePortalEmpresaVigente::class,
         ]);

@@ -40,14 +40,17 @@ import ResumenAsistenciaPage from './pages/ResumenAsistenciaPage';
 // /portal-cliente, solo lectura) y el Portal de Empresa de gerencia
 // (/portal). Cada sección declara la capacidad que el backend devolvió en
 // /portal/contexto; el backend vuelve a autorizar cada endpoint.
+// "servicio": la sección solo aparece si la empresa contrató ese servicio
+// con Agento (planilla o reclutamiento), además del permiso.
 const SECCIONES_CLIENTE = {
-  resumen: { titulo: 'Resumen', ruta: '', icono: <HomeOutlined />, permiso: 'portal.asistencia.ver' },
-  colaboradores: { titulo: 'Colaboradores', ruta: '/colaboradores', icono: <TeamOutlined />, permiso: 'portal.asistencia.ver' },
-  incidencias: { titulo: 'Incidencias', ruta: '/incidencias', icono: <FileTextOutlined />, permiso: 'portal.asistencia.ver' },
-  'horas-extra': { titulo: 'Horas Extra', ruta: '/horas-extra', icono: <ClockCircleOutlined />, permiso: 'portal.horas_extra.ver' },
-  permisos: { titulo: 'Permisos', ruta: '/permisos', icono: <UserSwitchOutlined />, permiso: 'portal.permisos.ver' },
-  planilla: { titulo: 'Planilla', ruta: '/planilla', icono: <DollarOutlined />, permiso: 'portal.remuneraciones.ver' },
-  bonificaciones: { titulo: 'Bonificaciones', ruta: '/bonificaciones', icono: <GiftOutlined />, permiso: 'portal.remuneraciones.ver' },
+  resumen: { titulo: 'Resumen', ruta: '', icono: <HomeOutlined />, permiso: 'portal.asistencia.ver', servicio: 'planilla' },
+  colaboradores: { titulo: 'Colaboradores', ruta: '/colaboradores', icono: <TeamOutlined />, permiso: 'portal.asistencia.ver', servicio: 'planilla' },
+  incidencias: { titulo: 'Incidencias', ruta: '/incidencias', icono: <FileTextOutlined />, permiso: 'portal.asistencia.ver', servicio: 'planilla' },
+  'horas-extra': { titulo: 'Horas Extra', ruta: '/horas-extra', icono: <ClockCircleOutlined />, permiso: 'portal.horas_extra.ver', servicio: 'planilla' },
+  permisos: { titulo: 'Permisos', ruta: '/permisos', icono: <UserSwitchOutlined />, permiso: 'portal.permisos.ver', servicio: 'planilla' },
+  planilla: { titulo: 'Planilla', ruta: '/planilla', icono: <DollarOutlined />, permiso: 'portal.remuneraciones.ver', servicio: 'planilla' },
+  bonificaciones: { titulo: 'Bonificaciones', ruta: '/bonificaciones', icono: <GiftOutlined />, permiso: 'portal.remuneraciones.ver', servicio: 'planilla' },
+  'solicitudes-personal': { titulo: 'Solicitudes de personal', ruta: '/solicitudes-personal', icono: <UsergroupAddOutlined />, permiso: 'portal.personal.ver', servicio: 'reclutamiento' },
 };
 
 const SECCIONES_GERENCIA = {
@@ -142,11 +145,21 @@ export default function PortalClienteApp({ user, onLogout, base = '/portal-clien
 
   const permisos = contexto.permisos ?? [];
   const capacidades = contexto.capacidades ?? {};
-  const disponible = (s) => (modo === 'gerencia' ? s.siempreVisible || capacidades[s.capacidad] : permisos.includes(s.permiso));
+  const servicios = contexto.servicios ?? {};
+  // En gerencia las capacidades ya vienen filtradas por servicio desde el
+  // backend; en modo cliente se combina permiso + servicio contratado.
+  const disponible = (s) => (modo === 'gerencia'
+    ? s.siempreVisible || capacidades[s.capacidad]
+    : permisos.includes(s.permiso) && (!s.servicio || servicios[s.servicio]));
   const menuItems = Object.entries(secciones)
     .filter(([, s]) => disponible(s))
     .map(([key, s]) => ({ key, icon: s.icono, label: s.titulo }));
-  const seccionActual = secciones[ruta.seccion];
+  // Si la sección inicial no corresponde a los servicios de la empresa
+  // (p. ej. un cliente solo de reclutamiento), se abre la primera disponible.
+  const seccionKey = !ruta.colaboradorId && !disponible(secciones[ruta.seccion] ?? {}) && menuItems.length > 0 && ruta.seccion === inicial
+    ? menuItems[0].key
+    : ruta.seccion;
+  const seccionActual = secciones[seccionKey];
   const sinAcceso = <Result status="403" title="Sin acceso" subTitle="Tu rol no tiene acceso a esta sección del portal." />;
 
   let contenido;
@@ -170,19 +183,25 @@ export default function PortalClienteApp({ user, onLogout, base = '/portal-clien
         />
       ),
     };
-    contenido = seccionActual && disponible(seccionActual) ? paginas[ruta.seccion]() : sinAcceso;
-  } else if (ruta.seccion === 'colaboradores' && ruta.colaboradorId) {
+    contenido = seccionActual && disponible(seccionActual) ? paginas[seccionKey]() : sinAcceso;
+  } else if (!seccionActual || !disponible(seccionActual)) {
+    contenido = menuItems.length === 0
+      ? <Result status="info" title="Sin secciones disponibles" subTitle="Tu empresa aún no tiene servicios habilitados en el portal. Contacta a Agento." />
+      : sinAcceso;
+  } else if (seccionKey === 'colaboradores' && ruta.colaboradorId) {
     contenido = <PerfilAsistenciaPage colaboradorId={ruta.colaboradorId} permisos={permisos} onVolver={volverAColaboradores} />;
-  } else if (ruta.seccion === 'resumen') {
+  } else if (seccionKey === 'resumen') {
     contenido = <ResumenAsistenciaPage tienePermiso={permisos.includes('portal.asistencia.ver')} />;
-  } else if (ruta.seccion === 'colaboradores') {
+  } else if (seccionKey === 'colaboradores') {
     contenido = <ColaboradoresPage tienePermiso={permisos.includes('portal.asistencia.ver')} onAbrirColaborador={abrirColaborador} />;
-  } else if (ruta.seccion === 'incidencias') {
+  } else if (seccionKey === 'incidencias') {
     contenido = <IncidenciasPage tienePermiso={permisos.includes('portal.asistencia.ver')} />;
-  } else if (ruta.seccion === 'horas-extra') {
+  } else if (seccionKey === 'horas-extra') {
     contenido = <HorasExtraPage tienePermiso={permisos.includes('portal.horas_extra.ver')} />;
-  } else if (ruta.seccion === 'permisos') {
+  } else if (seccionKey === 'permisos') {
     contenido = <PermisosPage tienePermiso={permisos.includes('portal.permisos.ver')} />;
+  } else if (seccionKey === 'solicitudes-personal') {
+    contenido = <PersonalGerenciaPage puedeCrear={false} />;
   } else {
     contenido = <PortalPlaceholderPage titulo={seccionActual?.titulo ?? 'Resumen'} />;
   }
@@ -193,7 +212,7 @@ export default function PortalClienteApp({ user, onLogout, base = '/portal-clien
       contexto={contexto}
       titulo={modo === 'gerencia' ? 'Portal de Empresa' : 'Portal Cliente'}
       menuItems={menuItems}
-      seccion={ruta.seccion}
+      seccion={seccionKey}
       tituloSeccion={ruta.colaboradorId ? 'Perfil de asistencia' : seccionActual?.titulo}
       onSelect={(key) => irASeccion(key)}
       onLogout={onLogout}

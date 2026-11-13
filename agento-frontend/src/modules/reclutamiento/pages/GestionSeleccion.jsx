@@ -24,6 +24,16 @@ export default function GestionSeleccion({ user, vista, procesoId, navigate }) {
   };
 
   const sinAcceso = <Result status="403" title="Acceso denegado" subTitle="No tienes permiso para ver esta sección." />;
+
+  if (!user?.empresa?.servicios?.reclutamiento) {
+    return (
+      <Result
+        status="info"
+        title="Servicio no contratado"
+        subTitle={`${user?.empresa?.nombre_comercial ?? 'La empresa activa'} no tiene contratado el servicio de reclutamiento. Puedes habilitarlo en Configuraciones → Empresas.`}
+      />
+    );
+  }
   const abrirProceso = (id) => navigate(`/seleccion/procesos/${id}`);
 
   if (vista === 'procesos' && procesoId) {

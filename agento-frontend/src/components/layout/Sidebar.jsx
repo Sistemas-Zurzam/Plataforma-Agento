@@ -88,12 +88,19 @@ function buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerN
     { key: 'seleccion-evaluaciones', label: 'Evaluaciones', visible: permisosSeleccion.evaluaciones },
   ].filter((item) => isAdmin || item.visible).map(({ key, label }) => ({ key, label }));
 
+  // Sin el servicio de reclutamiento contratado por la empresa activa el
+  // ítem queda visible pero deshabilitado (el backend responde 403).
   if (seleccion.length > 0) {
-    principal.push({
+    principal.push(permisosSeleccion.servicioContratado ? {
       key: 'seleccion',
       icon: <UserSwitchOutlined />,
       label: 'Selección y reclutamiento',
       children: seleccion,
+    } : {
+      key: 'seleccion',
+      icon: <UserSwitchOutlined />,
+      label: 'Selección (no contratado)',
+      disabled: true,
     });
   }
 
@@ -151,9 +158,11 @@ export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, 
   const puedeVerNominas = user?.permisos?.includes('nominas.ver');
   const puedeControlAcceso = user?.permisos?.includes('control_acceso.marcar');
   const permisos = user?.permisos;
+  const servicioReclutamiento = Boolean(user?.empresa?.servicios?.reclutamiento);
   const menuItems = useMemo(() => {
     const p = (...claves) => claves.some((clave) => permisos?.includes(clave));
     const permisosSeleccion = {
+      servicioContratado: servicioReclutamiento,
       algun: (permisos ?? []).some((clave) => clave.startsWith('seleccion.')),
       seguimiento: p('seleccion.seguimiento', 'seleccion.vacantes.gestionar'),
       solicitudes: p('seleccion.solicitudes.crear', 'seleccion.solicitudes.decidir', 'seleccion.seguimiento', 'seleccion.vacantes.gestionar'),
@@ -163,7 +172,7 @@ export default function Sidebar({ collapsed, onCollapse, selectedKey, onSelect, 
       evaluaciones: p('seleccion.evaluaciones.gestionar'),
     };
     return buildMenuItems(isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso, permisosSeleccion);
-  }, [isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso, permisos]);
+  }, [isAdmin, puedeVerHorarios, puedeVerAsistencia, puedeVerNominas, puedeControlAcceso, permisos, servicioReclutamiento]);
 
   return (
     <Sider

@@ -55,9 +55,15 @@ trait CreaEscenarioSeleccion
         RefreshDatabaseState::$migrated = false;
     }
 
-    protected function crearEmpresa(string $nombre = 'Empresa'): Empresa
+    protected function crearEmpresa(string $nombre = 'Empresa', array $atributos = []): Empresa
     {
-        return Empresa::factory()->create(['nombre_comercial' => $nombre.' '.Str::random(4), 'activa' => true]);
+        return Empresa::factory()->create([
+            'nombre_comercial' => $nombre.' '.Str::random(4),
+            'activa' => true,
+            'servicio_planilla' => true,
+            'servicio_reclutamiento' => true,
+            ...$atributos,
+        ]);
     }
 
     protected function crearArea(Empresa $empresa, string $nombre = 'Almacén', ?User $responsable = null): Area

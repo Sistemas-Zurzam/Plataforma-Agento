@@ -82,6 +82,7 @@ class PermissionSeeder extends Seeder
             ['clave' => 'portal.planificacion.gestionar', 'nombre' => 'Planificar turnos rotativos de su equipo', 'grupo' => 'Portal de Empresa'],
             ['clave' => 'portal.bonos.proponer', 'nombre' => 'Proponer bonos y comisiones para su equipo', 'grupo' => 'Portal de Empresa'],
             ['clave' => 'portal.ceses.solicitar', 'nombre' => 'Solicitar ceses de colaboradores de su equipo', 'grupo' => 'Portal de Empresa'],
+            ['clave' => 'portal.personal.ver', 'nombre' => 'Ver el avance de las solicitudes de personal en el portal', 'grupo' => 'Portal Cliente'],
 
             // Selección y Reclutamiento — ver migración agregar_permisos_seleccion.
             ['clave' => 'seleccion.solicitudes.crear', 'nombre' => 'Crear solicitudes de personal', 'grupo' => 'Selección y Reclutamiento'],
@@ -133,6 +134,7 @@ class PermissionSeeder extends Seeder
                     'portal.acceder', 'portal.asistencia.ver', 'portal.asistencia.editar', 'portal.incidencias.resolver',
                     'portal.horas_extra.ver', 'portal.horas_extra.resolver', 'portal.permisos.ver',
                     'portal.remuneraciones.ver', 'portal.bonificaciones.gestionar', 'portal.alcance_empresa',
+                    'portal.personal.ver',
                 ])->pluck('id'),
             );
         }

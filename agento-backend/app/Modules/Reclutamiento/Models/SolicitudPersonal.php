@@ -16,7 +16,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 #[Fillable([
     'empresa_id', 'area_id', 'solicitante_user_id', 'cargo', 'motivo', 'plazas', 'salario_min', 'salario_max',
     'moneda', 'tipo_contrato', 'modalidad', 'fecha_requerida', 'descripcion', 'actividades', 'justificacion',
-    'presupuesto', 'urgente', 'estado', 'enviada_at', 'decision_motivo', 'decidida_por', 'decidida_at',
+    'presupuesto', 'urgente', 'cobro_modalidad', 'cobro_monto', 'cobro_moneda', 'garantia_dias', 'condiciones_notas',
+    'estado', 'enviada_at', 'decision_motivo', 'decidida_por', 'decidida_at',
     'cancelacion_motivo', 'cancelada_por', 'cancelada_at',
 ])]
 class SolicitudPersonal extends Model
@@ -39,6 +40,9 @@ class SolicitudPersonal extends Model
 
     public const MODALIDADES = ['presencial', 'remoto', 'hibrido'];
 
+    /** Cómo cobra Agento el servicio de reclutamiento de esta solicitud. */
+    public const MODALIDADES_COBRO = ['monto_por_plaza', 'porcentaje_salario', 'monto_total'];
+
     protected $table = 'seleccion_solicitudes';
 
     protected function casts(): array
@@ -48,6 +52,8 @@ class SolicitudPersonal extends Model
             'salario_min' => 'decimal:2',
             'salario_max' => 'decimal:2',
             'presupuesto' => 'decimal:2',
+            'cobro_monto' => 'decimal:2',
+            'garantia_dias' => 'integer',
             'urgente' => 'boolean',
             'plazas' => 'integer',
             'enviada_at' => 'datetime',

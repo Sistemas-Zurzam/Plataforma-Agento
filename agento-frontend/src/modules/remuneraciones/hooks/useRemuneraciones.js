@@ -305,6 +305,16 @@ export function useRemuneraciones() {
     return data.data;
   }, []);
 
+  const previsualizarEnvioBoletas = useCallback(async (cicloId, boletaIds, reenviar = false) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/boletas/envio-correo/previsualizar`, { boleta_ids: boletaIds, reenviar });
+    return data.data;
+  }, []);
+
+  const enviarBoletasPorCorreo = useCallback(async (cicloId, boletaIds, reenviar = false) => {
+    const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/boletas/envio-correo`, { boleta_ids: boletaIds, reenviar });
+    return data.data;
+  }, []);
+
   const imprimirBoletasMasivo = useCallback(async (cicloId, boletaIds) => {
     const { data } = await api.post(`/ciclos-remunerativos/${cicloId}/boletas/imprimir-masivo`, { boleta_ids: boletaIds });
     return data.data;
@@ -766,6 +776,8 @@ export function useRemuneraciones() {
     exportarComplementariasMasivo,
     verBoleta,
     imprimirBoletasMasivo,
+    previsualizarEnvioBoletas,
+    enviarBoletasPorCorreo,
     aprobarBoleta,
     fetchIncidenciasPendientesAprobar,
     aprobarBoletasMasivo,

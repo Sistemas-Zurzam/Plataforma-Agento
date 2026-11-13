@@ -21,6 +21,7 @@ export const seleccionApi = {
     actualizar: (id, valores) => api.put(`/seleccion/solicitudes/${id}`, valores).then(datos),
     enviar: (id) => api.post(`/seleccion/solicitudes/${id}/enviar`).then(datos),
     decidir: (id, valores) => api.post(`/seleccion/solicitudes/${id}/decision`, valores).then(datos),
+    guardarCondiciones: (id, valores) => api.put(`/seleccion/solicitudes/${id}/condiciones`, valores).then(datos),
     impactoCancelacion: (id) => api.get(`/seleccion/solicitudes/${id}/impacto-cancelacion`).then(datos),
     cancelar: (id, motivo) => api.post(`/seleccion/solicitudes/${id}/cancelar`, { motivo }).then(completo),
   },

@@ -32,19 +32,22 @@ class MesaDeTrabajoPortal
     public function resumen(AlcancePortal $alcance): array
     {
         $hoy = Carbon::now(config('portal_cliente.zona_horaria_negocio'));
+        // Un indicador de un servicio no contratado se devuelve como null,
+        // igual que uno sin permiso.
+        $planilla = $alcance->empresa->tieneServicio('planilla');
 
         return [
             'generado_at' => now()->toDateTimeString(),
-            'horas_extra' => $this->horasExtra($alcance, $hoy),
-            'rotativos' => $this->rotativos($alcance, $hoy),
-            'personal' => $this->personal($alcance),
-            'ceses' => $alcance->puede('portal.ceses.solicitar') ? [
+            'horas_extra' => $planilla ? $this->horasExtra($alcance, $hoy) : null,
+            'rotativos' => $planilla ? $this->rotativos($alcance, $hoy) : null,
+            'personal' => $alcance->empresa->tieneServicio('reclutamiento') ? $this->personal($alcance) : null,
+            'ceses' => $planilla && $alcance->puede('portal.ceses.solicitar') ? [
                 'en_curso' => $this->cesesBase($alcance)
                     ->where(fn ($q) => $q->where('estado', SolicitudCese::ESTADO_ENVIADA)
                         ->orWhere(fn ($q) => $q->where('estado', SolicitudCese::ESTADO_APROBADA)->whereNull('ejecutada_at')))
                     ->count(),
             ] : null,
-            'bonos' => $alcance->puede('portal.bonos.proponer') ? [
+            'bonos' => $planilla && $alcance->puede('portal.bonos.proponer') ? [
                 'propuestos' => $alcance->restringirConPropias(PropuestaConcepto::query(), 'nomina_propuestas_concepto', 'propuesto_por')
                     ->where('estado', PropuestaConcepto::ESTADO_PROPUESTO)->count(),
             ] : null,
@@ -101,10 +104,11 @@ class MesaDeTrabajoPortal
      */
     private function personal(AlcancePortal $alcance): ?array
     {
-        if (! $alcance->puede('seleccion.solicitudes.crear') && ! $alcance->puede('seleccion.seguimiento')) {
+        if (! $alcance->puede('seleccion.solicitudes.crear') && ! $alcance->puede('seleccion.seguimiento')
+            && ! $alcance->puede('portal.personal.ver')) {
             return null;
         }
-        $alcanceSeleccion = AlcanceSeleccion::de($alcance->usuario);
+        $alcanceSeleccion = AlcanceSeleccion::paraPortal($alcance->usuario, $alcance->empresaCompleta);
         $base = SolicitudPersonal::query()
             ->where('empresa_id', $alcance->empresa->id)
             ->when(! $alcanceSeleccion->accesoTotal(), fn ($q) => $q->where(fn ($sub) => $sub

@@ -47,6 +47,8 @@ export default function EmpresaFormModal({
         seguro_salud: initialValues?.seguro_salud ?? 'essalud',
         descanso_flexible_automatico: initialValues?.descanso_flexible_automatico ?? false,
         bono_asistencia_habilitado: initialValues?.bono_asistencia_habilitado ?? false,
+        servicio_planilla: initialValues?.servicio_planilla ?? true,
+        servicio_reclutamiento: initialValues?.servicio_reclutamiento ?? false,
       });
     }
   }, [open, initialValues, form]);
@@ -177,6 +179,30 @@ export default function EmpresaFormModal({
           >
             <Select allowClear placeholder="Sin especificar" options={REGIMEN_OPTIONS} />
           </Form.Item>
+
+          <div className="mb-4 rounded-xl border border-gray-100 bg-gray-50 p-3">
+            <p className="mb-2 text-sm font-medium text-gray-900">Servicios contratados con Agento</p>
+            <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+              <Form.Item
+                label="Planilla"
+                name="servicio_planilla"
+                valuePropName="checked"
+                className="mb-2!"
+                extra="Personas, asistencia y nómina; secciones de equipo y asistencia del Portal de Empresa."
+              >
+                <Switch />
+              </Form.Item>
+              <Form.Item
+                label="Reclutamiento y selección"
+                name="servicio_reclutamiento"
+                valuePropName="checked"
+                className="mb-2!"
+                extra="Solicitudes de personal, procesos y portal de empleos. Sin planilla, las contrataciones se registran como colocación."
+              >
+                <Switch />
+              </Form.Item>
+            </div>
+          </div>
 
           <Form.Item label="Inscrita en REMYPE" name="inscrita_remype" valuePropName="checked">
             <Switch />

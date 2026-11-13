@@ -52,6 +52,28 @@ final class AlcanceSeleccion
         return new self($usuario, (int) $usuario->empresa_id, $esAdministrador, $permisos, $areaIds);
     }
 
+    /**
+     * Alcance para el Portal de Empresa. Con alcance de empresa completa
+     * (cliente con portal.alcance_empresa) se consideran todas las áreas de
+     * la empresa activa: es solo para consultar el avance, no otorga
+     * permisos de gestión de Selección.
+     */
+    public static function paraPortal(User $usuario, bool $empresaCompleta): self
+    {
+        $alcance = self::de($usuario);
+        if (! $empresaCompleta) {
+            return $alcance;
+        }
+
+        $todas = Area::withoutGlobalScope(EmpresaScope::class)
+            ->where('empresa_id', $usuario->empresa_id)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->all();
+
+        return new self($usuario, $alcance->empresaId, $alcance->esAdministrador, $alcance->permisos, $todas);
+    }
+
     public function puede(string $permiso): bool
     {
         return $this->esAdministrador || in_array($permiso, $this->permisos, true);

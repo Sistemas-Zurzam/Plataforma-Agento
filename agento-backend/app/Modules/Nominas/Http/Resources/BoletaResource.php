@@ -86,6 +86,8 @@ class BoletaResource extends JsonResource
             'aprobado_at' => $this->aprobado_at?->toDateTimeString(),
             'pagado_at' => $this->pagado_at?->toDateTimeString(),
             'referencia_pago' => $this->referencia_pago,
+            // Último envío de la boleta por correo (solo en el listado de la planilla, ver BoletaController::index).
+            'envio_correo' => $this->envio_correo,
             'comprobante_rh' => $this->whenLoaded('comprobanteRh', fn () => $this->comprobanteRh ? [
                 // Suma los conceptos de ingreso ya calculados — nunca se duplica como columna propia
                 // en boleta_comprobantes_rh (ver BoletaService::montoTotalServicioRh).

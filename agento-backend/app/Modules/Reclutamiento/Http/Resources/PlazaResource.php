@@ -25,6 +25,8 @@ class PlazaResource extends JsonResource
                 'legajo' => $this->colaborador->legajo,
                 'nombre' => "{$this->colaborador->nombres} {$this->colaborador->apellidos}",
             ] : null,
+            'fecha_ingreso' => $this->fecha_ingreso?->toDateString(),
+            'salario_acordado' => $this->salario_acordado,
             'cubierta_at' => $this->cubierta_at?->toIso8601String(),
             'cancelada_at' => $this->cancelada_at?->toIso8601String(),
             'motivo_cancelacion' => $this->motivo_cancelacion,

@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Modules\Asistencia\Support\FechaOperativa;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Nominas\Application\EnvioBoletas\EnviarBoletasPorCorreo;
 use App\Modules\Nominas\Application\ReporteEjecutivo\ConceptosEfectivosPorBoleta;
 use App\Modules\Nominas\Application\ReporteEjecutivo\ReporteEjecutivoRemuneracionesCalculador;
 use App\Modules\Nominas\Http\Resources\BoletaResource;
@@ -277,14 +278,18 @@ class BoletaController extends Controller
         }
     }
 
-    public function index(Request $request, CicloRemunerativo $ciclo): AnonymousResourceCollection
+    public function index(Request $request, CicloRemunerativo $ciclo, EnviarBoletasPorCorreo $envioCorreo): AnonymousResourceCollection
     {
         $empresa = $this->empresaAutorizadaDelCiclo($request, $ciclo);
         $tipo = $request->input('tipo');
+        $pagina = $this->boletas->listar($empresa, $ciclo, max(1, min((int) $request->input('per_page', 25), 100)), $tipo, $request->input('busqueda'));
 
-        return BoletaResource::collection(
-            $this->boletas->listar($empresa, $ciclo, max(1, min((int) $request->input('per_page', 25), 100)), $tipo, $request->input('busqueda')),
-        );
+        // Último envío por correo de cada colaborador de la página (columna "Correo" de la planilla).
+        $envios = $envioCorreo->ultimosEnvios($ciclo, $pagina->getCollection()->pluck('colaborador_id')->all());
+        $pagina->getCollection()->each(fn (Boleta $boleta) => $boleta->setAttribute('envio_correo',
+            ($envio = $envios->get($boleta->colaborador_id)) ? EnviarBoletasPorCorreo::presentarEnvio($envio, $boleta) : null));
+
+        return BoletaResource::collection($pagina);
     }
 
     public function idsExportables(Request $request, CicloRemunerativo $ciclo): JsonResponse

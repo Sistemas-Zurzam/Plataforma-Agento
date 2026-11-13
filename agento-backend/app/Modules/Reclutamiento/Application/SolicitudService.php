@@ -181,6 +181,33 @@ class SolicitudService
     }
 
     /**
+     * Condiciones comerciales acordadas con la empresa cliente. Solo las
+     * registra quien decide solicitudes en Agento; quedan en la bitácora.
+     */
+    public function registrarCondiciones(AlcanceSeleccion $alcance, SolicitudPersonal $solicitud, array $datos): SolicitudPersonal
+    {
+        $alcance->exigir('seleccion.solicitudes.decidir');
+        $this->autorizarLectura($alcance, $solicitud);
+
+        if (in_array($solicitud->estado, [SolicitudPersonal::RECHAZADA, SolicitudPersonal::CANCELADA], true)) {
+            throw ValidationException::withMessages(['estado' => 'La solicitud está cerrada: no se modifican sus condiciones.']);
+        }
+
+        $antes = $solicitud->getAttributes();
+        $solicitud->update([
+            'cobro_modalidad' => $datos['cobro_modalidad'] ?? null,
+            'cobro_monto' => $datos['cobro_monto'] ?? null,
+            'cobro_moneda' => $datos['cobro_moneda'] ?? null,
+            'garantia_dias' => $datos['garantia_dias'] ?? null,
+            'condiciones_notas' => $datos['condiciones_notas'] ?? null,
+        ]);
+        $this->actividad->registrar($alcance->empresaId, $solicitud, 'condiciones_registradas', $alcance->usuario->id, null,
+            RegistroActividad::diferencias($antes, $solicitud));
+
+        return $solicitud->refresh()->load(['area', 'habilidades', 'solicitante', 'proceso']);
+    }
+
+    /**
      * Cuántas candidaturas y plazas afectaría cancelar (se muestra antes de
      * confirmar).
      *

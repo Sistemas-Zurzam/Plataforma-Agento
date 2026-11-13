@@ -3,6 +3,7 @@
 namespace App\Modules\PortalCliente\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Modules\PortalCliente\Application\AlcancePortal;
 use App\Modules\Reclutamiento\Application\AlcanceSeleccion;
 use App\Modules\Reclutamiento\Application\SeguimientoSolicitudes;
 use App\Modules\Reclutamiento\Application\SolicitudService;
@@ -33,7 +34,8 @@ class PortalPersonalController extends Controller
             'per_page' => ['nullable', 'integer', 'min:1', 'max:50'],
         ]);
         $usuario = $request->user('api');
-        $paginado = $this->solicitudes->listar(AlcanceSeleccion::de($usuario), $filtros, $filtros['per_page'] ?? 15);
+        $alcance = AlcanceSeleccion::paraPortal($usuario, AlcancePortal::desdeRequest($request)->empresaCompleta);
+        $paginado = $this->solicitudes->listar($alcance, $filtros, $filtros['per_page'] ?? 15);
         $avance = $this->seguimiento->porSolicitudes((int) $usuario->empresa_id, $paginado->getCollection()->pluck('id')->all());
 
         return response()->json([

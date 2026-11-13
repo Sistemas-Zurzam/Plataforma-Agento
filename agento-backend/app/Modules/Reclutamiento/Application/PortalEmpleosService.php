@@ -60,6 +60,7 @@ class PortalEmpleosService
         $proceso = ProcesoSeleccion::query()
             ->where('codigo', $codigo)
             ->whereIn('estado', [ProcesoSeleccion::ABIERTO, ProcesoSeleccion::EN_PAUSA, ProcesoSeleccion::CUBIERTO, ProcesoSeleccion::CERRADO])
+            ->whereHas('empresa', fn ($empresa) => $empresa->where('servicio_reclutamiento', true))
             ->with(['empresa:id,nombre_comercial,logo_path', 'perfilVigente.requisitos', 'perfilVigente.competencias'])
             ->first();
 

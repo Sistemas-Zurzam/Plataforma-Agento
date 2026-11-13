@@ -106,7 +106,8 @@ class ProcesoSeleccion extends Model
     {
         return $query->where('publicacion_externa', true)
             ->whereNull('retirada_at')
-            ->whereIn('estado', [self::ABIERTO, self::EN_PAUSA]);
+            ->whereIn('estado', [self::ABIERTO, self::EN_PAUSA])
+            ->whereHas('empresa', fn (Builder $empresa) => $empresa->where('servicio_reclutamiento', true));
     }
 
     public function aceptaPostulaciones(): bool

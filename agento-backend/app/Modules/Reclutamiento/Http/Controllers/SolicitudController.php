@@ -3,6 +3,7 @@
 namespace App\Modules\Reclutamiento\Http\Controllers;
 
 use App\Modules\Reclutamiento\Application\SolicitudService;
+use App\Modules\Reclutamiento\Http\Requests\CondicionesSolicitudRequest;
 use App\Modules\Reclutamiento\Http\Requests\DecidirSolicitudRequest;
 use App\Modules\Reclutamiento\Http\Requests\GuardarSolicitudRequest;
 use App\Modules\Reclutamiento\Http\Requests\MotivoRequest;
@@ -59,6 +60,11 @@ class SolicitudController extends SeleccionController
         return new SolicitudResource($this->solicitudes->decidir(
             $this->alcance($request), $solicitud, $datos['accion'], $datos['motivo'] ?? null, $datos['reclutador_user_id'] ?? null,
         ));
+    }
+
+    public function condiciones(CondicionesSolicitudRequest $request, SolicitudPersonal $solicitud): SolicitudResource
+    {
+        return new SolicitudResource($this->solicitudes->registrarCondiciones($this->alcance($request), $solicitud, $request->validated()));
     }
 
     public function impactoCancelacion(Request $request, SolicitudPersonal $solicitud): JsonResponse

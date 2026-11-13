@@ -357,7 +357,11 @@ export default function PostulacionDrawer({ user, postulacionId, proceso, onCerr
           {p.estado === 'activa' && p.etapa === 'seleccion' && (
             <Button onClick={() => ejecutar(() => acciones.seleccionar(p.id), 'Candidatura seleccionada.').catch(() => {})}>Seleccionar</Button>
           )}
-          {p.estado === 'seleccionada' && puedeContratar && <Button type="primary" onClick={() => setModal({ tipo: 'contratar' })}>Contratar</Button>}
+          {p.estado === 'seleccionada' && puedeContratar && (
+            <Button type="primary" onClick={() => setModal({ tipo: 'contratar' })}>
+              {user?.empresa?.servicios?.planilla ? 'Contratar' : 'Registrar colocación'}
+            </Button>
+          )}
           {vigente && <Button danger onClick={() => setModal({ tipo: 'descartar' })}>Descartar</Button>}
           {vigente && <Button onClick={() => setModal({ tipo: 'retiro' })}>Registrar retiro</Button>}
           {p.estado === 'descartada' && <Button onClick={() => setModal({ tipo: 'reconsiderar' })}>Reconsiderar</Button>}
@@ -487,6 +491,7 @@ export default function PostulacionDrawer({ user, postulacionId, proceso, onCerr
         <ContratarModal
           postulacion={p}
           proceso={proceso ?? p.proceso}
+          colocacion={!user?.empresa?.servicios?.planilla}
           onContratar={acciones.contratar}
           onCerrar={(contratado) => {
             setModal(null);

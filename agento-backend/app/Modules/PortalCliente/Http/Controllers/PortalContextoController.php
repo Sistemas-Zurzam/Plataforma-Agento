@@ -31,7 +31,13 @@ class PortalContextoController extends Controller
                 ->filter(fn (string $clave) => str_starts_with($clave, 'portal.'))
                 ->values()
             : collect();
-        $verPersonal = $alcance->puede('seleccion.solicitudes.crear') || $alcance->puede('seleccion.seguimiento');
+        // Cada sección exige el permiso Y el servicio contratado por la
+        // empresa (planilla o reclutamiento); las rutas lo vuelven a validar.
+        $servicios = $empresa->servicios();
+        $planilla = fn (bool $permitido): bool => $permitido && $servicios['planilla'];
+        $reclutamiento = fn (bool $permitido): bool => $permitido && $servicios['reclutamiento'];
+        $verPersonal = $alcance->puede('seleccion.solicitudes.crear') || $alcance->puede('seleccion.seguimiento')
+            || $alcance->puede('portal.personal.ver');
 
         return response()->json([
             'data' => [
@@ -43,20 +49,21 @@ class PortalContextoController extends Controller
                 'rol_actual' => $rol?->clave,
                 'es_portal_cliente' => $rol?->clave === Role::CLIENTE_EMPRESA,
                 'permisos' => $permisosPortal,
+                'servicios' => $servicios,
                 'alcance' => $alcance->empresaCompleta ? 'empresa' : 'areas',
                 'areas' => $alcance->areasAutorizadas(),
                 'capacidades' => [
                     'inicio' => $alcance->puede('portal.acceder'),
-                    'equipo' => $alcance->puede('portal.asistencia.ver'),
-                    'horas_extra_ver' => $alcance->puede('portal.horas_extra.ver'),
-                    'horas_extra_aprobar' => $alcance->puede('portal.horas_extra.aprobar'),
-                    'permisos_ver' => $alcance->puede('portal.permisos.ver'),
-                    'permisos_solicitar' => $alcance->puede('portal.permisos.solicitar'),
-                    'planificacion' => $alcance->puede('portal.planificacion.gestionar'),
-                    'bonos' => $alcance->puede('portal.bonos.proponer'),
-                    'ceses' => $alcance->puede('portal.ceses.solicitar'),
-                    'personal' => $verPersonal,
-                    'personal_crear' => $alcance->puede('seleccion.solicitudes.crear'),
+                    'equipo' => $planilla($alcance->puede('portal.asistencia.ver')),
+                    'horas_extra_ver' => $planilla($alcance->puede('portal.horas_extra.ver')),
+                    'horas_extra_aprobar' => $planilla($alcance->puede('portal.horas_extra.aprobar')),
+                    'permisos_ver' => $planilla($alcance->puede('portal.permisos.ver')),
+                    'permisos_solicitar' => $planilla($alcance->puede('portal.permisos.solicitar')),
+                    'planificacion' => $planilla($alcance->puede('portal.planificacion.gestionar')),
+                    'bonos' => $planilla($alcance->puede('portal.bonos.proponer')),
+                    'ceses' => $planilla($alcance->puede('portal.ceses.solicitar')),
+                    'personal' => $reclutamiento($verPersonal),
+                    'personal_crear' => $reclutamiento($alcance->puede('seleccion.solicitudes.crear')),
                     'vacaciones' => false,
                     'informes_correo' => false,
                 ],

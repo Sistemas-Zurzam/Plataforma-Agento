@@ -2,10 +2,11 @@ import { PlusOutlined } from '@ant-design/icons';
 import { App, Button, Descriptions, Dropdown, Input, Select, Table, Tag } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
+import CondicionesComercialesModal from '../components/CondicionesComercialesModal';
 import EstadoSeccion from '../components/EstadoSeccion';
 import MotivoModal from '../components/MotivoModal';
 import SolicitudFormModal from '../components/SolicitudFormModal';
-import { ESTADOS_SOLICITUD, MODALIDADES, MOTIVOS_SOLICITUD, TIPOS_CONTRATO, etiquetaDe, mensajeDeError, tiene } from '../constants/seleccion';
+import { ESTADOS_SOLICITUD, MODALIDADES, MODALIDADES_COBRO, MOTIVOS_SOLICITUD, TIPOS_CONTRATO, etiquetaDe, mensajeDeError, tiene } from '../constants/seleccion';
 import { useReferenciasSolicitud, useSolicitudes, useUsuariosSeleccion } from '../hooks/useSeleccion';
 
 export default function SolicitudesPage({ user, onAbrirProceso }) {
@@ -24,6 +25,7 @@ export default function SolicitudesPage({ user, onAbrirProceso }) {
   const [formulario, setFormulario] = useState({ abierto: false, solicitud: null });
   const [decision, setDecision] = useState(null);
   const [cancelacion, setCancelacion] = useState(null);
+  const [condiciones, setCondiciones] = useState(null);
 
   const ejecutar = async (accion, exito) => {
     try {
@@ -56,6 +58,9 @@ export default function SolicitudesPage({ user, onAbrirProceso }) {
     if (s.estado === 'enviada' && puedeDecidir) {
       items.push({ key: 'aceptar', label: 'Aceptar' }, { key: 'devolver', label: 'Devolver' }, { key: 'rechazar', label: 'Rechazar', danger: true });
     }
+    if (puedeDecidir && !['rechazada', 'cancelada'].includes(s.estado)) {
+      items.push({ key: 'condiciones', label: 'Condiciones comerciales' });
+    }
     if (['borrador', 'devuelta', 'enviada'].includes(s.estado) && (propia || puedeGestionar)) {
       items.push({ key: 'cancelar', label: 'Cancelar', danger: true });
     }
@@ -70,6 +75,7 @@ export default function SolicitudesPage({ user, onAbrirProceso }) {
     if (key === 'enviar') ejecutar(() => acciones.enviar(s.id), 'Solicitud enviada.').catch(() => {});
     if (['aceptar', 'devolver', 'rechazar'].includes(key)) setDecision({ solicitud: s, accion: key });
     if (key === 'cancelar') abrirCancelacion(s);
+    if (key === 'condiciones') setCondiciones(s);
   };
 
   const columnas = [
@@ -152,6 +158,14 @@ export default function SolicitudesPage({ user, onAbrirProceso }) {
                 )}
                 {s.decision_motivo && <Descriptions.Item label="Motivo de la decisión" span={2}>{s.decision_motivo}</Descriptions.Item>}
                 {s.cancelacion_motivo && <Descriptions.Item label="Motivo de cancelación" span={2}>{s.cancelacion_motivo}</Descriptions.Item>}
+                {s.condiciones?.cobro_modalidad && (
+                  <Descriptions.Item label="Condiciones comerciales" span={2}>
+                    {etiquetaDe(MODALIDADES_COBRO, s.condiciones.cobro_modalidad)}:{' '}
+                    {s.condiciones.cobro_modalidad === 'porcentaje_salario' ? `${s.condiciones.cobro_monto}%` : `${s.condiciones.cobro_moneda} ${s.condiciones.cobro_monto}`}
+                    {s.condiciones.garantia_dias != null && ` · garantía ${s.condiciones.garantia_dias} días`}
+                    {s.condiciones.notas && ` · ${s.condiciones.notas}`}
+                  </Descriptions.Item>
+                )}
               </Descriptions>
             ),
           }}
@@ -216,6 +230,14 @@ export default function SolicitudesPage({ user, onAbrirProceso }) {
         onConfirmar={async ({ motivo }) => {
           await ejecutar(() => acciones.cancelar(cancelacion.solicitud.id, motivo || undefined), 'Solicitud cancelada.');
           setCancelacion(null);
+        }}
+      />
+      <CondicionesComercialesModal
+        solicitud={condiciones}
+        onGuardar={acciones.guardarCondiciones}
+        onCerrar={(guardado) => {
+          setCondiciones(null);
+          if (guardado) recargar();
         }}
       />
     </div>

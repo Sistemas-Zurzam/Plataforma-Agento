@@ -28,7 +28,8 @@ use Illuminate\Support\Facades\Route;
 
 $alguno = fn (string ...$permisos) => ExigirAlgunPermiso::class.':'.implode(',', $permisos);
 
-Route::middleware('jwt')->prefix('seleccion')->group(function () use ($alguno) {
+// Solo empresas con el servicio de reclutamiento contratado.
+Route::middleware(['jwt', 'servicio:reclutamiento'])->prefix('seleccion')->group(function () use ($alguno) {
     $verSolicitudes = $alguno('seleccion.solicitudes.crear', 'seleccion.solicitudes.decidir', 'seleccion.seguimiento', 'seleccion.vacantes.gestionar');
     $verProcesos = $alguno('seleccion.seguimiento', 'seleccion.vacantes.gestionar', 'seleccion.candidatos.gestionar', 'seleccion.evaluaciones.gestionar');
     $gestionarCandidatos = $alguno('seleccion.candidatos.gestionar');
@@ -47,6 +48,7 @@ Route::middleware('jwt')->prefix('seleccion')->group(function () use ($alguno) {
     Route::put('/solicitudes/{solicitud}', [SolicitudController::class, 'update'])->middleware('permiso:seleccion.solicitudes.crear');
     Route::post('/solicitudes/{solicitud}/enviar', [SolicitudController::class, 'enviar'])->middleware('permiso:seleccion.solicitudes.crear');
     Route::post('/solicitudes/{solicitud}/decision', [SolicitudController::class, 'decidir'])->middleware('permiso:seleccion.solicitudes.decidir');
+    Route::put('/solicitudes/{solicitud}/condiciones', [SolicitudController::class, 'condiciones'])->middleware('permiso:seleccion.solicitudes.decidir');
     Route::get('/solicitudes/{solicitud}/impacto-cancelacion', [SolicitudController::class, 'impactoCancelacion'])->middleware($verSolicitudes);
     Route::post('/solicitudes/{solicitud}/cancelar', [SolicitudController::class, 'cancelar'])->middleware($alguno('seleccion.solicitudes.crear', 'seleccion.solicitudes.decidir', 'seleccion.vacantes.gestionar'));
 

@@ -11,8 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 #[ScopedBy([EmpresaScope::class])]
 #[Fillable([
-    'empresa_id', 'proceso_id', 'numero', 'estado', 'postulacion_id', 'colaborador_id', 'cubierta_at',
-    'cancelada_at', 'motivo_cancelacion',
+    'empresa_id', 'proceso_id', 'numero', 'estado', 'postulacion_id', 'colaborador_id', 'fecha_ingreso',
+    'salario_acordado', 'cubierta_at', 'cancelada_at', 'motivo_cancelacion',
 ])]
 class Plaza extends Model
 {
@@ -26,7 +26,13 @@ class Plaza extends Model
 
     protected function casts(): array
     {
-        return ['cubierta_at' => 'datetime', 'cancelada_at' => 'datetime', 'numero' => 'integer'];
+        return [
+            'cubierta_at' => 'datetime',
+            'cancelada_at' => 'datetime',
+            'numero' => 'integer',
+            'fecha_ingreso' => 'date',
+            'salario_acordado' => 'decimal:2',
+        ];
     }
 
     public function proceso(): BelongsTo

@@ -61,6 +61,12 @@ export const MODALIDADES = [
   { value: 'hibrido', label: 'Híbrido' },
 ];
 
+export const MODALIDADES_COBRO = [
+  { value: 'monto_por_plaza', label: 'Monto por plaza cubierta' },
+  { value: 'porcentaje_salario', label: '% del salario mensual' },
+  { value: 'monto_total', label: 'Monto total del servicio' },
+];
+
 export const CAUSAS_DESCARTE = [
   { value: 'no_cumple_requisitos', label: 'No cumple requisitos' },
   { value: 'bajo_puntaje', label: 'Bajo puntaje' },

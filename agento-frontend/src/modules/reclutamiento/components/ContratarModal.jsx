@@ -10,13 +10,13 @@ const REGIMENES = ['General', 'Micro Empresa', 'Pequeña Empresa', 'Locacion de 
  * con ficha incompleta, cubre una plaza y genera tareas para Nóminas.
  * Nombres, documento, correo, cargo, área y empresa vienen de la candidatura.
  */
-export default function ContratarModal({ postulacion, proceso, onContratar, onCerrar }) {
+export default function ContratarModal({ postulacion, proceso, colocacion = false, onContratar, onCerrar }) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [enviando, setEnviando] = useState(false);
   const [cesado, setCesado] = useState(null);
   const [resultado, setResultado] = useState(null);
-  const opciones = useOpcionesContratacion(Boolean(postulacion));
+  const opciones = useOpcionesContratacion(Boolean(postulacion) && !colocacion);
   const tipoTrabajador = Form.useWatch('tipo_trabajador', form);
   const confianza = Form.useWatch('es_trabajador_confianza', form);
 
@@ -51,6 +51,50 @@ export default function ContratarModal({ postulacion, proceso, onContratar, onCe
       setEnviando(false);
     }
   };
+
+  if (resultado?.colocacion) {
+    return (
+      <Modal open title="Colocación registrada" footer={null} onCancel={() => onCerrar(true)}>
+        <Result
+          status="success"
+          title={resultado.candidato.nombre}
+          subTitle={`Plaza ${resultado.plaza.numero} cubierta. Proceso: ${resultado.proceso.estado}. El ingreso a planilla lo gestiona la empresa cliente.`}
+        />
+      </Modal>
+    );
+  }
+
+  if (colocacion) {
+    return (
+      <Modal
+        open={Boolean(postulacion)}
+        title={`Registrar colocación de ${postulacion?.candidato?.nombre ?? ''}`}
+        okText="Registrar colocación"
+        cancelText="Cancelar"
+        onOk={contratar}
+        okButtonProps={{ loading: enviando }}
+        onCancel={() => onCerrar(false)}
+        destroyOnHidden
+      >
+        <Alert
+          type="info"
+          showIcon
+          className="mb-4"
+          message="Esta empresa solo contrató reclutamiento con Agento: se cubrirá una plaza sin dar de alta al colaborador en Personas ni en Nóminas."
+        />
+        <Form form={form} layout="vertical">
+          <div className="grid grid-cols-1 gap-x-4 sm:grid-cols-2">
+            <Form.Item name="fecha_ingreso" label="Fecha de ingreso" rules={[{ required: true, message: 'Indica la fecha de ingreso.' }]}>
+              <DatePicker format="DD/MM/YYYY" className="w-full!" />
+            </Form.Item>
+            <Form.Item name="salario" label="Salario acordado (S/)" rules={[{ required: true, message: 'Indica el salario acordado.' }]}>
+              <InputNumber min={0} className="w-full!" />
+            </Form.Item>
+          </div>
+        </Form>
+      </Modal>
+    );
+  }
 
   if (resultado) {
     return (

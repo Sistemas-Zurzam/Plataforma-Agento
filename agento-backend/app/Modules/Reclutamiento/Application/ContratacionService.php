@@ -11,6 +11,7 @@ use App\Modules\Personas\Services\ColaboradorService;
 use App\Modules\Reclutamiento\Domain\Contracts\IniciadorOnboarding;
 use App\Modules\Reclutamiento\Domain\FlujoPostulacion;
 use App\Modules\Reclutamiento\Domain\TransicionInvalidaException;
+use App\Modules\Reclutamiento\Models\Candidato;
 use App\Modules\Reclutamiento\Models\Plaza;
 use App\Modules\Reclutamiento\Models\Postulacion;
 use App\Modules\Reclutamiento\Models\ProcesoSeleccion;
@@ -71,6 +72,14 @@ class ContratacionService
             }
 
             $candidato = $bloqueada->candidato()->firstOrFail();
+
+            // Empresa que solo contrata reclutamiento: el trabajador ingresa a
+            // la planilla del cliente, fuera de Agento. Se cubre la plaza sin
+            // crear colaborador en Personas ni tareas para Nóminas.
+            if (! $empresa->tieneServicio('planilla')) {
+                return $this->colocar($alcance, $bloqueada, $estado, $proceso, $plaza, $candidato, $datos);
+            }
+
             $tipoDocumento = $datos['tipo_documento'] ?? $candidato->tipo_documento;
             $numeroDocumento = $datos['numero_documento'] ?? $candidato->numero_documento;
             if (blank($tipoDocumento) || blank($numeroDocumento)) {
@@ -83,6 +92,8 @@ class ContratacionService
                 'estado' => Plaza::CUBIERTA,
                 'postulacion_id' => $bloqueada->id,
                 'colaborador_id' => $colaborador->id,
+                'fecha_ingreso' => $datos['fecha_ingreso'],
+                'salario_acordado' => $datos['salario'],
                 'cubierta_at' => now(),
             ]);
 
@@ -122,6 +133,7 @@ class ContratacionService
             return [
                 'postulacion' => $bloqueada->refresh(),
                 'plaza' => $plaza->refresh(),
+                'colocacion' => false,
                 'colaborador' => ['id' => $colaborador->id, 'legajo' => $colaborador->legajo, 'nombre' => "{$colaborador->nombres} {$colaborador->apellidos}"],
                 'ficha_incompleta' => $esReingreso ? null : $faltantes !== [],
                 'faltantes' => $esReingreso ? [] : $faltantes,
@@ -131,6 +143,48 @@ class ContratacionService
                 'proceso' => ['estado' => $proceso->refresh()->estado],
             ];
         });
+    }
+
+    /**
+     * Colocación (empresa sin servicio de planilla): misma protección de
+     * concurrencia que la contratación (postulación y plaza ya bloqueadas por
+     * el llamador), pero sin alta en Personas, período de prueba ni tareas.
+     *
+     * @return array<string, mixed>
+     */
+    private function colocar(AlcanceSeleccion $alcance, Postulacion $postulacion, string $estado, ProcesoSeleccion $proceso, Plaza $plaza, Candidato $candidato, array $datos): array
+    {
+        $plaza->update([
+            'estado' => Plaza::CUBIERTA,
+            'postulacion_id' => $postulacion->id,
+            'fecha_ingreso' => $datos['fecha_ingreso'],
+            'salario_acordado' => $datos['salario'],
+            'cubierta_at' => now(),
+        ]);
+
+        $estadoAnterior = $postulacion->estado;
+        $postulacion->update(['estado' => $estado, 'contratada_at' => now()]);
+        $this->postulaciones->registrarMovimiento($postulacion, $postulacion->etapa, $estadoAnterior, 'Colocación en la empresa cliente', $alcance->usuario->id);
+
+        $this->procesos->verificarCobertura($proceso->refresh(), $alcance->usuario->id);
+        $this->etiquetas->aplicar($postulacion->empresa_id, $candidato->id, 'contratado');
+        $this->actividad->registrar($postulacion->empresa_id, $postulacion, 'postulacion_colocada', $alcance->usuario->id, null, [
+            'plaza' => $plaza->numero, 'fecha_ingreso' => $datos['fecha_ingreso'],
+        ]);
+
+        return [
+            'postulacion' => $postulacion->refresh(),
+            'plaza' => $plaza->refresh(),
+            'colocacion' => true,
+            'colaborador' => null,
+            'candidato' => ['id' => $candidato->id, 'nombre' => $candidato->nombreCompleto()],
+            'ficha_incompleta' => null,
+            'faltantes' => [],
+            'reingreso' => false,
+            'periodo_prueba' => null,
+            'onboarding' => null,
+            'proceso' => ['estado' => $proceso->refresh()->estado],
+        ];
     }
 
     /**

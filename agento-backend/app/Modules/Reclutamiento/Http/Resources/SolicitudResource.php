@@ -2,6 +2,7 @@
 
 namespace App\Modules\Reclutamiento\Http\Resources;
 
+use App\Modules\Reclutamiento\Application\AlcanceSeleccion;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -32,6 +33,15 @@ class SolicitudResource extends JsonResource
             'justificacion' => $this->justificacion,
             'presupuesto' => $this->presupuesto,
             'urgente' => $this->urgente,
+            // Condiciones comerciales: solo para quien decide solicitudes en
+            // Agento (ni gerencia del cliente ni el portal las reciben).
+            'condiciones' => $this->when($this->veCondiciones($request), fn () => [
+                'cobro_modalidad' => $this->cobro_modalidad,
+                'cobro_monto' => $this->cobro_monto,
+                'cobro_moneda' => $this->cobro_moneda,
+                'garantia_dias' => $this->garantia_dias,
+                'notas' => $this->condiciones_notas,
+            ]),
             'estado' => $this->estado,
             'editable' => $this->editable(),
             'enviada_at' => $this->enviada_at?->toIso8601String(),
@@ -45,5 +55,12 @@ class SolicitudResource extends JsonResource
             ] : null),
             'created_at' => $this->created_at?->toIso8601String(),
         ];
+    }
+
+    private function veCondiciones(Request $request): bool
+    {
+        $alcance = $request->attributes->get('alcance_seleccion');
+
+        return $alcance instanceof AlcanceSeleccion && $alcance->puede('seleccion.solicitudes.decidir');
     }
 }

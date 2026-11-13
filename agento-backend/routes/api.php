@@ -20,6 +20,7 @@ use App\Modules\Configuracion\Http\Controllers\SedeController;
 use App\Modules\Configuracion\Http\Controllers\UsuarioController;
 use App\Modules\Nominas\Http\Controllers\BeneficioSocialController;
 use App\Modules\Nominas\Http\Controllers\BoletaController;
+use App\Modules\Nominas\Http\Controllers\EnvioBoletaController;
 use App\Modules\Nominas\Http\Controllers\BonoAsistenciaController;
 use App\Modules\Nominas\Http\Controllers\CicloRemunerativoController;
 use App\Modules\Nominas\Http\Controllers\ConceptoDefinicionPlameController;
@@ -61,39 +62,45 @@ Route::middleware('jwt')->group(function () {
         Route::get('/contexto', [PortalContextoController::class, 'contexto'])->middleware('permiso:portal.acceder');
         Route::get('/inicio', [PortalInicioController::class, 'inicio'])->middleware('permiso:portal.acceder');
 
+        // Reclutamiento: avance de solicitudes de personal (GER crea; el
+        // cliente con portal.personal.ver solo consulta).
+        Route::get('/personal/solicitudes', [PortalPersonalController::class, 'index'])
+            ->middleware(['servicio:reclutamiento', ExigirAlgunPermiso::class.':seleccion.solicitudes.crear,seleccion.seguimiento,portal.personal.ver']);
+
         // Portal de Empresa (GER): toda operación se limita al alcance
         // (empresa del JWT + áreas autorizadas) dentro de cada caso de uso.
-        Route::patch('/horas-extra/{horaExtra}/decision', [PortalHorasExtraController::class, 'decidir'])
-            ->whereNumber('horaExtra')->middleware('permiso:portal.horas_extra.aprobar');
-        Route::get('/permisos/tipos', [PortalPermisosController::class, 'tipos'])->middleware('permiso:portal.permisos.solicitar');
-        Route::post('/permisos', [PortalPermisosController::class, 'solicitar'])->middleware('permiso:portal.permisos.solicitar');
-        Route::get('/planificacion', [PortalPlanificacionController::class, 'semana'])->middleware('permiso:portal.planificacion.gestionar');
-        Route::put('/planificacion', [PortalPlanificacionController::class, 'guardar'])->middleware('permiso:portal.planificacion.gestionar');
-        Route::get('/bonos/ciclos', [PortalBonosController::class, 'ciclos'])->middleware('permiso:portal.bonos.proponer');
-        Route::get('/bonos', [PortalBonosController::class, 'index'])->middleware('permiso:portal.bonos.proponer');
-        Route::post('/bonos', [PortalBonosController::class, 'store'])->middleware('permiso:portal.bonos.proponer');
-        Route::get('/ceses', [PortalCesesController::class, 'index'])->middleware('permiso:portal.ceses.solicitar');
-        Route::post('/ceses', [PortalCesesController::class, 'store'])->middleware('permiso:portal.ceses.solicitar');
-        Route::get('/ceses/{solicitud}', [PortalCesesController::class, 'show'])->whereNumber('solicitud')->middleware('permiso:portal.ceses.solicitar');
-        Route::get('/ceses/{solicitud}/evidencias/{evidencia}', [PortalCesesController::class, 'evidencia'])
-            ->whereNumber(['solicitud', 'evidencia'])->middleware('permiso:portal.ceses.solicitar');
-        Route::get('/personal/solicitudes', [PortalPersonalController::class, 'index'])
-            ->middleware(ExigirAlgunPermiso::class.':seleccion.solicitudes.crear,seleccion.seguimiento');
+        // Secciones del servicio de planilla.
+        Route::middleware('servicio:planilla')->group(function () {
+            Route::patch('/horas-extra/{horaExtra}/decision', [PortalHorasExtraController::class, 'decidir'])
+                ->whereNumber('horaExtra')->middleware('permiso:portal.horas_extra.aprobar');
+            Route::get('/permisos/tipos', [PortalPermisosController::class, 'tipos'])->middleware('permiso:portal.permisos.solicitar');
+            Route::post('/permisos', [PortalPermisosController::class, 'solicitar'])->middleware('permiso:portal.permisos.solicitar');
+            Route::get('/planificacion', [PortalPlanificacionController::class, 'semana'])->middleware('permiso:portal.planificacion.gestionar');
+            Route::put('/planificacion', [PortalPlanificacionController::class, 'guardar'])->middleware('permiso:portal.planificacion.gestionar');
+            Route::get('/bonos/ciclos', [PortalBonosController::class, 'ciclos'])->middleware('permiso:portal.bonos.proponer');
+            Route::get('/bonos', [PortalBonosController::class, 'index'])->middleware('permiso:portal.bonos.proponer');
+            Route::post('/bonos', [PortalBonosController::class, 'store'])->middleware('permiso:portal.bonos.proponer');
+            Route::get('/ceses', [PortalCesesController::class, 'index'])->middleware('permiso:portal.ceses.solicitar');
+            Route::post('/ceses', [PortalCesesController::class, 'store'])->middleware('permiso:portal.ceses.solicitar');
+            Route::get('/ceses/{solicitud}', [PortalCesesController::class, 'show'])->whereNumber('solicitud')->middleware('permiso:portal.ceses.solicitar');
+            Route::get('/ceses/{solicitud}/evidencias/{evidencia}', [PortalCesesController::class, 'evidencia'])
+                ->whereNumber(['solicitud', 'evidencia'])->middleware('permiso:portal.ceses.solicitar');
 
-        Route::prefix('asistencia')->group(function () {
-            Route::get('/resumen', [PortalAsistenciaController::class, 'resumen'])->middleware('permiso:portal.asistencia.ver');
-            Route::get('/colaboradores', [PortalAsistenciaController::class, 'colaboradores'])->middleware('permiso:portal.asistencia.ver');
-            Route::get('/equipo-mensual', [PortalAsistenciaController::class, 'equipoMensual'])->middleware('permiso:portal.asistencia.ver');
-            Route::get('/colaboradores/{colaborador}', [PortalAsistenciaController::class, 'colaborador'])->middleware('permiso:portal.asistencia.ver');
-            Route::get('/colaboradores/{colaborador}/calendario', [PortalAsistenciaController::class, 'calendario'])->middleware('permiso:portal.asistencia.ver');
-            Route::get('/colaboradores/{colaborador}/marcaciones', [PortalAsistenciaController::class, 'marcaciones'])->middleware('permiso:portal.asistencia.ver');
-            Route::get('/colaboradores/{colaborador}/incidencias', [PortalAsistenciaController::class, 'incidencias'])->middleware('permiso:portal.asistencia.ver');
-            Route::get('/colaboradores/{colaborador}/horas-extra', [PortalAsistenciaController::class, 'horasExtra'])->middleware('permiso:portal.horas_extra.ver');
-            Route::get('/colaboradores/{colaborador}/permisos', [PortalAsistenciaController::class, 'permisos'])->middleware('permiso:portal.permisos.ver');
-            Route::get('/colaboradores/{colaborador}/historial', [PortalAsistenciaController::class, 'historial'])->middleware('permiso:portal.asistencia.ver');
-            Route::get('/incidencias', [PortalAsistenciaListadosController::class, 'incidencias'])->middleware('permiso:portal.asistencia.ver');
-            Route::get('/horas-extra', [PortalAsistenciaListadosController::class, 'horasExtra'])->middleware('permiso:portal.horas_extra.ver');
-            Route::get('/permisos', [PortalAsistenciaListadosController::class, 'permisos'])->middleware('permiso:portal.permisos.ver');
+            Route::prefix('asistencia')->group(function () {
+                Route::get('/resumen', [PortalAsistenciaController::class, 'resumen'])->middleware('permiso:portal.asistencia.ver');
+                Route::get('/colaboradores', [PortalAsistenciaController::class, 'colaboradores'])->middleware('permiso:portal.asistencia.ver');
+                Route::get('/equipo-mensual', [PortalAsistenciaController::class, 'equipoMensual'])->middleware('permiso:portal.asistencia.ver');
+                Route::get('/colaboradores/{colaborador}', [PortalAsistenciaController::class, 'colaborador'])->middleware('permiso:portal.asistencia.ver');
+                Route::get('/colaboradores/{colaborador}/calendario', [PortalAsistenciaController::class, 'calendario'])->middleware('permiso:portal.asistencia.ver');
+                Route::get('/colaboradores/{colaborador}/marcaciones', [PortalAsistenciaController::class, 'marcaciones'])->middleware('permiso:portal.asistencia.ver');
+                Route::get('/colaboradores/{colaborador}/incidencias', [PortalAsistenciaController::class, 'incidencias'])->middleware('permiso:portal.asistencia.ver');
+                Route::get('/colaboradores/{colaborador}/horas-extra', [PortalAsistenciaController::class, 'horasExtra'])->middleware('permiso:portal.horas_extra.ver');
+                Route::get('/colaboradores/{colaborador}/permisos', [PortalAsistenciaController::class, 'permisos'])->middleware('permiso:portal.permisos.ver');
+                Route::get('/colaboradores/{colaborador}/historial', [PortalAsistenciaController::class, 'historial'])->middleware('permiso:portal.asistencia.ver');
+                Route::get('/incidencias', [PortalAsistenciaListadosController::class, 'incidencias'])->middleware('permiso:portal.asistencia.ver');
+                Route::get('/horas-extra', [PortalAsistenciaListadosController::class, 'horasExtra'])->middleware('permiso:portal.horas_extra.ver');
+                Route::get('/permisos', [PortalAsistenciaListadosController::class, 'permisos'])->middleware('permiso:portal.permisos.ver');
+            });
         });
     });
 
@@ -313,6 +320,8 @@ Route::middleware('jwt')->group(function () {
     Route::get('/boletas/{boleta}/incidencias-pendientes-aprobar', [BoletaController::class, 'incidenciasPendientesAprobar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/aprobar', [BoletaController::class, 'aprobar'])->middleware('permiso:nominas.aprobar');
     Route::post('/ciclos-remunerativos/{ciclo}/boletas/incidencias-pendientes-aprobar-masivo', [BoletaController::class, 'incidenciasPendientesAprobarMasivo'])->middleware('permiso:nominas.aprobar');
+    Route::post('/ciclos-remunerativos/{ciclo}/boletas/envio-correo/previsualizar', [EnvioBoletaController::class, 'previsualizar'])->middleware('permiso:nominas.aprobar');
+    Route::post('/ciclos-remunerativos/{ciclo}/boletas/envio-correo', [EnvioBoletaController::class, 'enviar'])->middleware('permiso:nominas.aprobar');
     Route::patch('/ciclos-remunerativos/{ciclo}/boletas/aprobar-masivo', [BoletaController::class, 'aprobarMasivo'])->middleware('permiso:nominas.aprobar');
     Route::patch('/boletas/{boleta}/pagar', [BoletaController::class, 'marcarPagada'])->middleware('permiso:nominas.pagar');
     Route::patch('/ciclos-remunerativos/{ciclo}/boletas/pagar-masivo', [BoletaController::class, 'pagarMasivo'])->middleware('permiso:nominas.pagar');

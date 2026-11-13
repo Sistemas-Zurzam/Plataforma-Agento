@@ -14,6 +14,7 @@ import {
   FileProtectOutlined,
   FileTextOutlined,
   LockOutlined,
+  MailOutlined,
   PlusOutlined,
   PrinterOutlined,
   ReloadOutlined,
@@ -47,6 +48,7 @@ import RegistrarConceptoModal from '../../modules/remuneraciones/components/Regi
 import AgregarHorasExtraBoletaModal from '../../modules/remuneraciones/components/AgregarHorasExtraBoletaModal';
 import ResumenContableModal from '../../modules/remuneraciones/components/ResumenContableModal';
 import ReporteComisionesHeModal from '../../modules/remuneraciones/components/ReporteComisionesHeModal';
+import EnviarBoletasCorreoModal from '../../modules/remuneraciones/components/EnviarBoletasCorreoModal';
 import TelecreditoBcpModal from '../../modules/remuneraciones/components/TelecreditoBcpModal';
 import { useRemuneraciones } from '../../modules/remuneraciones/hooks/useRemuneraciones';
 import { colorForName, initialsForName } from '../../utils/avatarColor';
@@ -93,6 +95,28 @@ const ACCIONES_PROXIMAMENTE = [
   { key: 'pagos', label: 'Pagos Masivos', icon: <SendOutlined /> },
   { key: 'contratos', label: 'Contratos', icon: <FileTextOutlined /> },
 ];
+
+// Último envío de la boleta por correo en este ciclo (ver BoletaController::index).
+function EstadoEnvioCorreo({ envio, boleta }) {
+  if (!envio) {
+    // Solo se envían boletas pagadas; los locadores tienen recibo por honorarios, no boleta.
+    const aplica = boleta.estado === 'pagada' && boleta.regimen_laboral !== 'Locacion de Servicios';
+    return <span className="text-xs text-gray-400">{aplica ? 'Sin enviar' : '—'}</span>;
+  }
+  if (envio.estado === 'pendiente') return <Tag color="blue">En cola</Tag>;
+  if (envio.estado === 'fallido') {
+    return <Tooltip title={envio.error}><Tag color="red">Fallido</Tag></Tooltip>;
+  }
+  const fecha = envio.enviado_at ? new Date(envio.enviado_at.replace(' ', 'T')).toLocaleString('es-PE', { dateStyle: 'short', timeStyle: 'short' }) : '';
+  if (envio.desactualizada) {
+    return (
+      <Tooltip title={`Se envió el ${fecha} y la boleta cambió después. Vuelve a enviarla.`}>
+        <Tag color="orange">Desactualizada</Tag>
+      </Tooltip>
+    );
+  }
+  return <Tooltip title={`Enviada el ${fecha}`}><Tag color="green">Enviada</Tag></Tooltip>;
+}
 
 function regimenLabel(regimen) {
   if (regimen === 'Locacion de Servicios') return 'Honorarios';
@@ -224,7 +248,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     ciclos, ciclosLoading, fetchCiclos, crearCiclo, actualizarCiclo, actualizarCorteAsistencia, eliminarCiclo, calcularPlanilla, fetchEstadoCalculo, cerrarCiclo, reabrirCiclo, marcarCicloPagado,
     boletas, boletasLoading, pagination, fetchBoletas, fetchBoletasExportablesIds,
     resumen, fetchResumen, fetchResumenContable, fetchReporteEjecutivoDatos,
-    verBoleta, imprimirBoletasMasivo, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
+    verBoleta, imprimirBoletasMasivo, previsualizarEnvioBoletas, enviarBoletasPorCorreo, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio, registrarDepositoBeneficio,
@@ -254,6 +278,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const [exportandoPlanilla, setExportandoPlanilla] = useState(false);
   const [exportandoComplementarias, setExportandoComplementarias] = useState(false);
   const [reporteComisionesHeOpen, setReporteComisionesHeOpen] = useState(false);
+  const [enviarBoletasCorreoOpen, setEnviarBoletasCorreoOpen] = useState(false);
 
   const [configuracionColaborador, setConfiguracionColaborador] = useState(null);
   const [guardandoConfiguracion, setGuardandoConfiguracion] = useState(false);
@@ -300,6 +325,10 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
   const boletasAprobadasSeleccionadas = boletas
     .filter((boleta) => boleta.estado === 'aprobada' && boletasSeleccionadas.includes(boleta.id))
     .map((boleta) => boleta.id);
+  // Envío por correo: seleccionadas pagadas de cualquier página (el backend omite locadores y sin correo).
+  const boletasCorreoSeleccionadas = useMemo(() => boletasSeleccionadasDatos
+    .filter((boleta) => boleta.estado === 'pagada')
+    .map((boleta) => boleta.id), [boletasSeleccionadasDatos]);
 
   /**
    * El backend lista los ciclos de TODAS las empresas que el usuario
@@ -928,6 +957,12 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
       render: (estado) => <Tag color={ESTADO_COLOR[estado] ?? 'default'}>{estado}</Tag>,
     },
     {
+      title: 'Correo',
+      key: 'envio_correo',
+      width: 130,
+      render: (_, b) => <EstadoEnvioCorreo envio={b.envio_correo} boleta={b} />,
+    },
+    {
       title: 'Acciones',
       key: 'acciones',
       width: 230,
@@ -1175,6 +1210,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                           Imprimir {boletasSeleccionadas.length} boleta(s)
                         </Button>
                       )}
+                      {puedeAprobar && boletasCorreoSeleccionadas.length > 0 && (
+                        <Button size="small" icon={<MailOutlined />} onClick={() => setEnviarBoletasCorreoOpen(true)}>
+                          Enviar boleta por correo ({boletasCorreoSeleccionadas.length})
+                        </Button>
+                      )}
                       {puedeAprobar && boletasCalculadasSeleccionadas.length > 0 && (
                         <Button type="primary" size="small" icon={<CheckCircleOutlined />} onClick={handleAprobarMasivo}>
                           Aprobar {boletasCalculadasSeleccionadas.length} calculada(s)
@@ -1207,7 +1247,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                     getCheckboxProps: (boleta) => {
                       if (boleta.estado === 'calculada') return { disabled: !puedeAprobar };
                       if (boleta.estado === 'aprobada') return { disabled: !puedePagar && !puedeExportarBanco };
-                      return { disabled: !puedeExportarBanco || boleta.estado !== 'pagada' };
+                      return { disabled: (!puedeExportarBanco && !puedeAprobar) || boleta.estado !== 'pagada' };
                     },
                   } : undefined}
                   pagination={{
@@ -1398,6 +1438,20 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
         boletaIds={boletasSeleccionadas}
         fetchValidacion={fetchBbvaNetCashValidacion}
         exportarBbvaNetCash={exportarBbvaNetCash}
+      />
+
+      <EnviarBoletasCorreoModal
+        open={enviarBoletasCorreoOpen}
+        onCancel={() => setEnviarBoletasCorreoOpen(false)}
+        onEnviado={() => {
+          setEnviarBoletasCorreoOpen(false);
+          setBoletasSeleccionadas([]);
+          recargar();
+        }}
+        cicloId={cicloId}
+        boletaIds={boletasCorreoSeleccionadas}
+        previsualizarEnvioBoletas={previsualizarEnvioBoletas}
+        enviarBoletasPorCorreo={enviarBoletasPorCorreo}
       />
 
       <ReporteComisionesHeModal
