@@ -25,6 +25,17 @@ class CandidatoResource extends JsonResource
             'ubicacion' => $this->ubicacion,
             'resumen' => $this->resumen,
             'ultima_postulacion_at' => $this->ultima_postulacion_at?->toIso8601String(),
+            'estado_banco' => $this->when(isset($this->tiene_contratada), fn () => $this->tiene_contratada
+                ? 'contratado'
+                : ($this->tiene_vigente ? 'en_proceso' : 'backup')),
+            'documentos' => $this->whenLoaded('documentos', fn () => $this->documentos->map(fn ($d) => [
+                'id' => $d->id,
+                'tipo' => $d->tipo,
+                'nombre' => $d->nombre_original,
+                'mime' => $d->mime,
+                'tamano' => $d->tamano,
+                'subido_at' => $d->created_at?->toIso8601String(),
+            ])->values()),
             'postulaciones_count' => $this->whenCounted('postulaciones'),
             'habilidades' => $this->whenLoaded('habilidades', fn () => $this->habilidades->map->only(['nombre', 'nivel'])->values()),
             'etiquetas' => $this->whenLoaded('etiquetas', fn () => $this->etiquetas->map(fn ($e) => [

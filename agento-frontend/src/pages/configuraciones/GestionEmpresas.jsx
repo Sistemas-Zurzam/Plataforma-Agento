@@ -1,6 +1,7 @@
 import {
   BankOutlined,
   BellOutlined,
+  AuditOutlined,
   FileProtectOutlined,
   FileTextOutlined,
   LockOutlined,
@@ -10,6 +11,7 @@ import {
   UserOutlined,
 } from '@ant-design/icons';
 import { useEffect, useMemo } from 'react';
+import Auditoria from '../../modules/auditoria/pages/Auditoria';
 import CatalogosSunat from '../../modules/configuracion/pages/CatalogosSunat';
 import Empresas from '../../modules/configuracion/pages/Empresas';
 import ParametrosRemunerativos from '../../modules/configuracion/pages/ParametrosRemunerativos';
@@ -55,6 +57,7 @@ export default function GestionEmpresas({
   const isAdmin = user?.role === 'administrador';
   const puedeVerUsuarios = user?.permisos?.includes('usuarios.ver');
   const puedeControlAcceso = user?.permisos?.includes('control_acceso.marcar');
+  const puedeVerAuditoria = user?.permisos?.includes('auditoria.ver');
   const puedeVerParametrosRemunerativos =
     user?.permisos?.includes('parametros_laborales.ver') ||
     user?.permisos?.includes('comisiones_afp.ver') ||
@@ -121,8 +124,12 @@ export default function GestionEmpresas({
       );
     }
 
+    if (puedeVerAuditoria) {
+      tabs.push({ key: 'auditoria', label: 'Auditoría', icon: <AuditOutlined /> });
+    }
+
     return tabs;
-  }, [isAdmin, puedeControlAcceso]);
+  }, [isAdmin, puedeControlAcceso, puedeVerAuditoria]);
 
   const availableTabs = useMemo(
     () => [...cuentaTabs, ...organizacionTabs, ...sistemaTabs, ...nominaTabs]
@@ -175,6 +182,7 @@ export default function GestionEmpresas({
         {activeTab === 'empresas' && <Empresas user={user} />}
         {activeTab === 'usuarios-roles' && puedeVerUsuarios && <UsuariosRoles user={user} />}
         {activeTab === 'permisos' && isAdmin && <Permisos />}
+        {activeTab === 'auditoria' && puedeVerAuditoria && <Auditoria />}
         {activeTab === 'parametros-remunerativos' && puedeVerParametrosRemunerativos && (
           <ParametrosRemunerativos user={user} />
         )}

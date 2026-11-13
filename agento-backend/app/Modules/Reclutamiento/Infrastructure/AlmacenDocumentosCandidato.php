@@ -36,6 +36,38 @@ class AlmacenDocumentosCandidato
         ]);
     }
 
+    /**
+     * DNI, CUL u otros documentos de apoyo (PDF, JPG o PNG). Se valida el
+     * tipo REAL por contenido, no la extensión ni el MIME declarado.
+     */
+    public function guardarComplementario(int $empresaId, int $candidatoId, string $tipo, UploadedFile $archivo): DocumentoCandidato
+    {
+        $extensiones = ['application/pdf' => 'pdf', 'image/jpeg' => 'jpg', 'image/png' => 'png'];
+        $maxBytes = (int) config('reclutamiento.cv.max_kb', 5120) * 1024;
+        $mimeReal = (new info(FILEINFO_MIME_TYPE))->file($archivo->getRealPath());
+
+        if ($archivo->getSize() > $maxBytes || ! isset($extensiones[$mimeReal])) {
+            throw ValidationException::withMessages([
+                $tipo => 'El archivo debe ser PDF, JPG o PNG de hasta '.intdiv($maxBytes, 1024 * 1024).' MB.',
+            ]);
+        }
+
+        $disco = config('reclutamiento.cv.disco', 'local');
+        $ruta = $archivo->storeAs("reclutamiento/{$empresaId}/candidatos/{$candidatoId}", Str::uuid().'.'.$extensiones[$mimeReal], $disco);
+
+        return DocumentoCandidato::create([
+            'empresa_id' => $empresaId,
+            'candidato_id' => $candidatoId,
+            'tipo' => $tipo,
+            'disco' => $disco,
+            'ruta' => $ruta,
+            'nombre_original' => Str::limit($archivo->getClientOriginalName(), 190, ''),
+            'mime' => $mimeReal,
+            'tamano' => $archivo->getSize(),
+            'sha256' => hash_file('sha256', $archivo->getRealPath()),
+        ]);
+    }
+
     public function descargar(DocumentoCandidato $documento): StreamedResponse
     {
         abort_if($documento->eliminado_at || ! $documento->ruta || ! Storage::disk($documento->disco)->exists($documento->ruta), 404, 'El archivo no está disponible.');

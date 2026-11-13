@@ -28,6 +28,8 @@ class PermissionSeeder extends Seeder
             ['clave' => 'usuarios.cambiar_rol', 'nombre' => 'Cambiar rol de usuarios', 'grupo' => 'Usuarios y Roles'],
             ['clave' => 'usuarios.inactivar', 'nombre' => 'Activar o inactivar usuarios', 'grupo' => 'Usuarios y Roles'],
             ['clave' => 'usuarios.eliminar', 'nombre' => 'Eliminar usuarios', 'grupo' => 'Usuarios y Roles'],
+            ['clave' => 'seleccion.documentos.ver', 'nombre' => 'Ver y descargar documentos de candidatos', 'grupo' => 'Selección y Reclutamiento'],
+            ['clave' => 'auditoria.ver', 'nombre' => 'Ver bitácora de auditoría', 'grupo' => 'Auditoría'],
             ['clave' => 'parametros_laborales.ver', 'nombre' => 'Ver parámetros laborales', 'grupo' => 'Parámetros Laborales'],
             ['clave' => 'parametros_laborales.editar', 'nombre' => 'Editar parámetros laborales', 'grupo' => 'Parámetros Laborales'],
             ['clave' => 'comisiones_afp.ver', 'nombre' => 'Ver comisiones AFP', 'grupo' => 'Comisiones AFP'],

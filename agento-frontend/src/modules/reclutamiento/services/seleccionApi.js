@@ -81,6 +81,7 @@ export const seleccionApi = {
   banco: {
     listar: (params) => api.get('/seleccion/banco-talentos', { params }).then(completo),
     obtener: (id) => api.get(`/seleccion/banco-talentos/${id}`).then(datos),
+    documento: (id, documentoId) => api.get(`/seleccion/banco-talentos/${id}/documentos/${documentoId}`, { responseType: 'blob' }).then((r) => r.data),
     etiquetar: (id, nombre) => api.post(`/seleccion/banco-talentos/${id}/etiquetas`, { nombre }).then(datos),
     quitarEtiqueta: (id, etiquetaId) => api.delete(`/seleccion/banco-talentos/${id}/etiquetas/${etiquetaId}`).then(datos),
   },

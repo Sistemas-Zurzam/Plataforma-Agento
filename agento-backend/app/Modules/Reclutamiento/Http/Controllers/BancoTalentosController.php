@@ -4,6 +4,8 @@ namespace App\Modules\Reclutamiento\Http\Controllers;
 
 use App\Modules\Reclutamiento\Application\BancoTalentosService;
 use App\Modules\Reclutamiento\Http\Requests\InvitarRequest;
+use App\Modules\Reclutamiento\Infrastructure\AlmacenDocumentosCandidato;
+use App\Modules\Reclutamiento\Models\DocumentoCandidato;
 use App\Modules\Reclutamiento\Http\Resources\CandidatoResource;
 use App\Modules\Reclutamiento\Models\Candidato;
 use App\Modules\Reclutamiento\Models\Etiqueta;
@@ -11,24 +13,41 @@ use App\Modules\Reclutamiento\Models\ProcesoSeleccion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class BancoTalentosController extends SeleccionController
 {
-    public function __construct(private readonly BancoTalentosService $banco) {}
+    public function __construct(
+        private readonly BancoTalentosService $banco,
+        private readonly AlmacenDocumentosCandidato $documentos,
+    ) {}
 
     public function index(Request $request): AnonymousResourceCollection
     {
         $alcance = $this->alcance($request);
 
-        return CandidatoResource::collection($this->banco->buscar($alcance, $request->only(['busqueda', 'cargo', 'area_id', 'competencia', 'etiqueta']), $this->porPagina($request)))
+        return CandidatoResource::collection($this->banco->buscar($alcance, $request->only(['busqueda', 'cargo', 'area_id', 'competencia', 'etiqueta', 'estado_banco']), $this->porPagina($request)))
             ->additional(['etiquetas' => Etiqueta::where('empresa_id', $alcance->empresaId)->orderBy('nombre')->pluck('nombre')]);
     }
 
     public function show(Request $request, Candidato $candidato): CandidatoResource
     {
-        $this->alcance($request);
+        $alcance = $this->alcance($request);
 
-        return new CandidatoResource($this->banco->detalle($candidato));
+        return new CandidatoResource($this->banco->detalle($candidato, $alcance->puede('seleccion.documentos.ver')));
+    }
+
+    /**
+     * Descarga autorizada (permiso seleccion.documentos.ver en la ruta). Ambos
+     * modelos están acotados a la empresa activa; además el documento debe
+     * pertenecer al candidato de la URL.
+     */
+    public function documento(Request $request, Candidato $candidato, DocumentoCandidato $documento): StreamedResponse
+    {
+        $this->alcance($request);
+        abort_unless($documento->candidato_id === $candidato->id, 404);
+
+        return $this->documentos->descargar($documento);
     }
 
     public function etiquetar(Request $request, Candidato $candidato): CandidatoResource

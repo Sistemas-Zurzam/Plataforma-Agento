@@ -96,7 +96,7 @@ class PortalEmpleosService
      * Postular. Una persona (correo verificado) no puede postular dos veces al
      * mismo proceso (unique proceso_id + candidato_id); sí a varios procesos.
      */
-    public function postular(string $codigo, ?string $tokenInvitacion, AccesoCandidato $acceso, array $datos, UploadedFile $cv, ?string $ip): Postulacion
+    public function postular(string $codigo, ?string $tokenInvitacion, AccesoCandidato $acceso, array $datos, UploadedFile $cv, ?string $ip, array $complementarios = []): Postulacion
     {
         ['proceso' => $proceso, 'invitacion' => $invitacion] = $this->resolverPublicacion($codigo, $tokenInvitacion);
 
@@ -111,10 +111,10 @@ class PortalEmpleosService
         $perfil = $proceso->perfilVigente;
         $this->validarDeclaraciones($perfil, $datos['requisitos'] ?? []);
 
-        $archivoGuardado = null;
+        $archivosGuardados = [];
 
         try {
-            $postulacion = DB::transaction(function () use ($proceso, $invitacion, $acceso, $datos, $cv, $ip, $perfil, &$archivoGuardado) {
+            $postulacion = DB::transaction(function () use ($proceso, $invitacion, $acceso, $datos, $cv, $ip, $perfil, $complementarios, &$archivosGuardados) {
                 $candidato = Candidato::firstOrNew(['empresa_id' => $proceso->empresa_id, 'email' => $acceso->email]);
                 $candidato->fill([
                     'email_verificado_at' => now(),
@@ -137,7 +137,11 @@ class PortalEmpleosService
                 $this->reemplazarPerfil($candidato, $datos);
 
                 $documento = $this->documentos->guardarCv($proceso->empresa_id, $candidato->id, $cv);
-                $archivoGuardado = $documento;
+                $archivosGuardados[] = $documento;
+
+                foreach ($complementarios as $tipo => $archivo) {
+                    $archivosGuardados[] = $this->documentos->guardarComplementario($proceso->empresa_id, $candidato->id, $tipo, $archivo);
+                }
 
                 Consentimiento::create([
                     'empresa_id' => $proceso->empresa_id,
@@ -169,10 +173,10 @@ class PortalEmpleosService
                 return $postulacion;
             });
         } catch (UniqueConstraintViolationException) {
-            $this->limpiarArchivo($archivoGuardado);
+            $this->limpiarArchivos($archivosGuardados);
             throw ValidationException::withMessages(['proceso' => 'Ya postulaste a este proceso. Puedes revisar su estado en "Mis postulaciones".']);
         } catch (\Throwable $e) {
-            $this->limpiarArchivo($archivoGuardado);
+            $this->limpiarArchivos($archivosGuardados);
             throw $e;
         }
 
@@ -302,6 +306,13 @@ class PortalEmpleosService
         } while (Postulacion::withoutGlobalScopes()->where('codigo_seguimiento', $codigo)->exists());
 
         return $codigo;
+    }
+
+    private function limpiarArchivos(array $documentos): void
+    {
+        foreach ($documentos as $documento) {
+            $this->limpiarArchivo($documento);
+        }
     }
 
     private function limpiarArchivo($documento): void

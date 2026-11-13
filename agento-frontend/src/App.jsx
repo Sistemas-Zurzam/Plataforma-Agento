@@ -7,13 +7,20 @@ import PortalClienteApp from './modules/portal-cliente/PortalClienteApp';
 import PortalNoHabilitadoScreen from './modules/portal-cliente/PortalNoHabilitadoScreen';
 import ControlAcceso from './modules/asistencia/pages/ControlAcceso';
 import PortalEmpleosApp from './modules/reclutamiento/portal/PortalEmpleosApp';
+import { useAuditoriaTracker } from './modules/auditoria/hooks/useAuditoriaTracker';
+import { enviar as enviarAuditoriaPendiente } from './modules/auditoria/services/auditoriaTracker';
 
 function App() {
   const { logout } = useAuth();
   const { user, initializing, fetchCurrentUser, clearCurrentUser, setUser } =
     useCurrentUser();
 
+  // Registra clicks y navegación del usuario con sesión en la bitácora.
+  useAuditoriaTracker(user);
+
   const handleLogout = async () => {
+    // Envía los clicks pendientes (incluido el de "Cerrar sesión") mientras el token sigue vigente.
+    await enviarAuditoriaPendiente();
     await logout();
     clearCurrentUser();
   };

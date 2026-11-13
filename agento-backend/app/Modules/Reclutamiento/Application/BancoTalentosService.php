@@ -37,14 +37,54 @@ class BancoTalentosService
             ->when($filtros['area_id'] ?? null, fn ($q, $area) => $q->whereHas('postulaciones.proceso', fn ($p) => $p->where('area_id', $area)))
             ->when($filtros['competencia'] ?? null, fn ($q, $c) => $q->whereHas('habilidades', fn ($h) => $h->where('nombre', 'like', "%{$c}%")))
             ->when($filtros['etiqueta'] ?? null, fn ($q, $e) => $q->whereHas('etiquetas', fn ($t) => $t->where('nombre', $e)))
+            ->when($filtros['estado_banco'] ?? null, fn ($q, $estado) => $this->filtrarPorEstado($q, $estado))
             ->with(['habilidades', 'etiquetas'])
             ->withCount('postulaciones')
+            ->withExists($this->banderasEstado())
             ->orderByDesc('ultima_postulacion_at')
             ->paginate($perPage);
     }
 
-    public function detalle(Candidato $candidato): Candidato
+    /**
+     * Estado del candidato en el banco: contratado, en proceso (postulación
+     * vigente) o backup (ninguna vigente ni contratada: no seleccionado).
+     */
+    public const ESTADOS_BANCO = ['backup', 'en_proceso', 'contratado'];
+
+    private const ESTADOS_VIGENTES = ['activa', 'seleccionada'];
+
+    /**
+     * @return array<string, \Closure>
+     */
+    private function banderasEstado(): array
     {
+        return [
+            'postulaciones as tiene_contratada' => fn ($q) => $q->where('estado', 'contratada'),
+            'postulaciones as tiene_vigente' => fn ($q) => $q->whereIn('estado', self::ESTADOS_VIGENTES),
+        ];
+    }
+
+    private function filtrarPorEstado($consulta, string $estado)
+    {
+        $contratada = fn ($q) => $q->where('estado', 'contratada');
+        $vigente = fn ($q) => $q->whereIn('estado', self::ESTADOS_VIGENTES);
+
+        return match ($estado) {
+            'contratado' => $consulta->whereHas('postulaciones', $contratada),
+            'en_proceso' => $consulta->whereDoesntHave('postulaciones', $contratada)->whereHas('postulaciones', $vigente),
+            'backup' => $consulta->whereDoesntHave('postulaciones', $contratada)->whereDoesntHave('postulaciones', $vigente),
+            default => $consulta,
+        };
+    }
+
+    public function detalle(Candidato $candidato, bool $conDocumentos = false): Candidato
+    {
+        $candidato->loadExists($this->banderasEstado());
+
+        if ($conDocumentos) {
+            $candidato->load(['documentos' => fn ($q) => $q->whereNull('eliminado_at')->latest('id')]);
+        }
+
         return $candidato->load([
             'habilidades', 'etiquetas', 'antecedentes',
             'postulaciones' => fn ($q) => $q->latest('id')->with('proceso:id,codigo,cargo,area_id,estado', 'proceso.area:id,nombre', 'evaluacionAtsVigente', 'puntajeFinalVigente'),

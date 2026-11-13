@@ -5,11 +5,25 @@ import EstadoSeccion from '../components/EstadoSeccion';
 import { ESTADOS_POSTULACION, ETIQUETA_ETAPA, mensajeDeError } from '../constants/seleccion';
 import { useBancoTalentos, useCandidatoBanco, useProcesos } from '../hooks/useSeleccion';
 
+const ESTADOS_BANCO = {
+  backup: { label: 'Backup (no seleccionado)', color: 'gold' },
+  en_proceso: { label: 'En proceso', color: 'processing' },
+  contratado: { label: 'Contratado', color: 'green' },
+};
+
+const ETIQUETA_TIPO_DOCUMENTO = { cv: 'CV', dni: 'DNI', cul: 'Certificado único laboral' };
+
+function formatoTamano(bytes) {
+  if (!bytes) return '';
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+}
+
 const FILTRO_ABIERTOS = { estado: 'abierto', per_page: 100 };
 
 function FichaCandidato({ candidatoId, onCerrar, onCambio }) {
   const { message, modal } = App.useApp();
-  const { datos: c, cargando, error, recargar, etiquetar, quitarEtiqueta, invitar } = useCandidatoBanco(candidatoId);
+  const { datos: c, cargando, error, recargar, etiquetar, quitarEtiqueta, invitar, descargarDocumento } = useCandidatoBanco(candidatoId);
+  const [descargando, setDescargando] = useState(null);
   const procesos = useProcesos(FILTRO_ABIERTOS);
   const [etiqueta, setEtiqueta] = useState('');
   const [procesoId, setProcesoId] = useState();
@@ -27,17 +41,57 @@ function FichaCandidato({ candidatoId, onCerrar, onCambio }) {
     }
   };
 
+  const descargar = async (documento) => {
+    setDescargando(documento.id);
+    try {
+      const blob = await descargarDocumento(c.id, documento.id);
+      const url = URL.createObjectURL(blob);
+      const enlace = document.createElement('a');
+      enlace.href = url;
+      enlace.download = documento.nombre;
+      enlace.click();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (e) {
+      message.error(e?.response?.status === 404 ? 'El archivo ya no está disponible.' : 'No se pudo descargar el documento.');
+    } finally {
+      setDescargando(null);
+    }
+  };
+
   return (
     <Drawer open={Boolean(candidatoId)} onClose={onCerrar} width={Math.min(640, window.innerWidth)} title={c?.nombre ?? 'Candidato'}>
       <EstadoSeccion cargando={cargando && !c} error={error} onReintentar={recargar}>
         {c && (
           <div className="space-y-4">
             <Descriptions size="small" column={1} bordered>
+              <Descriptions.Item label="Estado en el banco">
+                {c.estado_banco ? <Tag color={ESTADOS_BANCO[c.estado_banco]?.color}>{ESTADOS_BANCO[c.estado_banco]?.label}</Tag> : '—'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Documento de identidad">{c.numero_documento ? `${c.tipo_documento ?? ''} ${c.numero_documento}`.trim() : '—'}</Descriptions.Item>
               <Descriptions.Item label="Correo">{c.email}</Descriptions.Item>
               <Descriptions.Item label="Celular">{c.celular ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Ubicación">{c.ubicacion ?? '—'}</Descriptions.Item>
+              <Descriptions.Item label="Resumen profesional">{c.resumen ?? '—'}</Descriptions.Item>
               <Descriptions.Item label="Consentimiento">{c.consentimiento ? `v${c.consentimiento.version} · ${dayjs(c.consentimiento.aceptado_at).format('DD/MM/YYYY')}` : '—'}</Descriptions.Item>
             </Descriptions>
+            {c.documentos && (
+              <div>
+                <p className="mb-1 text-sm font-medium">Documentos</p>
+                <Table
+                  size="small"
+                  rowKey="id"
+                  pagination={false}
+                  dataSource={c.documentos}
+                  locale={{ emptyText: 'Sin documentos' }}
+                  columns={[
+                    { title: 'Tipo', render: (_, d) => ETIQUETA_TIPO_DOCUMENTO[d.tipo] ?? d.tipo },
+                    { title: 'Archivo', render: (_, d) => <span className="break-all">{d.nombre} <span className="text-gray-400">{formatoTamano(d.tamano)}</span></span> },
+                    { title: 'Subido', render: (_, d) => dayjs(d.subido_at).format('DD/MM/YYYY') },
+                    { title: '', render: (_, d) => <Button size="small" loading={descargando === d.id} onClick={() => descargar(d)}>Descargar</Button> },
+                  ]}
+                />
+              </div>
+            )}
             <div>
               <p className="mb-1 text-sm font-medium">Etiquetas</p>
               <div className="mb-2 flex flex-wrap gap-1">
@@ -125,12 +179,13 @@ export default function BancoTalentosPage() {
     <div className="space-y-4">
       <div>
         <h2 className="text-lg font-semibold text-gray-900">Banco de talentos</h2>
-        <p className="text-sm text-gray-500">Candidatos de esta empresa. Los datos vencen según la retención configurada (por defecto 24 meses desde la última postulación).</p>
+        <p className="text-sm text-gray-500">Candidatos de esta empresa; filtra por &quot;Backup&quot; para ver a quienes no fueron seleccionados. Los datos vencen según la retención configurada (por defecto 24 meses desde la última postulación).</p>
       </div>
       <div className="flex flex-wrap gap-2">
         <Input.Search placeholder="Nombre o correo" allowClear className="max-w-xs" onSearch={filtrar('busqueda')} />
         <Input.Search placeholder="Cargo postulado" allowClear className="max-w-xs" onSearch={filtrar('cargo')} />
         <Input.Search placeholder="Competencia" allowClear className="max-w-xs" onSearch={filtrar('competencia')} />
+        <Select allowClear placeholder="Estado" className="min-w-48" onChange={filtrar('estado_banco')} options={Object.entries(ESTADOS_BANCO).map(([value, { label }]) => ({ value, label }))} />
         <Select allowClear placeholder="Etiqueta" className="min-w-44" onChange={filtrar('etiqueta')} options={(datos?.etiquetas ?? []).map((e) => ({ value: e, label: e }))} />
       </div>
       <EstadoSeccion cargando={cargando && !datos} error={error} onReintentar={recargar}>
@@ -145,6 +200,7 @@ export default function BancoTalentosPage() {
             { title: 'Candidato', render: (_, c) => <Button type="link" className="px-0!" onClick={() => setAbierto(c.id)}>{c.nombre}</Button> },
             { title: 'Habilidades', render: (_, c) => c.habilidades.slice(0, 4).map((h) => <Tag key={h.nombre}>{h.nombre}</Tag>) },
             { title: 'Etiquetas', render: (_, c) => c.etiquetas.map((e) => <Tag key={e.id} color={e.tipo === 'automatica' ? 'blue' : 'default'}>{e.nombre}</Tag>) },
+            { title: 'Estado', render: (_, c) => (c.estado_banco ? <Tag color={ESTADOS_BANCO[c.estado_banco]?.color}>{ESTADOS_BANCO[c.estado_banco]?.label}</Tag> : '—') },
             { title: 'Postulaciones', dataIndex: 'postulaciones_count', align: 'center' },
             { title: 'Última postulación', dataIndex: 'ultima_postulacion_at', render: (f) => (f ? dayjs(f).format('DD/MM/YYYY') : '—') },
           ]}

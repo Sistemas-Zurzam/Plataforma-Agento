@@ -58,7 +58,7 @@ export default function PostulacionForm({ empleo, invitacion, onPostular, onTerm
 
   const siguiente = async () => {
     try {
-      await form.validateFields(paso === 2 ? [...excluyentes.map((r) => ['requisitos', String(r.id)]), 'cv'] : PASOS[paso].campos);
+      await form.validateFields(paso === 2 ? [...excluyentes.map((r) => ['requisitos', String(r.id)]), 'cv', 'dni', 'cul'] : PASOS[paso].campos);
       setPaso(paso + 1);
     } catch {
       // Los errores se muestran en cada campo.
@@ -81,6 +81,7 @@ export default function PostulacionForm({ empleo, invitacion, onPostular, onTerm
     datos.append('habilidades', JSON.stringify((v.habilidades ?? []).filter((h) => h?.nombre)));
     datos.append('requisitos', JSON.stringify(v.requisitos ?? {}));
     datos.append('cv', v.cv[0].originFileObj);
+    ['dni', 'cul'].forEach((campo) => { if (v[campo]?.[0]?.originFileObj) datos.append(campo, v[campo][0].originFileObj); });
     datos.append('consentimiento', '1');
     datos.append('consentimiento_texto', TEXTO_CONSENTIMIENTO);
     if (invitacion) datos.append('invitacion', invitacion);
@@ -195,6 +196,31 @@ export default function PostulacionForm({ empleo, invitacion, onPostular, onTerm
               <p className="text-sm">Haz clic o arrastra tu CV aquí</p>
             </Upload.Dragger>
           </Form.Item>
+          {[
+            { name: 'dni', label: 'DNI (opcional, PDF o imagen)' },
+            { name: 'cul', label: 'Certificado único laboral (opcional, PDF o imagen)' },
+          ].map(({ name, label }) => (
+            <Form.Item
+              key={name}
+              name={name}
+              label={`${label} · máx. ${MAX_MB} MB`}
+              valuePropName="fileList"
+              getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)?.slice(-1)}
+              rules={[{
+                validator: (_, lista) => {
+                  const archivo = lista?.[0]?.originFileObj;
+                  if (!archivo) return Promise.resolve();
+                  if (!['application/pdf', 'image/jpeg', 'image/png'].includes(archivo.type)) return Promise.reject(new Error('Debe ser PDF, JPG o PNG.'));
+                  if (archivo.size > MAX_MB * 1024 * 1024) return Promise.reject(new Error(`Máximo ${MAX_MB} MB.`));
+                  return Promise.resolve();
+                },
+              }]}
+            >
+              <Upload accept="application/pdf,image/jpeg,image/png" beforeUpload={() => false} maxCount={1}>
+                <Button>Adjuntar archivo</Button>
+              </Upload>
+            </Form.Item>
+          ))}
         </div>
 
         <div className={paso === 3 ? 'block' : 'hidden'}>

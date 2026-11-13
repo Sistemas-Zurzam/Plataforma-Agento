@@ -101,6 +101,7 @@ export function useCandidatoBanco(candidatoId) {
     ...consulta,
     etiquetar: seleccionApi.banco.etiquetar,
     quitarEtiqueta: seleccionApi.banco.quitarEtiqueta,
+    descargarDocumento: seleccionApi.banco.documento,
     invitar: seleccionApi.procesos.invitar,
   };
 }

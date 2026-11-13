@@ -103,6 +103,7 @@ Route::middleware(['jwt', 'servicio:reclutamiento'])->prefix('seleccion')->group
     // Banco de talentos
     Route::get('/banco-talentos', [BancoTalentosController::class, 'index'])->middleware($gestionarCandidatos);
     Route::get('/banco-talentos/{candidato}', [BancoTalentosController::class, 'show'])->middleware($gestionarCandidatos);
+    Route::get('/banco-talentos/{candidato}/documentos/{documento}', [BancoTalentosController::class, 'documento'])->whereNumber(['candidato', 'documento'])->middleware('permiso:seleccion.documentos.ver');
     Route::post('/banco-talentos/{candidato}/etiquetas', [BancoTalentosController::class, 'etiquetar'])->middleware($gestionarCandidatos);
     Route::delete('/banco-talentos/{candidato}/etiquetas/{etiqueta}', [BancoTalentosController::class, 'quitarEtiqueta'])->middleware($gestionarCandidatos);
 });

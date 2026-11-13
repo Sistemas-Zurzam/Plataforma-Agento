@@ -3,6 +3,7 @@
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\ProfileController;
 use App\Modules\Asistencia\Http\Controllers\AsistenciaController;
+use App\Modules\Auditoria\Http\Controllers\AuditoriaController;
 use App\Modules\Asistencia\Http\Controllers\ControlAccesoController;
 use App\Modules\Asistencia\Http\Controllers\HorarioController;
 use App\Modules\Asistencia\Http\Controllers\TipoAusenciaController;
@@ -57,6 +58,13 @@ Route::middleware('jwt')->group(function () {
     Route::put('/me', [ProfileController::class, 'update']);
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/refresh', [AuthController::class, 'refresh']);
+
+    // Auditoría: cualquier usuario autenticado puede reportar sus propios
+    // clicks/navegación; la consulta de la bitácora requiere permiso.
+    Route::post('/auditoria/ui-eventos', [AuditoriaController::class, 'registrarEventosUi'])->middleware('throttle:120,1');
+    Route::get('/auditoria/eventos', [AuditoriaController::class, 'index'])->middleware('permiso:auditoria.ver');
+    Route::get('/auditoria/eventos/{evento}', [AuditoriaController::class, 'show'])->whereNumber('evento')->middleware('permiso:auditoria.ver');
+    Route::get('/auditoria/filtros', [AuditoriaController::class, 'filtros'])->middleware('permiso:auditoria.ver');
 
     // Portal Cliente: la empresa se resuelve desde el usuario autenticado.
     Route::prefix('portal')->middleware(['portal.habilitado', 'portal.empresa'])->group(function () {

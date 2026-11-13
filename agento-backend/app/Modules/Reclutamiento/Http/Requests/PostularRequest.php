@@ -64,6 +64,8 @@ class PostularRequest extends FormRequest
             'requisitos' => ['array'],
             'requisitos.*' => ['boolean'],
             'cv' => ['required', 'file', 'mimes:pdf', "max:{$maxKb}"],
+            'dni' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', "max:{$maxKb}"],
+            'cul' => ['nullable', 'file', 'mimes:pdf,jpg,jpeg,png', "max:{$maxKb}"],
             'consentimiento' => ['accepted'],
             'consentimiento_texto' => ['required', 'string', 'max:10000'],
         ];
@@ -78,6 +80,10 @@ class PostularRequest extends FormRequest
             'consentimiento.accepted' => 'Debes aceptar el tratamiento de tus datos para postular.',
             'cv.max' => 'El CV no debe superar los 5 MB.',
             'cv.mimes' => 'El CV debe ser un archivo PDF.',
+            'dni.mimes' => 'El DNI debe ser PDF, JPG o PNG.',
+            'cul.mimes' => 'El certificado único laboral debe ser PDF, JPG o PNG.',
+            'dni.max' => 'El DNI no debe superar los 5 MB.',
+            'cul.max' => 'El certificado único laboral no debe superar los 5 MB.',
         ];
     }
 }

@@ -30,6 +30,7 @@ const CONFIG_PATHS = {
   empresas: '/Empresas',
   'usuarios-roles': '/usuarios-roles',
   permisos: '/permisos',
+  auditoria: '/auditoria',
   'parametros-remunerativos': '/parametros-remunerativos',
   'catalogos-sunat': '/catalogos-sunat',
 };

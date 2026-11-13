@@ -42,6 +42,7 @@ class EmpleosController extends Controller
             $datos,
             $request->file('cv'),
             $request->ip(),
+            array_filter(['dni' => $request->file('dni'), 'cul' => $request->file('cul')]),
         );
 
         return response()->json(['data' => [
