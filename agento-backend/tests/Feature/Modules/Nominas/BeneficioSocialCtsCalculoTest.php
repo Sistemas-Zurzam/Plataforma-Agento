@@ -5,6 +5,8 @@ namespace Tests\Feature\Modules\Nominas;
 use App\Modules\Asistencia\Models\AsistenciaIncidencia;
 use App\Modules\Asistencia\Models\AsistenciaResultadoDiario;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Nominas\Models\BeneficioSocial;
+use App\Modules\Nominas\Models\BeneficioSocialDetalle;
 use App\Modules\Nominas\Models\Boleta;
 use App\Modules\Nominas\Models\BoletaConcepto;
 use App\Modules\Nominas\Models\CicloRemunerativo;
@@ -31,13 +33,33 @@ class BeneficioSocialCtsCalculoTest extends TestCase
         return [$e,$c,$boletas];
     }
 
-    public function test_sueldo_de_octubre_reemplaza_las_provisiones_y_calcula_seis_meses_comerciales():void
+    /** Gratificación de julio pagada en Agento: su 1/6 entra a la base de la CTS de noviembre. */
+    private function gratificacionJulio(Empresa $e, int $colaboradorId, float $bruta): void
     {
-        [$e]=$this->crearSemestre(['05'=>2000,'06'=>2000,'07'=>2000,'08'=>2000,'09'=>2000,'10'=>3000]);$r=app(BeneficioSocialService::class)->resumen($e,'cts_noviembre',2026);$f=$r['colaboradores'][0];$this->assertSame(3000.0,$f['sueldo_basico']);$this->assertSame(180,$f['dias_computables']);$this->assertSame(1500.0,$f['neta']);$this->assertSame('calculado',$f['estado']);
+        $b=BeneficioSocial::create(['empresa_id'=>$e->id,'tipo'=>'gratificacion_julio','anio'=>2026,'version'=>1,'es_version_vigente'=>true,'total_colaboradores'=>1,'total_bruto'=>$bruta,'total_neto'=>$bruta,'estado'=>'pagado','calculado_at'=>'2026-07-10','pagado_at'=>'2026-07-15']);
+        BeneficioSocialDetalle::create(['beneficio_social_id'=>$b->id,'colaborador_id'=>$colaboradorId,'sueldo_basico'=>$bruta,'meses'=>6,'bruta'=>$bruta,'bonificacion_extraordinaria'=>0,'neta'=>$bruta]);
     }
 
-    public function test_falta_resuelta_sin_clasificacion_permanece_en_revision():void
+    public function test_sueldo_de_octubre_reemplaza_las_provisiones_y_calcula_seis_meses_comerciales():void
     {
-        [$e,$c]=$this->crearSemestre(['10'=>3000]);$r=AsistenciaResultadoDiario::create(['empresa_id'=>$e->id,'colaborador_id'=>$c->id,'fecha'=>'2026-06-12','tipo_dia'=>'laborable','estado'=>'falta','procesado_at'=>now()]);AsistenciaIncidencia::create(['empresa_id'=>$e->id,'resultado_diario_id'=>$r->id,'colaborador_id'=>$c->id,'fecha'=>'2026-06-12','tipo'=>'falta','estado'=>'resuelta']);$f=app(BeneficioSocialService::class)->resumen($e,'cts_noviembre',2026)['colaboradores'][0];$this->assertSame('observado',$f['estado']);$this->assertGreaterThan(0,count($f['alertas']));$this->assertSame(1500.0,$f['bruta']);$this->assertSame(1500.0,$f['importe_estimado_sujeto_revision']);$this->assertSame(0.0,$f['importe_aprobable']);
+        [$e,$c]=$this->crearSemestre(['05'=>2000,'06'=>2000,'07'=>2000,'08'=>2000,'09'=>2000,'10'=>3000]);$this->gratificacionJulio($e,$c->id,2000);
+        $f=app(BeneficioSocialService::class)->resumen($e,'cts_noviembre',2026)['colaboradores'][0];
+        // (3,000 + 2,000/6) / 360 x 180 (régimen general, 100%)
+        $this->assertSame(3000.0,$f['sueldo_basico']);$this->assertSame(333.33,$f['gratificacion_sexto']);$this->assertSame(180,$f['dias_computables']);$this->assertSame(1666.67,$f['neta']);$this->assertSame('calculado',$f['estado'],implode(' | ',$f['alertas']));
+    }
+
+    public function test_las_faltas_no_descuentan_dias_ni_dejan_la_cts_en_revision():void
+    {
+        [$e,$c]=$this->crearSemestre(['10'=>3000]);$this->gratificacionJulio($e,$c->id,2000);
+        $r=AsistenciaResultadoDiario::create(['empresa_id'=>$e->id,'colaborador_id'=>$c->id,'fecha'=>'2026-06-12','tipo_dia'=>'laborable','estado'=>'falta','procesado_at'=>now()]);AsistenciaIncidencia::create(['empresa_id'=>$e->id,'resultado_diario_id'=>$r->id,'colaborador_id'=>$c->id,'fecha'=>'2026-06-12','tipo'=>'falta','estado'=>'rechazada']);
+        $f=app(BeneficioSocialService::class)->resumen($e,'cts_noviembre',2026)['colaboradores'][0];
+        $this->assertSame('calculado',$f['estado'],implode(' | ',$f['alertas']));$this->assertSame(180,$f['dias_computables']);$this->assertSame(1666.67,$f['neta']);
+    }
+
+    public function test_sin_gratificacion_de_julio_registrada_queda_en_revision():void
+    {
+        [$e]=$this->crearSemestre(['10'=>3000]);
+        $f=app(BeneficioSocialService::class)->resumen($e,'cts_noviembre',2026)['colaboradores'][0];
+        $this->assertSame('observado',$f['estado']);$this->assertStringContainsString('Gratificacion de julio 2026 no registrada',implode(' | ',$f['alertas']));$this->assertSame(0.0,$f['importe_aprobable']);
     }
 }

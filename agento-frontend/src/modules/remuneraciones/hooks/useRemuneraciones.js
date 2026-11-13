@@ -396,6 +396,43 @@ export function useRemuneraciones() {
     return data;
   }, []);
 
+  // CTS: depósito masivo, boleta de CTS (hoja de liquidación) y su envío por correo.
+  const registrarDepositosCts = useCallback(async (beneficioId, deposito) => {
+    const { data } = await api.post(`/beneficios-sociales/${beneficioId}/cts/depositos`, deposito);
+    return data.data;
+  }, []);
+
+  const descargarPdf = useCallback(async (peticion, nombreDefecto) => {
+    const response = await peticion;
+    const nombre = (response.headers?.['content-disposition'] ?? '').match(/filename="?([^";]+)"?/)?.[1] ?? nombreDefecto;
+    const url = window.URL.createObjectURL(response.data);
+    const enlace = document.createElement('a');
+    enlace.href = url;
+    enlace.download = nombre;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    window.URL.revokeObjectURL(url);
+  }, []);
+
+  const descargarBoletaCts = useCallback((detalleId) =>
+    descargarPdf(api.get(`/beneficios-sociales/detalles/${detalleId}/boleta-cts`, { responseType: 'blob' }), 'boleta-cts.pdf'),
+  [descargarPdf]);
+
+  const descargarBoletasCts = useCallback((beneficioId, detalleIds) =>
+    descargarPdf(api.post(`/beneficios-sociales/${beneficioId}/cts/boletas`, { detalle_ids: detalleIds }, { responseType: 'blob' }), 'boletas-cts.pdf'),
+  [descargarPdf]);
+
+  const previsualizarEnvioCts = useCallback(async (beneficioId, detalleIds, reenviar = false) => {
+    const { data } = await api.post(`/beneficios-sociales/${beneficioId}/cts/envio-correo/previsualizar`, { detalle_ids: detalleIds, reenviar });
+    return data.data;
+  }, []);
+
+  const enviarBoletasCtsPorCorreo = useCallback(async (beneficioId, detalleIds, reenviar = false) => {
+    const { data } = await api.post(`/beneficios-sociales/${beneficioId}/cts/envio-correo`, { detalle_ids: detalleIds, reenviar });
+    return data.data;
+  }, []);
+
   const actualizarConfiguracionNomina = useCallback(async (colaboradorId, values) => {
     const { data } = await api.put(`/colaboradores/${colaboradorId}/configuracion-nomina`, values);
     return data.data;
@@ -799,6 +836,11 @@ export function useRemuneraciones() {
     calcularBeneficio,
     pagarBeneficio,
     registrarDepositoBeneficio,
+    registrarDepositosCts,
+    descargarBoletaCts,
+    descargarBoletasCts,
+    previsualizarEnvioCts,
+    enviarBoletasCtsPorCorreo,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo,
     registrarConceptoPeriodo,

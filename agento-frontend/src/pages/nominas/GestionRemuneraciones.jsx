@@ -251,7 +251,8 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     verBoleta, imprimirBoletasMasivo, previsualizarEnvioBoletas, enviarBoletasPorCorreo, aprobarBoleta, aprobarBoletasMasivo, pagarBoleta, pagarBoletasMasivo, guardarComprobanteRh,
     afps, fetchAfps,
     catalogoConceptos, fetchCatalogoConceptos,
-    resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio, registrarDepositoBeneficio,
+    resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
+    registrarDepositosCts, descargarBoletaCts, descargarBoletasCts, previsualizarEnvioCts, enviarBoletasCtsPorCorreo,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo, registrarHorasExtraEnBoleta, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
     previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel, fetchPrevisualizacionDatosReporte,
@@ -1317,7 +1318,11 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                 fetchResumenBeneficio={fetchResumenBeneficio}
                 calcularBeneficio={calcularBeneficio}
                 pagarBeneficio={pagarBeneficio}
-                registrarDepositoBeneficio={registrarDepositoBeneficio}
+                registrarDepositosCts={registrarDepositosCts}
+                descargarBoletaCts={descargarBoletaCts}
+                descargarBoletasCts={descargarBoletasCts}
+                previsualizarEnvioCts={previsualizarEnvioCts}
+                enviarBoletasCtsPorCorreo={enviarBoletasCtsPorCorreo}
                 resumen={resumenBeneficio}
                 loading={resumenBeneficioLoading}
                 puedeCalcular={puedeCalcular}
@@ -1448,10 +1453,10 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
           setBoletasSeleccionadas([]);
           recargar();
         }}
-        cicloId={cicloId}
-        boletaIds={boletasCorreoSeleccionadas}
-        previsualizarEnvioBoletas={previsualizarEnvioBoletas}
-        enviarBoletasPorCorreo={enviarBoletasPorCorreo}
+        origenId={cicloId}
+        ids={boletasCorreoSeleccionadas}
+        previsualizar={previsualizarEnvioBoletas}
+        enviarCorreo={enviarBoletasPorCorreo}
       />
 
       <ReporteComisionesHeModal
