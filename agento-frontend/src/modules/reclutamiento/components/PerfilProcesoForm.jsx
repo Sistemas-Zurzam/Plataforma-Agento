@@ -9,7 +9,7 @@ const suma = (lista, campo) => (lista ?? []).reduce((total, item) => total + (Nu
  * Perfil versionado del proceso: guardar crea una versión nueva; las
  * evaluaciones ya registradas conservan la versión con que se calcularon.
  */
-export default function PerfilProcesoForm({ perfil, editable, onGuardar }) {
+export default function PerfilProcesoForm({ perfil, sugerido, editable, onGuardar }) {
   const { message } = App.useApp();
   const [form] = Form.useForm();
   const [guardando, setGuardando] = useState(false);
@@ -17,6 +17,22 @@ export default function PerfilProcesoForm({ perfil, editable, onGuardar }) {
   const pesos = Form.useWatch('pesos', form);
   const sumaCompetencias = suma(competencias, 'peso');
   const sumaPesos = (Number(pesos?.ats) || 0) + (Number(pesos?.psicometria) || 0) + (Number(pesos?.entrevistas) || 0);
+
+  const requisitosSugeridos = sugerido?.requisitos ?? [];
+  const competenciasSugeridas = sugerido?.competencias ?? [];
+  const haySugerencias = requisitosSugeridos.length > 0 || competenciasSugeridas.length > 0;
+  const perfilVacio = !perfil?.requisitos?.length;
+
+  // Carga en el formulario lo que la empresa describió en su solicitud. No
+  // guarda: RR. HH. revisa (excluyente/deseable, niveles, pesos) y guarda.
+  const cargarSugerido = () => {
+    form.setFieldsValue({
+      requisitos: requisitosSugeridos,
+      ...(competenciasSugeridas.length ? { competencias: competenciasSugeridas } : {}),
+      motivo: 'Perfil cargado desde la solicitud de la empresa',
+    });
+    message.info('Revisa los requisitos y competencias cargados y guarda la nueva versión.');
+  };
 
   useEffect(() => {
     form.setFieldsValue({
@@ -62,6 +78,18 @@ export default function PerfilProcesoForm({ perfil, editable, onGuardar }) {
           <InputNumber min={0} max={100} className="w-full!" />
         </Form.Item>
       </div>
+      {editable && haySugerencias && (
+        <Alert
+          type={perfilVacio ? 'warning' : 'info'}
+          showIcon
+          className="mb-4"
+          message={`La solicitud de la empresa trae ${requisitosSugeridos.length} requisito(s) y ${competenciasSugeridas.length} habilidad(es).`}
+          description={perfilVacio
+            ? 'Cárgalos en el perfil para que los candidatos respondan si los cumplen y el ATS los considere. Los marcados como indispensables quedan como excluyentes.'
+            : 'Puedes volver a cargarlos; reemplazan los requisitos del formulario (no se guarda hasta que lo confirmes).'}
+          action={<Button size="small" type={perfilVacio ? 'primary' : 'default'} onClick={cargarSugerido}>Cargar desde la solicitud</Button>}
+        />
+      )}
       {sumaPesos !== 100 && <Alert type="warning" showIcon className="mb-4" message={`Los pesos del puntaje final suman ${sumaPesos}; deben sumar 100.`} />}
 
       <p className="mb-2 text-sm font-medium text-gray-700">Requisitos</p>

@@ -6,6 +6,7 @@ use App\Modules\Configuracion\Models\Area;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Configuracion\Models\Scopes\EmpresaScope;
 use App\Modules\Configuracion\Services\ParametroLaboralService;
+use App\Modules\Personas\Models\Colaborador;
 use App\Modules\Reclutamiento\Domain\FlujoPostulacion;
 use App\Modules\Reclutamiento\Domain\FlujoSolicitud;
 use App\Modules\Reclutamiento\Models\Plaza;
@@ -18,6 +19,12 @@ use Illuminate\Validation\ValidationException;
 
 class SolicitudService
 {
+    /**
+     * Nombres del área de gerencia (comparados en mayúsculas y sin espacios
+     * extremos): se excluyen como destino de una solicitud de personal.
+     */
+    private const AREAS_GERENCIA = ['GERENCIA', 'GERENCIA GENERAL'];
+
     public function __construct(
         private readonly ProcesoService $procesos,
         private readonly PostulacionService $postulaciones,
@@ -70,6 +77,8 @@ class SolicitudService
         $areas = Area::withoutGlobalScope(EmpresaScope::class)
             ->where('empresa_id', $empresa->id)
             ->when(! $alcance->accesoTotal(), fn ($q) => $q->whereIn('id', $alcance->areaIds))
+            // Gerencia solicita personal para las demás áreas, no para sí misma.
+            ->whereRaw('UPPER(TRIM(nombre)) NOT IN (?, ?)', self::AREAS_GERENCIA)
             ->orderBy('nombre')
             ->get(['id', 'nombre']);
 
@@ -80,6 +89,7 @@ class SolicitudService
 
         return [
             'areas' => $areas,
+            'cargos' => $this->cargosConocidos($empresa->id, $areas->pluck('id')->all()),
             'rmv' => $parametroRmv['valor'] ?? null,
             'rmv_regimen' => $regimen,
             'rmv_vigencia_desde' => $parametroRmv['vigencia_desde'] ?? null,
@@ -87,6 +97,41 @@ class SolicitudService
             'tipos_contrato' => SolicitudPersonal::TIPOS_CONTRATO,
             'modalidades' => SolicitudPersonal::MODALIDADES,
         ];
+    }
+
+    /**
+     * Cargos ya usados en la empresa (colaboradores de Personas y solicitudes
+     * anteriores) para sugerirlos al escribir. Es solo una ayuda: el cargo de
+     * la solicitud sigue siendo texto libre (las empresas que solo contratan
+     * reclutamiento no tienen colaboradores registrados).
+     *
+     * @param  array<int, int>  $areaIds
+     * @return array<int, array{nombre: string, area_id: int}>
+     */
+    private function cargosConocidos(int $empresaId, array $areaIds): array
+    {
+        if ($areaIds === []) {
+            return [];
+        }
+
+        $deColaboradores = Colaborador::withoutGlobalScope(EmpresaScope::class)
+            ->where('empresa_id', $empresaId)
+            ->whereIn('area_id', $areaIds)
+            ->distinct()
+            ->get(['cargo', 'area_id']);
+        $deSolicitudes = SolicitudPersonal::query()
+            ->where('empresa_id', $empresaId)
+            ->whereIn('area_id', $areaIds)
+            ->distinct()
+            ->get(['cargo', 'area_id']);
+
+        return $deColaboradores->concat($deSolicitudes)
+            ->map(fn ($fila) => ['nombre' => trim((string) $fila->cargo), 'area_id' => (int) $fila->area_id])
+            ->filter(fn ($fila) => $fila['nombre'] !== '')
+            ->unique(fn ($fila) => mb_strtolower($fila['nombre']).'|'.$fila['area_id'])
+            ->sortBy('nombre', SORT_NATURAL | SORT_FLAG_CASE)
+            ->values()
+            ->all();
     }
 
     public function crear(AlcanceSeleccion $alcance, array $datos): SolicitudPersonal

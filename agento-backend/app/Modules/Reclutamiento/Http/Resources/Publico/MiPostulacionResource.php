@@ -2,6 +2,8 @@
 
 namespace App\Modules\Reclutamiento\Http\Resources\Publico;
 
+use App\Modules\Reclutamiento\Application\PostulacionService;
+use App\Modules\Reclutamiento\Models\ProcesoSeleccion;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -35,23 +37,34 @@ class MiPostulacionResource extends JsonResource
     public function toArray(Request $request): array
     {
         $proceso = $this->proceso;
+        $vigente = in_array($this->estado, ['activa', 'seleccionada'], true);
+        // Procesos cerrados antes de que el cierre finalizara las
+        // postulaciones: el candidato debe verlas como terminadas igual.
+        $procesoTerminado = $vigente && in_array($proceso?->estado, ['cerrado', 'cancelado'], true);
+        if ($procesoTerminado) {
+            return [
+                ...$this->base($proceso),
+                'estado_publico' => $proceso->estado === 'cerrado' ? 'Proceso finalizado' : 'Proceso cancelado',
+                'vigente' => false,
+                'paso' => self::PASO_PUBLICO[$this->etapa] ?? 0,
+                'contratado' => false,
+                'mensaje' => $proceso->estado === 'cerrado' ? PostulacionService::MENSAJE_PUBLICO_CIERRE : PostulacionService::MENSAJE_PUBLICO_CANCELACION,
+                'pruebas_pendientes' => [],
+            ];
+        }
 
         return [
-            'id' => $this->id,
-            'codigo_seguimiento' => $this->codigo_seguimiento,
-            'cargo' => $proceso?->cargo,
-            'codigo_proceso' => $proceso?->codigo,
-            'empresa' => $proceso && ! $proceso->empresa_confidencial ? $proceso->empresa?->nombre_comercial : null,
+            ...$this->base($proceso),
             'estado_publico' => match ($this->estado) {
                 'activa' => self::ESTADO_PUBLICO[$this->etapa] ?? 'En proceso',
                 'seleccionada' => 'Etapa final',
                 'contratada' => 'Seleccionado',
                 'retirada' => 'Postulación retirada',
                 'descartada' => 'No continúa',
-                'finalizada_por_cancelacion' => 'Proceso cancelado',
+                'finalizada_por_cancelacion' => $this->causa_descarte === 'proceso_cerrado' ? 'Proceso finalizado' : 'Proceso cancelado',
                 default => 'En proceso',
             },
-            'vigente' => in_array($this->estado, ['activa', 'seleccionada'], true),
+            'vigente' => $vigente,
             // Avance público 0–4 (Recibida, Revisión, Evaluación, Entrevistas,
             // Etapa final); no expone la etapa interna exacta.
             'paso' => match (true) {
@@ -69,6 +82,20 @@ class MiPostulacionResource extends JsonResource
                 'estado' => $a->estado,
                 'disponible_hasta' => $a->disponible_hasta?->toIso8601String(),
             ])->values() : [],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function base(?ProcesoSeleccion $proceso): array
+    {
+        return [
+            'id' => $this->id,
+            'codigo_seguimiento' => $this->codigo_seguimiento,
+            'cargo' => $proceso?->cargo,
+            'codigo_proceso' => $proceso?->codigo,
+            'empresa' => $proceso && ! $proceso->empresa_confidencial ? $proceso->empresa?->nombre_comercial : null,
             'postulada_at' => $this->created_at?->toIso8601String(),
         ];
     }

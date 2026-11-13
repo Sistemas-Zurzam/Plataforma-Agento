@@ -86,6 +86,7 @@ class PermissionSeeder extends Seeder
 
             // Selección y Reclutamiento — ver migración agregar_permisos_seleccion.
             ['clave' => 'seleccion.solicitudes.crear', 'nombre' => 'Crear solicitudes de personal', 'grupo' => 'Selección y Reclutamiento'],
+            ['clave' => 'seleccion.solicitudes.todas_areas', 'nombre' => 'Solicitar personal para cualquier área de la empresa', 'grupo' => 'Selección y Reclutamiento'],
             ['clave' => 'seleccion.solicitudes.decidir', 'nombre' => 'Aceptar, devolver o rechazar solicitudes de personal', 'grupo' => 'Selección y Reclutamiento'],
             ['clave' => 'seleccion.vacantes.gestionar', 'nombre' => 'Gestionar procesos, plazas y publicaciones', 'grupo' => 'Selección y Reclutamiento'],
             ['clave' => 'seleccion.candidatos.gestionar', 'nombre' => 'Gestionar candidatos y postulaciones', 'grupo' => 'Selección y Reclutamiento'],
@@ -114,7 +115,7 @@ class PermissionSeeder extends Seeder
             'talento_cultura' => Permission::where('clave', 'like', 'seleccion.%')->pluck('id'),
             // GER además opera el Portal de Empresa, siempre limitado a sus áreas.
             'gerencia' => Permission::whereIn('clave', [
-                'seleccion.solicitudes.crear', 'seleccion.seguimiento',
+                'seleccion.solicitudes.crear', 'seleccion.solicitudes.todas_areas', 'seleccion.seguimiento',
                 'portal.acceder', 'portal.asistencia.ver', 'portal.horas_extra.ver', 'portal.permisos.ver',
                 'portal.horas_extra.aprobar', 'portal.permisos.solicitar', 'portal.planificacion.gestionar',
                 'portal.bonos.proponer', 'portal.ceses.solicitar',

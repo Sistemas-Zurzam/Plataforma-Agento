@@ -150,9 +150,13 @@ export default function SolicitudesPage({ user, onAbrirProceso }) {
           expandable={{
             expandedRowRender: (s) => (
               <Descriptions size="small" column={{ xs: 1, md: 2 }}>
-                <Descriptions.Item label="Salario">S/ {s.salario_min} – {s.salario_max}</Descriptions.Item>
+                <Descriptions.Item label="Sueldo">S/ {s.salario_min}{Number(s.salario_max) !== Number(s.salario_min) && ` – ${s.salario_max}`}</Descriptions.Item>
                 <Descriptions.Item label="Contrato">{etiquetaDe(TIPOS_CONTRATO, s.tipo_contrato)} · {etiquetaDe(MODALIDADES, s.modalidad)}</Descriptions.Item>
-                <Descriptions.Item label="Descripción" span={2}>{s.descripcion}</Descriptions.Item>
+                <Descriptions.Item label="Descripción" span={2}><span className="whitespace-pre-line">{s.descripcion}</span></Descriptions.Item>
+                {s.actividades && <Descriptions.Item label="Funciones" span={2}><span className="whitespace-pre-line">{s.actividades}</span></Descriptions.Item>}
+                {s.requisitos && <Descriptions.Item label="Requisitos" span={2}><span className="whitespace-pre-line">{s.requisitos}</span></Descriptions.Item>}
+                {s.horario && <Descriptions.Item label="Horario" span={2}><span className="whitespace-pre-line">{s.horario}</span></Descriptions.Item>}
+                {s.justificacion && <Descriptions.Item label="Detalle del motivo" span={2}>{s.justificacion}</Descriptions.Item>}
                 {s.habilidades?.length > 0 && (
                   <Descriptions.Item label="Habilidades" span={2}>{s.habilidades.map((h) => `${h.nombre} (${h.nivel})`).join(', ')}</Descriptions.Item>
                 )}

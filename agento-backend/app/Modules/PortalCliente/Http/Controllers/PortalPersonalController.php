@@ -55,6 +55,10 @@ class PortalPersonalController extends Controller
                 // Respuesta de RR. HH. al devolver/rechazar: es para quien solicitó.
                 'respuesta_rrhh' => in_array($solicitud->estado, ['devuelta', 'rechazada'], true) ? $solicitud->decision_motivo : null,
                 'editable' => $solicitud->editable() && $solicitud->solicitante_user_id === $usuario->id,
+                // Quien la creó puede retirarla mientras RR. HH. no la acepte
+                // (misma regla que SolicitudService::cancelar).
+                'cancelable' => $solicitud->solicitante_user_id === $usuario->id
+                    && in_array($solicitud->estado, ['borrador', 'enviada', 'devuelta'], true),
                 'solicitante' => $solicitud->solicitante?->name,
                 'enviada_at' => $solicitud->enviada_at?->toDateTimeString(),
                 'actualizado_at' => $solicitud->updated_at?->toDateTimeString(),

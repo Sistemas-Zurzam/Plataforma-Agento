@@ -5,7 +5,6 @@ namespace App\Modules\Reclutamiento\Http\Requests;
 use App\Modules\Reclutamiento\Models\SolicitudPersonal;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
-use Illuminate\Validation\Validator;
 
 /**
  * Crear y editar comparten reglas. empresa_id NO es un campo aceptado: se
@@ -36,6 +35,8 @@ class GuardarSolicitudRequest extends FormRequest
             'fecha_requerida' => ['required', 'date', 'after_or_equal:today'],
             'descripcion' => ['required', 'string', 'min:30', 'max:2000'],
             'actividades' => ['nullable', 'string', 'max:4000'],
+            'requisitos' => ['nullable', 'string', 'max:4000'],
+            'horario' => ['nullable', 'string', 'max:500'],
             'justificacion' => ['nullable', 'string', 'max:2000'],
             'presupuesto' => ['nullable', 'numeric', 'min:0'],
             'urgente' => ['boolean'],
@@ -44,15 +45,6 @@ class GuardarSolicitudRequest extends FormRequest
             'habilidades.*.nivel' => ['required', 'integer', 'min:1', 'max:5'],
             'enviar' => ['boolean'],
         ];
-    }
-
-    public function withValidator(Validator $validator): void
-    {
-        $validator->after(function (Validator $v) {
-            if ($this->boolean('enviar') && empty($this->input('habilidades'))) {
-                $v->errors()->add('habilidades', 'Indica al menos una habilidad para enviar la solicitud.');
-            }
-        });
     }
 
     /**

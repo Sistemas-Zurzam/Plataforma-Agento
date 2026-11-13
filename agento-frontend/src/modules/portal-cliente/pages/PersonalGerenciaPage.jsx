@@ -1,10 +1,11 @@
-import { PlusOutlined } from '@ant-design/icons';
-import { Alert, App, Button, Progress, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
+import { EyeOutlined, PlusOutlined } from '@ant-design/icons';
+import { Alert, App, Button, Input, Progress, Select, Space, Table, Tag, Tooltip, Typography } from 'antd';
 import { useState } from 'react';
 import SolicitudFormModal from '../../reclutamiento/components/SolicitudFormModal';
 import { ESTADOS_PROCESO, ESTADOS_SOLICITUD, mensajeDeError } from '../../reclutamiento/constants/seleccion';
 import { useReferenciasSolicitud } from '../../reclutamiento/hooks/useSeleccion';
 import { seleccionApi } from '../../reclutamiento/services/seleccionApi';
+import DetalleSolicitudModal from '../components/DetalleSolicitudModal';
 import EstadoSolicitud from '../components/EstadoSolicitud';
 import { formatoFecha, formatoFechaHora } from '../constants/estadosPortal';
 import { useFiltrosUrl } from '../hooks/useFiltrosUrl';
@@ -40,10 +41,11 @@ function Seguimiento({ seguimiento }) {
 }
 
 export default function PersonalGerenciaPage({ puedeCrear }) {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [filtros, setFiltros] = useFiltrosUrl({ estado: undefined, page: 1 });
   const [formulario, setFormulario] = useState({ abierto: false, solicitud: null });
   const [procesando, setProcesando] = useState(null);
+  const [detalle, setDetalle] = useState({ abierto: false, solicitud: null, cargando: false, error: null });
   const { datos, cargando, error, recargar } = usePersonalPortal(filtros);
   const referencias = useReferenciasSolicitud(puedeCrear);
 
@@ -58,6 +60,41 @@ export default function PersonalGerenciaPage({ puedeCrear }) {
     }
   };
 
+  const verDetalle = async (id) => {
+    setDetalle({ abierto: true, solicitud: null, cargando: true, error: null });
+    try {
+      setDetalle({ abierto: true, solicitud: await seleccionApi.solicitudes.obtener(id), cargando: false, error: null });
+    } catch (e) {
+      setDetalle({ abierto: true, solicitud: null, cargando: false, error: e });
+    }
+  };
+
+  const cancelar = (registro) => {
+    let motivo = '';
+    modal.confirm({
+      title: `¿Cancelar la solicitud de ${registro.cargo}?`,
+      content: (
+        <div className="flex flex-col gap-2">
+          <Text type="secondary">RR. HH. dejará de atenderla. Esta acción no se puede deshacer.</Text>
+          <Input.TextArea rows={2} maxLength={500} placeholder="Motivo (opcional)" aria-label="Motivo de cancelación" onChange={(e) => { motivo = e.target.value; }} />
+        </div>
+      ),
+      okText: 'Cancelar solicitud',
+      okButtonProps: { danger: true },
+      cancelText: 'Volver',
+      onOk: async () => {
+        try {
+          await seleccionApi.solicitudes.cancelar(registro.id, motivo.trim() || null);
+          message.success('Solicitud cancelada.');
+          recargar();
+        } catch (e) {
+          message.error(mensajeDeError(e));
+          throw e;
+        }
+      },
+    });
+  };
+
   const columnas = [
     { title: 'Puesto', render: (_, r) => <div><div className="font-medium">{r.cargo}{r.urgente && <Tag color="red" className="ml-2">Urgente</Tag>}</div><Text type="secondary" className="text-xs">{r.area} · {r.plazas} plaza(s) · requerida {formatoFecha(r.fecha_requerida)}</Text></div> },
     { title: 'Estado', width: 210, render: (_, r) => <EstadoSolicitud estado={r.estado} siguienteResponsable={r.siguiente_responsable} /> },
@@ -68,11 +105,17 @@ export default function PersonalGerenciaPage({ puedeCrear }) {
     },
     {
       title: 'Acciones',
-      width: 120,
-      render: (_, r) => (r.editable && puedeCrear ? (
-        <Button size="small" loading={procesando === r.id} onClick={() => abrirEdicion(r.id)}>
-          {r.estado === 'devuelta' ? 'Corregir' : 'Editar'}
-        </Button>
+      width: 200,
+      render: (_, r) => (puedeCrear ? (
+        <Space size={4} wrap>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => verDetalle(r.id)}>Ver</Button>
+          {r.editable && (
+            <Button size="small" type={r.estado === 'devuelta' ? 'primary' : 'default'} loading={procesando === r.id} onClick={() => abrirEdicion(r.id)}>
+              {r.estado === 'devuelta' ? 'Corregir' : 'Editar'}
+            </Button>
+          )}
+          {r.cancelable && <Button size="small" danger type="text" onClick={() => cancelar(r)}>Cancelar</Button>}
+        </Space>
       ) : '—'),
     },
   ];
@@ -115,6 +158,13 @@ export default function PersonalGerenciaPage({ puedeCrear }) {
           }}
         />
       )}
+      <DetalleSolicitudModal
+        abierto={detalle.abierto}
+        solicitud={detalle.solicitud}
+        cargando={detalle.cargando}
+        error={detalle.error}
+        onCerrar={() => setDetalle({ abierto: false, solicitud: null, cargando: false, error: null })}
+      />
       {formulario.abierto && (
         <SolicitudFormModal
           abierto={formulario.abierto}

@@ -34,7 +34,10 @@ class ProcesoController extends SeleccionController
         $this->procesos->autorizarLectura($this->alcance($request), $proceso);
 
         return (new ProcesoResource($this->procesos->detalle($proceso)))
-            ->additional(['candidatos_por_etapa' => $this->procesos->candidatosPorEtapa($proceso)])
+            ->additional([
+                'candidatos_por_etapa' => $this->procesos->candidatosPorEtapa($proceso),
+                'perfil_sugerido' => $this->procesos->perfilSugerido($proceso),
+            ])
             ->response();
     }
 

@@ -16,8 +16,10 @@ use Illuminate\Auth\Access\AuthorizationException;
  *
  * - Acceso total (ADM/RYS): administrador o quien gestiona solicitudes,
  *   vacantes o candidatos.
- * - GER: solo áreas autorizadas = su área (users.area_id) + las áreas donde
- *   es responsable (areas.responsable_user_id), y sin datos sensibles (CV,
+ * - GER: todas las áreas de su empresa si tiene
+ *   seleccion.solicitudes.todas_areas (gerencia); si no (jefe de área), su
+ *   área (users.area_id) + las áreas donde es responsable
+ *   (areas.responsable_user_id). En ambos casos sin datos sensibles (CV,
  *   notas de entrevista, psicometría) salvo permiso explícito.
  */
 final class AlcanceSeleccion
@@ -40,11 +42,16 @@ final class AlcanceSeleccion
         $esAdministrador = $rol?->clave === Role::ADMINISTRADOR;
         $permisos = $rol ? $rol->permissions->pluck('clave')->all() : [];
 
+        // Gerencia (seleccion.solicitudes.todas_areas) solicita y sigue el
+        // personal de cualquier área de su empresa; el jefe de área, solo
+        // de las suyas.
+        $todasLasAreas = in_array('seleccion.solicitudes.todas_areas', $permisos, true);
+
         $areaIds = Area::withoutGlobalScope(EmpresaScope::class)
             ->where('empresa_id', $usuario->empresa_id)
-            ->where(fn ($query) => $query
+            ->unless($todasLasAreas, fn ($consulta) => $consulta->where(fn ($query) => $query
                 ->where('responsable_user_id', $usuario->id)
-                ->when($usuario->area_id, fn ($q) => $q->orWhere('id', $usuario->area_id)))
+                ->when($usuario->area_id, fn ($q) => $q->orWhere('id', $usuario->area_id))))
             ->pluck('id')
             ->map(fn ($id) => (int) $id)
             ->all();

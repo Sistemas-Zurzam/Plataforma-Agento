@@ -21,6 +21,8 @@ class PostulacionService
 
     public const MENSAJE_PUBLICO_CANCELACION = 'El proceso de selección fue cancelado por la empresa.';
 
+    public const MENSAJE_PUBLICO_CIERRE = 'El proceso de selección finalizó. Gracias por tu interés; tu perfil queda en nuestro banco de talentos para futuras oportunidades.';
+
     public function __construct(
         private readonly RegistroActividad $actividad,
         private readonly PuntajeFinalService $puntajes,
@@ -176,6 +178,21 @@ class PostulacionService
      */
     public function finalizarPorCancelacion(ProcesoSeleccion $proceso, ?int $usuarioId): int
     {
+        return $this->finalizarVigentes($proceso, $usuarioId, 'proceso_cancelado', self::MENSAJE_PUBLICO_CANCELACION, 'Proceso cancelado');
+    }
+
+    /**
+     * Al cerrar un proceso (estado final): las postulaciones vigentes ya no
+     * pueden avanzar, así que terminan igual que en una cancelación, con su
+     * propio mensaje para el candidato.
+     */
+    public function finalizarPorCierre(ProcesoSeleccion $proceso, ?int $usuarioId, ?string $mensajePublico = null): int
+    {
+        return $this->finalizarVigentes($proceso, $usuarioId, 'proceso_cerrado', $mensajePublico ?: self::MENSAJE_PUBLICO_CIERRE, 'Proceso cerrado');
+    }
+
+    private function finalizarVigentes(ProcesoSeleccion $proceso, ?int $usuarioId, string $causa, string $mensajePublico, string $motivo): int
+    {
         $vigentes = Postulacion::where('proceso_id', $proceso->id)
             ->whereIn('estado', [FlujoPostulacion::ACTIVA, FlujoPostulacion::SELECCIONADA])
             ->lockForUpdate()
@@ -183,8 +200,8 @@ class PostulacionService
 
         foreach ($vigentes as $postulacion) {
             $estado = FlujoPostulacion::finalizarPorCancelacion($postulacion->estado);
-            $postulacion->fill(['causa_descarte' => 'proceso_cancelado', 'mensaje_publico' => self::MENSAJE_PUBLICO_CANCELACION]);
-            $this->aplicar($postulacion, $postulacion->etapa, $estado, 'Proceso cancelado', $usuarioId);
+            $postulacion->fill(['causa_descarte' => $causa, 'mensaje_publico' => $mensajePublico]);
+            $this->aplicar($postulacion, $postulacion->etapa, $estado, $motivo, $usuarioId);
             $this->anularPruebasPendientes($postulacion);
         }
 

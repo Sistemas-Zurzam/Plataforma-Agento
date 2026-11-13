@@ -1,6 +1,6 @@
 import { ArrowLeftOutlined, CopyOutlined } from '@ant-design/icons';
 import {
-  App, Button, Card, Checkbox, DatePicker, Descriptions, Dropdown, Form, Input, Modal, Segmented, Select, Space, Switch, Table, Tabs, Tag, Timeline,
+  Alert, App, Button, Card, Checkbox, DatePicker, Descriptions, Dropdown, Form, Input, Modal, Segmented, Select, Space, Switch, Table, Tabs, Tag, Timeline,
 } from 'antd';
 import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
@@ -67,7 +67,7 @@ function Resumen({ proceso, porEtapa, editable, usuarios, onActualizar }) {
               </Form.Item>
             </div>
             <Form.Item name="descripcion" label="Descripción pública" rules={[{ required: true, min: 30 }]}>
-              <Input.TextArea rows={4} maxLength={4000} />
+              <Input.TextArea rows={10} maxLength={12000} />
             </Form.Item>
             <Space>
               <Button type="primary" htmlType="submit">Guardar</Button>
@@ -319,6 +319,7 @@ export default function ProcesoDetallePage({ user, procesoId, onVolver }) {
   const [postulacionAbierta, setPostulacionAbierta] = useState(null);
   const [accionEstado, setAccionEstado] = useState(null);
   const [publicar, setPublicar] = useState(null);
+  const [pestana, setPestana] = useState('resumen');
   const [version, setVersion] = useState(0);
 
   const proceso = datos?.data;
@@ -375,10 +376,12 @@ export default function ProcesoDetallePage({ user, procesoId, onVolver }) {
 
             <Tabs
               destroyOnHidden
+              activeKey={pestana}
+              onChange={setPestana}
               items={[
                 { key: 'resumen', label: 'Resumen', children: <Resumen proceso={proceso} porEtapa={datos.candidatos_por_etapa} editable={gestiona && !finalizado} usuarios={usuarios.datos} onActualizar={(v) => ejecutar(() => acciones.actualizar(proceso.id, v), 'Proceso actualizado.')} /> },
                 ...(veCandidatos ? [{ key: 'candidatos', label: 'Candidatos', children: <Candidatos user={user} proceso={proceso} version={version} onAbrir={setPostulacionAbierta} /> }] : []),
-                { key: 'perfil', label: 'Perfil', children: <PerfilProcesoForm perfil={proceso.perfil} editable={gestiona && !finalizado} onGuardar={async (v) => { await acciones.guardarPerfil(proceso.id, v); recargar(); }} /> },
+                { key: 'perfil', label: 'Perfil', children: <PerfilProcesoForm perfil={proceso.perfil} sugerido={datos.perfil_sugerido} editable={gestiona && !finalizado} onGuardar={async (v) => { await acciones.guardarPerfil(proceso.id, v); recargar(); }} /> },
                 { key: 'evaluaciones', label: 'Evaluaciones', children: <Evaluaciones proceso={proceso} puedeInvitar={tiene(user, 'seleccion.candidatos.gestionar')} /> },
                 { key: 'actividad', label: 'Actividad', children: <Actividad key={version} procesoId={proceso.id} /> },
               ]}
@@ -405,7 +408,18 @@ export default function ProcesoDetallePage({ user, procesoId, onVolver }) {
         cancelText="Cancelar"
         onCancel={() => setPublicar(null)}
         onOk={() => ejecutar(() => acciones.publicar(proceso.id, publicar), 'Publicación registrada.').then(() => setPublicar(null)).catch(() => {})}
+        okButtonProps={{ disabled: !proceso?.perfil?.competencias?.length }}
       >
+        {!proceso?.perfil?.competencias?.length && (
+          <Alert
+            type="warning"
+            showIcon
+            className="mb-3"
+            message="Falta definir el perfil"
+            description="Para publicar, el perfil guardado necesita al menos una competencia: con ella el ATS calcula el puntaje de los postulantes."
+            action={<Button size="small" type="primary" onClick={() => { setPublicar(null); setPestana('perfil'); }}>Ir al perfil</Button>}
+          />
+        )}
         <p className="mb-3 text-sm text-gray-600">La publicación interna puede registrarse antes que la externa. Una vacante solo interna nunca aparece en el portal público.</p>
         <div className="flex flex-col gap-2">
           <Checkbox checked={publicar?.interna} disabled={proceso?.publicacion.interna} onChange={(e) => setPublicar((p) => ({ ...p, interna: e.target.checked }))}>Publicación interna (por invitación)</Checkbox>

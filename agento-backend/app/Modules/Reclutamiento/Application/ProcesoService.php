@@ -5,6 +5,7 @@ namespace App\Modules\Reclutamiento\Application;
 use App\Models\User;
 use App\Modules\Reclutamiento\Domain\FlujoPostulacion;
 use App\Modules\Reclutamiento\Domain\FlujoProceso;
+use App\Modules\Reclutamiento\Domain\PerfilSugerido;
 use App\Modules\Reclutamiento\Domain\TransicionInvalidaException;
 use App\Modules\Reclutamiento\Models\Actividad;
 use App\Modules\Reclutamiento\Models\PerfilProceso;
@@ -23,7 +24,10 @@ class ProcesoService
     /** Pesos iniciales del puntaje final; se configuran por proceso en el perfil. */
     private const PESOS_INICIALES = ['ats' => 40, 'psicometria' => 30, 'entrevistas' => 30];
 
-    public function __construct(private readonly RegistroActividad $actividad) {}
+    public function __construct(
+        private readonly RegistroActividad $actividad,
+        private readonly PostulacionService $postulaciones,
+    ) {}
 
     public function listar(AlcanceSeleccion $alcance, array $filtros, int $perPage): LengthAwarePaginator
     {
@@ -98,7 +102,7 @@ class ProcesoService
             'area_id' => $solicitud->area_id,
             'reclutador_user_id' => $reclutadorId ?? $usuarioId,
             'cargo' => $solicitud->cargo,
-            'descripcion' => $solicitud->descripcion,
+            'descripcion' => $this->descripcionDelAviso($solicitud),
             'modalidad' => $solicitud->modalidad,
             'tipo_contrato' => $solicitud->tipo_contrato,
             'salario_min' => $solicitud->salario_min,
@@ -108,12 +112,11 @@ class ProcesoService
             'estado' => ProcesoSeleccion::BORRADOR,
         ]);
 
-        $habilidades = $solicitud->habilidades()->get();
         $this->crearVersionPerfil($proceso, [
             'umbral_ats' => (int) config('reclutamiento.ats.umbral_por_defecto', 60),
             'pesos' => self::PESOS_INICIALES,
-            'requisitos' => [],
-            'competencias' => $this->repartirPesos($habilidades),
+            'requisitos' => PerfilSugerido::requisitos($solicitud->requisitos),
+            'competencias' => PerfilSugerido::competencias($solicitud->habilidades()->get(['nombre', 'nivel'])->map->only(['nombre', 'nivel'])),
         ], $usuarioId);
 
         for ($numero = 1; $numero <= $solicitud->plazas; $numero++) {
@@ -235,6 +238,12 @@ class ProcesoService
             ]);
 
             $this->actividad->registrar($bloqueado->empresa_id, $bloqueado, "proceso_{$estado}", $alcance->usuario->id, $motivo);
+
+            // Cerrado es final: los candidatos vigentes ya no pueden avanzar y
+            // deben verlo así en "Mis postulaciones".
+            if ($accion === 'cerrar') {
+                $this->postulaciones->finalizarPorCierre($bloqueado, $alcance->usuario->id, $mensajePublico);
+            }
         });
 
         return $this->detalle($proceso->refresh());
@@ -336,25 +345,40 @@ class ProcesoService
     }
 
     /**
-     * Pesos iguales que suman exactamente 100 (el residuo va a las primeras).
-     *
-     * @return array<int, array{nombre: string, nivel: int, peso: int}>
+     * Texto inicial del aviso con las secciones que la empresa describió
+     * (descripción, funciones y horario). Los requisitos no van aquí: pasan
+     * al perfil, que el portal ya lista y pregunta al postular. RR. HH. puede
+     * editarlo antes de publicar; la remuneración se publica aparte.
      */
-    private function repartirPesos(Collection $habilidades): array
+    private function descripcionDelAviso(SolicitudPersonal $solicitud): string
     {
-        $total = $habilidades->count();
-        if ($total === 0) {
-            return [];
+        $secciones = [trim((string) $solicitud->descripcion)];
+        foreach (['Funciones principales' => $solicitud->actividades, 'Horario laboral' => $solicitud->horario] as $titulo => $texto) {
+            if (trim((string) $texto) !== '') {
+                $secciones[] = $titulo."\n".trim((string) $texto);
+            }
         }
 
-        $base = intdiv(100, $total);
-        $resto = 100 - $base * $total;
+        return implode("\n\n", $secciones);
+    }
 
-        return $habilidades->values()->map(fn ($h, int $i) => [
-            'nombre' => $h->nombre,
-            'nivel' => (int) $h->nivel,
-            'peso' => $base + ($i < $resto ? 1 : 0),
-        ])->all();
+    /**
+     * Perfil propuesto desde la solicitud (requisitos y habilidades que
+     * describió la empresa), para cargarlo en el formulario del perfil.
+     *
+     * @return array{requisitos: array<int, array{tipo: string, descripcion: string}>, competencias: array<int, array{nombre: string, nivel: int, peso: int}>}|null
+     */
+    public function perfilSugerido(ProcesoSeleccion $proceso): ?array
+    {
+        $solicitud = $proceso->solicitud()->with('habilidades')->first(['id', 'requisitos']);
+        if (! $solicitud) {
+            return null;
+        }
+
+        return [
+            'requisitos' => PerfilSugerido::requisitos($solicitud->requisitos),
+            'competencias' => PerfilSugerido::competencias($solicitud->habilidades->map->only(['nombre', 'nivel'])),
+        ];
     }
 
     private function validarPerfilPublicable(ProcesoSeleccion $proceso): void

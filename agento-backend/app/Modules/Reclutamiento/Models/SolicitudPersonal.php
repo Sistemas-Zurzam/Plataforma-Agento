@@ -15,7 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 #[ScopedBy([EmpresaScope::class])]
 #[Fillable([
     'empresa_id', 'area_id', 'solicitante_user_id', 'cargo', 'motivo', 'plazas', 'salario_min', 'salario_max',
-    'moneda', 'tipo_contrato', 'modalidad', 'fecha_requerida', 'descripcion', 'actividades', 'justificacion',
+    'moneda', 'tipo_contrato', 'modalidad', 'fecha_requerida', 'descripcion', 'actividades', 'requisitos', 'horario', 'justificacion',
     'presupuesto', 'urgente', 'cobro_modalidad', 'cobro_monto', 'cobro_moneda', 'garantia_dias', 'condiciones_notas',
     'estado', 'enviada_at', 'decision_motivo', 'decidida_por', 'decidida_at',
     'cancelacion_motivo', 'cancelada_por', 'cancelada_at',

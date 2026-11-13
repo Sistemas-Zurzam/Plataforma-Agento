@@ -2,22 +2,47 @@
 
 namespace Tests\Feature\Modules\Reclutamiento;
 
+use App\Modules\Configuracion\Models\Area;
 use App\Modules\Reclutamiento\Models\Actividad;
 use App\Modules\Reclutamiento\Models\Plaza;
+use App\Modules\Reclutamiento\Models\Postulacion;
 use App\Modules\Reclutamiento\Models\ProcesoSeleccion;
 use App\Modules\Reclutamiento\Models\SolicitudPersonal;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\Concerns\CreaColaboradorDePrueba;
 use Tests\Concerns\CreaEscenarioSeleccion;
 use Tests\TestCase;
 
 class SolicitudesYProcesosTest extends TestCase
 {
-    use CreaEscenarioSeleccion, RefreshDatabase;
+    use CreaColaboradorDePrueba, CreaEscenarioSeleccion, RefreshDatabase;
 
     protected function setUp(): void
     {
         parent::setUp();
         $this->prepararSeleccion();
+    }
+
+    public function test_cerrar_el_proceso_finaliza_las_postulaciones_y_el_candidato_lo_ve(): void
+    {
+        $empresa = $this->crearEmpresa();
+        $rys = $this->usuarioCon($empresa, 'talento_cultura');
+        $proceso = $this->procesoPublicado($rys, $this->crearArea($empresa));
+        $this->postular($proceso, 'cierre@correo.test')->assertCreated();
+        $postulacion = Postulacion::withoutGlobalScopes()->where('proceso_id', $proceso->id)->firstOrFail();
+
+        $this->withHeaders($this->cabeceras($rys))->postJson("/api/seleccion/procesos/{$proceso->id}/estado", [
+            'accion' => 'cerrar', 'motivo' => 'Se cubrió por otro canal',
+        ])->assertOk();
+
+        $this->assertSame('finalizada_por_cancelacion', $postulacion->fresh()->estado);
+        $this->assertSame('proceso_cerrado', $postulacion->fresh()->causa_descarte);
+
+        $vista = $this->withHeaders(['X-Candidato-Token' => $this->tokenCandidato('cierre@correo.test')])
+            ->getJson('/api/publico/candidatos/postulaciones')->assertOk()->json('data.0');
+        $this->assertFalse($vista['vigente']);
+        $this->assertSame('Proceso finalizado', $vista['estado_publico']);
+        $this->assertArrayNotHasKey('causa_descarte', $vista);
     }
 
     public function test_aceptar_genera_un_proceso_con_n_plazas_y_registra_actividad(): void
@@ -82,12 +107,37 @@ class SolicitudesYProcesosTest extends TestCase
         ]))->assertStatus(422)->assertJsonValidationErrors(['plazas', 'descripcion', 'salario_max']);
     }
 
-    public function test_ger_solo_crea_y_ve_solicitudes_de_sus_areas(): void
+    public function test_gerencia_solicita_para_cualquier_area_y_las_referencias_omiten_gerencia(): void
+    {
+        $empresa = $this->crearEmpresa();
+        $gerenciaArea = Area::withoutGlobalScopes()->create(['empresa_id' => $empresa->id, 'nombre' => 'GERENCIA']);
+        $ventas = Area::withoutGlobalScopes()->create(['empresa_id' => $empresa->id, 'nombre' => 'Ventas']);
+        $finanzas = Area::withoutGlobalScopes()->create(['empresa_id' => $empresa->id, 'nombre' => 'Finanzas']);
+        $ger = $this->usuarioCon($empresa, 'gerencia', $gerenciaArea);
+        $jefe = $this->usuarioCon($empresa, 'jefe_area', $ventas);
+        $this->crearColaborador($empresa, ['area_id' => $ventas->id, 'cargo' => 'Vendedor de campo']);
+
+        $referencias = $this->withHeaders($this->cabeceras($ger))->getJson('/api/seleccion/solicitudes/referencias')->assertOk()->json('data');
+        $nombres = collect($referencias['areas'])->pluck('nombre');
+        $this->assertTrue($nombres->contains('Ventas') && $nombres->contains('Finanzas'));
+        $this->assertFalse($nombres->contains('GERENCIA'));
+        $this->assertContains(['nombre' => 'Vendedor de campo', 'area_id' => $ventas->id], $referencias['cargos']);
+
+        $this->withHeaders($this->cabeceras($ger))->postJson('/api/seleccion/solicitudes', [
+            ...$this->datosSolicitud($finanzas), 'requisitos' => "Excel avanzado\nPortafolio", 'horario' => 'Lunes a viernes de 9 a 6', 'habilidades' => [],
+        ])->assertCreated()->assertJsonPath('data.requisitos', "Excel avanzado\nPortafolio")->assertJsonPath('data.horario', 'Lunes a viernes de 9 a 6');
+
+        $this->withHeaders($this->cabeceras($jefe))->postJson('/api/seleccion/solicitudes', $this->datosSolicitud($finanzas))->assertForbidden();
+        $referenciasJefe = $this->withHeaders($this->cabeceras($jefe))->getJson('/api/seleccion/solicitudes/referencias')->assertOk()->json('data');
+        $this->assertSame(['Ventas'], collect($referenciasJefe['areas'])->pluck('nombre')->all());
+    }
+
+    public function test_jefe_area_solo_crea_y_ve_solicitudes_de_sus_areas(): void
     {
         $empresa = $this->crearEmpresa();
         $areaPropia = $this->crearArea($empresa, 'Ventas');
         $areaAjena = $this->crearArea($empresa, 'Finanzas');
-        $ger = $this->usuarioCon($empresa, 'gerencia', $areaPropia);
+        $ger = $this->usuarioCon($empresa, 'jefe_area', $areaPropia);
         $rys = $this->usuarioCon($empresa, 'talento_cultura');
 
         $this->withHeaders($this->cabeceras($ger))->postJson('/api/seleccion/solicitudes', $this->datosSolicitud($areaAjena))->assertForbidden();

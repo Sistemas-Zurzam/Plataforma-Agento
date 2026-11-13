@@ -30,6 +30,8 @@ class SolicitudResource extends JsonResource
             'fecha_requerida' => $this->fecha_requerida?->toDateString(),
             'descripcion' => $this->descripcion,
             'actividades' => $this->actividades,
+            'requisitos' => $this->requisitos,
+            'horario' => $this->horario,
             'justificacion' => $this->justificacion,
             'presupuesto' => $this->presupuesto,
             'urgente' => $this->urgente,
