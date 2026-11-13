@@ -21,6 +21,30 @@ Laravel is a web application framework with expressive, elegant syntax. We belie
 
 Laravel is accessible, powerful, and provides tools required for large, robust applications.
 
+## Correo transaccional con Resend
+
+El backend usa el transporte oficial de Resend de Laravel. Para enviar desde `agento.com.pe`, primero agrega estos registros en la zona DNS del dominio y luego pulsa **Verify DNS records** en Resend (región São Paulo, `sa-east-1`):
+
+| Tipo | Nombre | Contenido | TTL |
+| --- | --- | --- | --- |
+| TXT | `resend._domainkey` | Copia el valor DKIM completo que muestra Resend; no uses el valor truncado de una captura. | Auto |
+| CNAME | `resend` | `resend-sae1.forge.rmeta.net` | Auto |
+| CNAME | `send` | `send.forge.rmeta.net` | Auto |
+| TXT | `_dmarc` | `v=DMARC1; p=none;` | Auto |
+
+Algunos proveedores DNS agregan automáticamente el dominio al campo **Nombre**. En ese caso ingresa solo la etiqueta mostrada, sin repetir `agento.com.pe`. No habilites recepción de correo en Resend si solo necesitas enviar; la captura muestra esa opción apagada.
+
+Configura el entorno del backend con una API key de Resend y un remitente del dominio verificado:
+
+```dotenv
+MAIL_MAILER=resend
+RESEND_API_KEY=re_...
+MAIL_FROM_ADDRESS=no-reply@agento.com.pe
+MAIL_FROM_NAME=Agento
+```
+
+Guarda `RESEND_API_KEY` únicamente en el `.env` del servidor o en el gestor de secretos del despliegue; no la subas al repositorio. Después de verificar el dominio en Resend y actualizar el entorno del servidor, limpia la configuración cacheada con `php artisan config:clear` o vuelve a generar el cache con `php artisan config:cache`. Para desarrollo local sin una API key, usa `MAIL_MAILER=log`.
+
 ## Learning Laravel
 
 Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
