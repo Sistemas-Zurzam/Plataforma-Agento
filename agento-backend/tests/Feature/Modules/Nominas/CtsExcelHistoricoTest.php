@@ -45,8 +45,15 @@ class CtsExcelHistoricoTest extends TestCase
             'Sueldo Base', 'Dias computables', 'Gratificación Julio 26', '1/6 Gratif.', 'promedio de hra extra', 'Promedio Comisiones',
             'Base computable CTS', 'CTS 100%', 'CTS A DEPOSITAR 50%(MYPE)'], null, 'A6');
         $n = 7;
-        foreach ($filas as [$documento, $sueldo, $dias, $grati, $he, $comisiones]) {
-            $hoja->fromArray(['EMPRESA PRUEBA', 'PERSONA FICTICIA', '', '', $documento, '', '2026-10-31', $sueldo, $dias, $grati], null, "A{$n}");
+        foreach ($filas as $fila) {
+            [$documento, $sueldo, $dias, $grati, $he, $comisiones] = $fila;
+            $hoja->fromArray(['EMPRESA PRUEBA', 'PERSONA FICTICIA', null, '', $documento, '', '2026-10-31', $sueldo, $dias, $grati], null, "A{$n}");
+            // Cuenta CTS (7.º elemento): texto como en el Excel de RR.HH., o número si se pasa int.
+            if (isset($fila[6])) {
+                is_string($fila[6])
+                    ? $hoja->setCellValueExplicit("C{$n}", $fila[6], \PhpOffice\PhpSpreadsheet\Cell\DataType::TYPE_STRING)
+                    : $hoja->setCellValue("C{$n}", $fila[6]);
+            }
             $hoja->setCellValue("K{$n}", "=J{$n}/6");
             $hoja->setCellValue("L{$n}", $he);
             $hoja->setCellValue("M{$n}", $comisiones);
@@ -140,6 +147,29 @@ class CtsExcelHistoricoTest extends TestCase
         $this->assertEquals(360, $d->fresh()->neta, 'Lo ya depositado no cambia.');
         $this->assertEquals(540, $cts->total_neto);
         $this->assertSame($c->id, $d->colaborador_id);
+    }
+
+    public function test_completa_la_cuenta_cts_de_la_ficha_solo_si_esta_vacia(): void
+    {
+        $sinCuenta = $this->crearColaborador($this->empresa, ['numero_documento' => '11111111', 'cts_cuenta' => null]);
+        $conCuenta = $this->crearColaborador($this->empresa, ['numero_documento' => '22222222', 'cts_cuenta' => '00110000000000000009']);
+        $comoNumero = $this->crearColaborador($this->empresa, ['numero_documento' => '33333333', 'cts_cuenta' => null]);
+        $archivo = fn () => $this->excel([
+            ['11111111', 1400, 180, 0, 0, 0, '00110000000000000001'],
+            ['22222222', 1400, 180, 0, 0, 0, '00110000000000000002'],
+            ['33333333', 1400, 180, 0, 0, 0, 1.1E+17], // Excel guarda así una cuenta escrita como número
+        ]);
+
+        $vista = $this->post('/api/beneficios-sociales/cts/excel/previsualizar', $this->datos($archivo()))->assertOk()->json('data');
+        $this->assertTrue($vista['filas'][0]['registra_cuenta_cts']);
+        $this->assertArrayNotHasKey('cuenta_cts_nueva', $vista['filas'][0], 'El número de cuenta no viaja en la vista previa.');
+        $this->assertStringContainsString('distinta a la de la ficha', implode(' ', $vista['filas'][1]['advertencias']));
+        $this->assertStringContainsString('no es válida', implode(' ', $vista['filas'][2]['advertencias']));
+
+        $this->post('/api/beneficios-sociales/cts/excel', $this->datos($archivo()))->assertOk();
+        $this->assertSame('00110000000000000001', $sinCuenta->fresh()->cts_cuenta);
+        $this->assertSame('00110000000000000009', $conCuenta->fresh()->cts_cuenta, 'No reemplaza la cuenta ya registrada.');
+        $this->assertNull($comoNumero->fresh()->cts_cuenta, 'Una cuenta guardada como número no se usa.');
     }
 
     public function test_si_ninguna_fila_es_valida_no_guarda(): void

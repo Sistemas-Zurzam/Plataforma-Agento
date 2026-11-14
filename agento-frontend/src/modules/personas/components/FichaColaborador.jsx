@@ -144,6 +144,7 @@ function Resumen({ colaborador }) {
           <div className="grid grid-cols-2 gap-4">
             <Dato label="Banco">{colaborador.banco}</Dato><Dato label="Tipo">{colaborador.tipo_cuenta}</Dato>
             <Dato label="Moneda">{colaborador.moneda_cuenta}</Dato><Dato label="N.º de cuenta">{colaborador.numero_cuenta}</Dato>
+            <Dato label="Cuenta CTS">{colaborador.cts_cuenta}</Dato>
           </div>
         </Card>
       </div>

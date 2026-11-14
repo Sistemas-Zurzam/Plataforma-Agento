@@ -96,8 +96,22 @@ class ImportarCtsHistoricaExcel
             if (! in_array($tasa, [0.5, 1.0], true)) {
                 $advertencias[] = 'El importe a depositar no es el 50% ni el 100% de la CTS.';
             }
-            if ($colaborador && ! $colaborador->cts_cuenta) {
-                $advertencias[] = 'La ficha no tiene cuenta CTS: no entrará al TXT hasta completarla.';
+            // Cuenta CTS: el Excel completa la ficha solo si está vacía; nunca reemplaza la registrada.
+            $cuentaExcel = $fila['cuenta']['numero'] ?? null;
+            $cuentaFicha = $colaborador ? preg_replace('/\D/', '', (string) $colaborador->cts_cuenta) : '';
+            $registrarCuenta = null;
+            if ($fila['cuenta']['invalida'] ?? false) {
+                $advertencias[] = 'La cuenta CTS del Excel no es válida (debe ser texto de 10 a 20 dígitos); no se usa.';
+            }
+            if ($colaborador && $cuentaFicha === '') {
+                if ($cuentaExcel) {
+                    $registrarCuenta = $cuentaExcel;
+                    $advertencias[] = 'Se registrará en la ficha la cuenta CTS del Excel.';
+                } else {
+                    $advertencias[] = 'La ficha no tiene cuenta CTS: no entrará al TXT hasta completarla.';
+                }
+            } elseif ($colaborador && $cuentaExcel && $cuentaExcel !== $cuentaFicha) {
+                $advertencias[] = 'La cuenta CTS del Excel es distinta a la de la ficha: se mantiene la de la ficha.';
             }
 
             $filas[] = [
@@ -109,6 +123,8 @@ class ImportarCtsHistoricaExcel
                 'sueldo' => $sueldo, 'dias' => $dias, 'gratificacion' => $grati, 'sexto' => $sexto,
                 'horas_extra' => $he, 'comisiones' => $comisiones, 'base' => $base, 'cts_100' => $cts100,
                 'tasa' => $tasa, 'monto' => $monto,
+                'registra_cuenta_cts' => $registrarCuenta !== null,
+                'cuenta_cts_nueva' => $registrarCuenta,
                 'errores' => $errores, 'advertencias' => $advertencias,
             ];
         }
@@ -180,6 +196,11 @@ class ImportarCtsHistoricaExcel
 
             $existentes = $beneficio->detalles()->withExists('depositos')->get()->keyBy('colaborador_id');
             foreach ($filas as $f) {
+                if ($f['cuenta_cts_nueva']) {
+                    // Solo si la ficha sigue sin cuenta (se vuelve a verificar dentro de la transacción).
+                    Colaborador::whereKey($f['colaborador_id'])->where(fn ($q) => $q->whereNull('cts_cuenta')->orWhere('cts_cuenta', ''))
+                        ->update(['cts_cuenta' => $f['cuenta_cts_nueva']]);
+                }
                 $existente = $existentes->get($f['colaborador_id']);
                 if ($existente?->depositos_exists) {
                     continue;

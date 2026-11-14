@@ -14,6 +14,7 @@ use App\Modules\Nominas\Models\BeneficioSocialDetalle;
 use App\Modules\Nominas\Services\BeneficioSocialService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
@@ -105,7 +106,11 @@ class CtsController extends Controller
         $this->soloAdministrador($request);
         $datos = $request->validate($this->reglasExcel());
 
-        return response()->json(['data' => $importacion->previsualizar($this->empresaActiva($request), $datos['tipo'], (int) $datos['anio'], $datos['archivo']->getRealPath())]);
+        $vista = $importacion->previsualizar($this->empresaActiva($request), $datos['tipo'], (int) $datos['anio'], $datos['archivo']->getRealPath());
+        // El número de cuenta CTS no viaja al navegador en la vista previa.
+        $vista['filas'] = array_map(fn (array $f) => Arr::except($f, ['cuenta_cts_nueva']), $vista['filas']);
+
+        return response()->json(['data' => $vista]);
     }
 
     /** Guarda la CTS del Excel como versión vigente (origen 'excel') y devuelve el resumen actualizado. */

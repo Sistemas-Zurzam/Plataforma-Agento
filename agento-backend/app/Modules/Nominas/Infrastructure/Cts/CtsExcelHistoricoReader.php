@@ -33,7 +33,7 @@ class CtsExcelHistoricoReader
     ];
 
     /**
-     * @return array{hoja: string, filas: list<array{fila: int, documento: string, valores: array<string, ?float>, invalidos: list<string>}>}
+     * @return array{hoja: string, filas: list<array{fila: int, documento: string, valores: array<string, ?float>, invalidos: list<string>, cuenta: ?array{numero: ?string, invalida: bool}}>}
      *
      * @throws RuntimeException con un mensaje apto para el usuario
      */
@@ -118,7 +118,8 @@ class CtsExcelHistoricoReader
                 }
                 $valores[$campo] = $numeroLeido;
             }
-            $filas[] = ['fila' => $numero, 'documento' => $documento, 'valores' => $valores, 'invalidos' => $invalidos];
+            $filas[] = ['fila' => $numero, 'documento' => $documento, 'valores' => $valores, 'invalidos' => $invalidos,
+                'cuenta' => isset($columnas['cuenta']) ? self::cuenta($this->valor($hoja, $columnas['cuenta'].$numero), $hoja->getCell($columnas['cuenta'].$numero)->getDataType() === DataType::TYPE_NUMERIC) : null];
         }
 
         if ($filas === []) {
@@ -141,6 +142,7 @@ class CtsExcelHistoricoReader
     {
         return match (true) {
             $h === 'documento', $h === 'dni', str_starts_with($h, 'numero de documento') => 'documento',
+            str_contains($h, 'cuenta') => 'cuenta',
             str_contains($h, 'sueldo'), $h === 'remuneracion basica' => 'sueldo',
             str_contains($h, 'dias comput') => 'dias',
             str_starts_with($h, 'gratificacion') => 'gratificacion',
@@ -157,6 +159,25 @@ class CtsExcelHistoricoReader
     private static function normalizar(string $texto): string
     {
         return trim(preg_replace('/\s+/', ' ', mb_strtolower(Str::ascii($texto))));
+    }
+
+    /**
+     * Cuenta CTS como texto de dígitos. Si Excel la guardó como número (pierde
+     * ceros iniciales y, con 15+ dígitos, precisión) se devuelve 'invalida'.
+     *
+     * @return array{numero: ?string, invalida: bool}|null null si la celda está vacía.
+     */
+    private static function cuenta(mixed $valor, bool $celdaNumerica): ?array
+    {
+        if ($valor === null || trim((string) $valor) === '') {
+            return null;
+        }
+        if ($celdaNumerica || is_int($valor) || is_float($valor)) {
+            return ['numero' => null, 'invalida' => true];
+        }
+        $digitos = preg_replace('/\D/', '', (string) $valor);
+
+        return strlen($digitos) >= 10 && strlen($digitos) <= 20 ? ['numero' => $digitos, 'invalida' => false] : ['numero' => null, 'invalida' => true];
     }
 
     private static function documento(mixed $valor): string

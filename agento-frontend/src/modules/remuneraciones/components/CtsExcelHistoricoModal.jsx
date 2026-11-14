@@ -130,7 +130,7 @@ export default function CtsExcelHistoricoModal({ open, onCancel, tipo, anio, tit
                     render: (_, f) => (
                       <div className="text-xs">
                         {f.errores.map((e) => <div key={e} className="text-red-600">{e}</div>)}
-                        {f.advertencias.map((a) => <div key={a} className="text-orange-600">{a}</div>)}
+                        {f.advertencias.map((a) => <div key={a} className={a.startsWith('Se registrará') ? 'text-blue-600' : 'text-orange-600'}>{a}</div>)}
                       </div>
                     ),
                   },

@@ -325,6 +325,8 @@ class ColaboradorController extends Controller
             'tipo_cuenta' => ['nullable', Rule::in(['ahorro', 'corriente'])],
             'moneda_cuenta' => ['nullable', Rule::in(['PEN', 'USD'])],
             'cci' => ['nullable', 'string', 'max:20'],
+            // Cuenta CTS (la usan el TXT de BBVA y la boleta de CTS).
+            'cts_cuenta' => ['nullable', 'string', 'max:255'],
         ]);
 
         return new ColaboradorResource(

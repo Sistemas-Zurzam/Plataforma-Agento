@@ -21,7 +21,7 @@ const CAMPOS_POR_TAB = {
   laboral: ['sede_id', 'area_id', 'cargo', 'tipo_contrato', 'regimen_laboral', 'categoria_trabajador', 'fecha_ingreso', 'fecha_fin_contrato', 'es_trabajador_confianza', 'contabilizar_tardanzas', 'contabilizar_faltas', 'contabilizar_horas_extra', 'condicion_vigencia_desde'],
   previsional: ['sistema_previsional', 'afp_id', 'tipo_comision', 'cuspp', 'tiene_suspension_renta_4ta'],
   remuneracion: ['salario', 'moneda_salario', 'periodicidad_pago', 'modo_calculo_honorarios', 'asignacion_familiar', 'vigencia_desde'],
-  bancarios: ['banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci'],
+  bancarios: ['banco', 'numero_cuenta', 'tipo_cuenta', 'moneda_cuenta', 'cci', 'cts_cuenta'],
 };
 
 /**
@@ -356,6 +356,9 @@ export default function EditarColaboradorModal({ open, colaborador, user, submit
           <Form.Item label="Tipo de cuenta" name="tipo_cuenta"><Select allowClear options={TIPO_CUENTA_OPTIONS} /></Form.Item>
           <Form.Item label="Moneda" name="moneda_cuenta"><Select allowClear options={MONEDA_OPTIONS} /></Form.Item>
           <Form.Item label="CCI" name="cci"><Input maxLength={20} /></Form.Item>
+          <Form.Item label="Cuenta CTS" name="cts_cuenta" extra="Se usa para el TXT de depósito de CTS y la boleta de CTS.">
+            <Input placeholder="N.º de cuenta CTS" maxLength={255} />
+          </Form.Item>
         </div>
       ),
     },
