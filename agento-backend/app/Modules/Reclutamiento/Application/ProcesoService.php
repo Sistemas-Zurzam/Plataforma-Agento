@@ -62,6 +62,7 @@ class ProcesoService
         return $proceso->load([
             'area:id,nombre', 'reclutador:id,name', 'solicitud:id,motivo,urgente,solicitante_user_id,plazas',
             'perfilVigente.requisitos', 'perfilVigente.competencias', 'plazas.colaborador:id,nombres,apellidos,legajo',
+            'dimensionesPrioritarias',
             'plazas.postulacion.candidato:id,nombres,apellido_paterno,apellido_materno',
         ]);
     }
@@ -154,6 +155,83 @@ class ProcesoService
      * Cada cambio de perfil crea una versión nueva; las evaluaciones ya
      * registradas conservan la versión con la que se calcularon.
      */
+    /**
+     * Evaluación psicométrica del proceso: la prueba (por familia, siempre
+     * su última versión publicada) que se envía automáticamente al postular,
+     * el nivel mínimo y las dimensiones que deben alcanzarlo. Sin prueba, no
+     * se envía nada.
+     */
+    public function configurarEvaluacion(AlcanceSeleccion $alcance, ProcesoSeleccion $proceso, array $datos): ProcesoSeleccion
+    {
+        $this->exigirNoFinalizado($proceso);
+        $familia = $datos['prueba_familia'] ?? null;
+        $codigos = collect($datos['dimensiones'] ?? [])->map(fn ($c) => strtoupper((string) $c))->unique()->values();
+
+        if ($familia) {
+            $proceso->prueba_familia = $familia;
+            $prueba = $proceso->pruebaVigente();
+            if (! $prueba) {
+                throw ValidationException::withMessages(['prueba_familia' => 'La prueba no existe o no tiene una versión publicada para esta empresa.']);
+            }
+            $validos = $prueba->dimensiones()->where('es_validez', false)->whereNotNull('codigo')->pluck('codigo');
+            $invalidos = $codigos->diff($validos);
+            if ($invalidos->isNotEmpty()) {
+                throw ValidationException::withMessages(['dimensiones' => 'Dimensiones que no existen en la prueba: '.$invalidos->implode(', ').'.']);
+            }
+            if ($codigos->isNotEmpty() && empty($datos['nivel_minimo'])) {
+                throw ValidationException::withMessages(['nivel_minimo' => 'Indica el nivel mínimo que deben alcanzar las dimensiones prioritarias.']);
+            }
+        }
+
+        DB::transaction(function () use ($alcance, $proceso, $familia, $codigos, $datos) {
+            $proceso->update([
+                'prueba_familia' => $familia,
+                'prueba_nivel_minimo' => $familia && $codigos->isNotEmpty() ? $datos['nivel_minimo'] : null,
+            ]);
+            $proceso->dimensionesPrioritarias()->delete();
+            if ($familia) {
+                $codigos->each(fn ($codigo) => $proceso->dimensionesPrioritarias()->create(['codigo' => $codigo]));
+            }
+            $this->actividad->registrar($proceso->empresa_id, $proceso, 'evaluacion_configurada', $alcance->usuario->id, null, [
+                'prueba_familia' => $familia, 'nivel_minimo' => $proceso->prueba_nivel_minimo, 'dimensiones' => $codigos->all(),
+            ]);
+        });
+
+        return $this->detalle($proceso->refresh());
+    }
+
+    /**
+     * Prueba de conocimientos del proceso (por familia: su última versión
+     * publicada), cuándo se envía (al postular o al pasar el filtro de CV) y
+     * el puntaje mínimo (0–100) que marca a quien no lo alcanza.
+     */
+    public function configurarConocimientos(AlcanceSeleccion $alcance, ProcesoSeleccion $proceso, array $datos): ProcesoSeleccion
+    {
+        $this->exigirNoFinalizado($proceso);
+        $familia = $datos['prueba_familia'] ?? null;
+
+        if ($familia) {
+            $prueba = $proceso->pruebaVigente($familia);
+            if (! $prueba) {
+                throw ValidationException::withMessages(['prueba_familia' => 'La prueba no existe o no tiene una versión publicada para esta empresa.']);
+            }
+            if ($prueba->tipo !== 'conocimientos') {
+                throw ValidationException::withMessages(['prueba_familia' => 'Elige una prueba de conocimientos.']);
+            }
+        }
+
+        $proceso->update([
+            'conocimientos_familia' => $familia,
+            'conocimientos_momento' => $familia ? ($datos['momento'] ?? EnvioAutomaticoPruebas::AL_PASAR_FILTRO_CV) : null,
+            'conocimientos_puntaje_minimo' => $familia ? ($datos['puntaje_minimo'] ?? null) : null,
+        ]);
+        $this->actividad->registrar($proceso->empresa_id, $proceso, 'evaluacion_conocimientos_configurada', $alcance->usuario->id, null, [
+            'prueba_familia' => $familia, 'momento' => $proceso->conocimientos_momento, 'puntaje_minimo' => $proceso->conocimientos_puntaje_minimo,
+        ]);
+
+        return $this->detalle($proceso->refresh());
+    }
+
     public function guardarPerfil(AlcanceSeleccion $alcance, ProcesoSeleccion $proceso, array $datos): ProcesoSeleccion
     {
         $this->exigirNoFinalizado($proceso);

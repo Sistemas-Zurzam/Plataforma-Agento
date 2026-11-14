@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-#[Fillable(['intento_id', 'dimension_id', 'puntaje'])]
+#[Fillable(['intento_id', 'dimension_id', 'puntaje', 'suma'])]
 class IntentoResultado extends Model
 {
     public $timestamps = false;
@@ -15,7 +15,7 @@ class IntentoResultado extends Model
 
     protected function casts(): array
     {
-        return ['puntaje' => 'float'];
+        return ['puntaje' => 'float', 'suma' => 'float'];
     }
 
     public function dimension(): BelongsTo

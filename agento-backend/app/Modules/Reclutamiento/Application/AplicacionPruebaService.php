@@ -43,18 +43,66 @@ class AplicacionPruebaService
      */
     public function asignar(AlcanceSeleccion $alcance, Postulacion $postulacion, Prueba $prueba): array
     {
-        if ($prueba->empresa_id !== $postulacion->empresa_id || $prueba->estado !== Prueba::PUBLICADA) {
-            throw ValidationException::withMessages(['prueba_id' => 'La prueba no está publicada en esta empresa.']);
+        return $this->crearAsignacion($postulacion, $prueba, $alcance->usuario->id);
+    }
+
+    /**
+     * Envío automático al postular: la prueba que el proceso tiene
+     * configurada (última versión publicada). Sin usuario: lo hace el sistema.
+     *
+     * @return array{asignacion: PruebaAsignacion, enlace: string, correo_enviado: bool}
+     */
+    public function asignarAlPostular(Postulacion $postulacion, Prueba $prueba): array
+    {
+        return $this->crearAsignacion($postulacion, $prueba, null);
+    }
+
+    /**
+     * Conclusión del evaluador sobre una prueba ya rendida (Recomendada /
+     * Recomendada con reservas / No recomendada). Se puede corregir; queda
+     * en la actividad quién la registró.
+     */
+    public function concluir(AlcanceSeleccion $alcance, PruebaAsignacion $asignacion, string $conclusion, ?string $comentario): PruebaIntento
+    {
+        $intento = $asignacion->intento;
+        if ($asignacion->estado !== PruebaAsignacion::FINALIZADA || ! $intento?->finalizado_at) {
+            throw new TransicionInvalidaException('Solo se concluye una prueba que el candidato ya terminó.');
+        }
+
+        $intento->update([
+            'conclusion' => $conclusion,
+            'conclusion_comentario' => $comentario,
+            'concluido_por' => $alcance->usuario->id,
+            'concluido_at' => now(),
+        ]);
+        $postulacion = Postulacion::withoutGlobalScopes()->findOrFail($asignacion->postulacion_id);
+        $this->actividad->registrar($asignacion->empresa_id, $postulacion, 'prueba_concluida', $alcance->usuario->id, $comentario, [
+            'prueba_id' => $asignacion->prueba_id, 'conclusion' => $conclusion,
+        ]);
+
+        return $intento->refresh();
+    }
+
+    /**
+     * @return array{asignacion: PruebaAsignacion, enlace: string, correo_enviado: bool}
+     */
+    private function crearAsignacion(Postulacion $postulacion, Prueba $prueba, ?int $usuarioId): array
+    {
+        // Banco de Agento: sirve para cualquier empresa. Prueba propia: solo
+        // para su empresa.
+        $deOtraEmpresa = ! $prueba->esDeAgento() && $prueba->empresa_id !== $postulacion->empresa_id;
+        if ($deOtraEmpresa || $prueba->estado !== Prueba::PUBLICADA) {
+            throw ValidationException::withMessages(['prueba_id' => 'La prueba no está publicada para esta empresa.']);
         }
         if (! FlujoPostulacion::esVigente($postulacion->estado)) {
             throw new TransicionInvalidaException('Solo se asignan pruebas a postulaciones vigentes.');
         }
-        if (PruebaAsignacion::where('postulacion_id', $postulacion->id)->where('prueba_id', $prueba->id)->exists()) {
+        if (PruebaAsignacion::withoutGlobalScopes()->where('postulacion_id', $postulacion->id)->where('prueba_id', $prueba->id)->exists()) {
             throw ValidationException::withMessages(['prueba_id' => 'Esta prueba ya fue asignada a la postulación.']);
         }
 
         $token = Str::random(64);
-        $asignacion = DB::transaction(function () use ($alcance, $postulacion, $prueba, $token) {
+        $asignacion = DB::transaction(function () use ($usuarioId, $postulacion, $prueba, $token) {
             $asignacion = PruebaAsignacion::create([
                 'empresa_id' => $postulacion->empresa_id,
                 'postulacion_id' => $postulacion->id,
@@ -62,11 +110,11 @@ class AplicacionPruebaService
                 'token_hash' => hash('sha256', $token),
                 'disponible_hasta' => now()->addDays((int) config('reclutamiento.pruebas.dias_para_iniciar', 5))->endOfDay(),
                 'estado' => PruebaAsignacion::PENDIENTE,
-                'asignado_por' => $alcance->usuario->id,
+                'asignado_por' => $usuarioId,
             ]);
-            $this->actividad->registrar($postulacion->empresa_id, $postulacion, 'prueba_asignada', $alcance->usuario->id, null, [
+            $this->actividad->registrar($postulacion->empresa_id, $postulacion, 'prueba_asignada', $usuarioId, null, [
                 'prueba_id' => $prueba->id, 'version' => $prueba->version,
-            ]);
+            ], $usuarioId ? 'usuario' : 'sistema');
             $this->puntajes->recalcular($postulacion);
 
             return $asignacion;
@@ -77,7 +125,8 @@ class AplicacionPruebaService
             $postulacion->candidato->email,
             "Evaluación: {$prueba->nombre}",
             "Tienes una evaluación pendiente para tu postulación.\nDuración: {$prueba->tiempo_limite_minutos} minutos desde que la inicies.\n"
-            ."Disponible hasta: {$asignacion->disponible_hasta->format('d/m/Y')}\n\nIngresa aquí: {$enlace}",
+            ."Disponible hasta: {$asignacion->disponible_hasta->format('d/m/Y')}\n\nIngresa aquí: {$enlace}\n\n"
+            .'También puedes rendirla desde "Mis postulaciones" en el portal de empleos.',
         );
 
         return ['asignacion' => $asignacion, 'enlace' => $enlace, 'correo_enviado' => $enviado];
@@ -251,8 +300,8 @@ class AplicacionPruebaService
             return;
         }
 
-        $asignacion = PruebaAsignacion::withoutGlobalScopes()->with(['prueba.dimensiones', 'prueba.preguntas.opciones'])->findOrFail($intento->asignacion_id);
-        $prueba = $asignacion->prueba;
+        $asignacion = PruebaAsignacion::withoutGlobalScopes()->findOrFail($intento->asignacion_id);
+        $prueba = Prueba::withoutGlobalScopes()->with(['dimensiones', 'preguntas.opciones'])->findOrFail($asignacion->prueba_id);
         $respuestas = $intento->respuestas()->pluck('opcion_id', 'pregunta_id')->all();
 
         $resultado = $this->calificador->calificar(
@@ -272,7 +321,11 @@ class AplicacionPruebaService
             'puntaje' => $resultado['puntaje'],
         ]);
         foreach ($resultado['dimensiones'] as $dimensionId => $puntaje) {
-            $intento->resultados()->create(['dimension_id' => $dimensionId, 'puntaje' => $puntaje]);
+            $intento->resultados()->create([
+                'dimension_id' => $dimensionId,
+                'puntaje' => $puntaje,
+                'suma' => $resultado['sumas'][$dimensionId] ?? null,
+            ]);
         }
         $asignacion->update(['estado' => PruebaAsignacion::FINALIZADA]);
 

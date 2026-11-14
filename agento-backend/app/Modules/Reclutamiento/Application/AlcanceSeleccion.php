@@ -81,6 +81,15 @@ final class AlcanceSeleccion
         return new self($usuario, $alcance->empresaId, $alcance->esAdministrador, $alcance->permisos, $todas);
     }
 
+    /**
+     * Administrador de Agento: el único que administra el banco de pruebas
+     * compartido por todas las empresas.
+     */
+    public function esAdministrador(): bool
+    {
+        return $this->esAdministrador;
+    }
+
     public function puede(string $permiso): bool
     {
         return $this->esAdministrador || in_array($permiso, $this->permisos, true);

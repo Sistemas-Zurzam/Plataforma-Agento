@@ -1,6 +1,6 @@
 import { FilePdfOutlined } from '@ant-design/icons';
 import {
-  App, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Table, Tabs, Tag, Timeline,
+  App, Button, DatePicker, Descriptions, Drawer, Empty, Form, Input, InputNumber, List, Modal, Select, Space, Switch, Tabs, Tag, Timeline,
 } from 'antd';
 import dayjs from 'dayjs';
 import { useState } from 'react';
@@ -11,6 +11,7 @@ import { usePerfilProceso, usePostulacion, usePruebas, useUsuariosSeleccion } fr
 import ContratarModal from './ContratarModal';
 import EstadoSeccion from './EstadoSeccion';
 import EvaluarEntrevistaModal from './EvaluarEntrevistaModal';
+import HojaResultadosPrueba from './HojaResultadosPrueba';
 import MotivoModal from './MotivoModal';
 
 const COMPONENTES = [
@@ -222,7 +223,10 @@ export default function PostulacionDrawer({ user, postulacionId, proceso, onCerr
                 placeholder="Asignar prueba publicada"
                 value={pruebaElegida}
                 onChange={setPruebaElegida}
-                options={(pruebas.datos?.data ?? []).map((t) => ({ value: t.id, label: `${t.nombre} v${t.version}${t.validada ? '' : ' (no validada)'}` }))}
+                options={(pruebas.datos?.data ?? []).map((t) => ({
+                  value: t.id,
+                  label: `${t.nombre} v${t.version}${t.area_conocimiento ? ` · ${t.area_conocimiento}` : ''}${t.origen === 'agento' ? ' · Banco Agento' : ''}${t.validada ? '' : ' (no validada)'}`,
+                }))}
               />
               <Button
                 type="primary"
@@ -239,20 +243,15 @@ export default function PostulacionDrawer({ user, postulacionId, proceso, onCerr
               </Button>
             </Space.Compact>
           )}
-          <Table
-            size="small"
-            rowKey="id"
-            pagination={false}
-            dataSource={p.pruebas ?? []}
-            locale={{ emptyText: 'Sin pruebas asignadas' }}
-            columns={[
-              { title: 'Prueba', render: (_, a) => <span>{a.prueba.nombre} v{a.prueba.version} {!a.prueba.validada && <Tag>No validada</Tag>}</span> },
-              { title: 'Estado', dataIndex: 'estado' },
-              { title: 'Puntaje', render: (_, a) => a.intento?.puntaje ?? '—' },
-              { title: 'Dimensiones', render: (_, a) => (a.intento?.dimensiones ?? []).map((d) => `${d.dimension}: ${d.puntaje}`).join(' · ') || '—' },
-              { title: 'Cierre', render: (_, a) => a.intento?.cierre ?? '—' },
-            ]}
-          />
+          {(p.pruebas ?? []).length === 0 && <Empty description="Sin pruebas asignadas" />}
+          {[...(p.pruebas ?? [])].reverse().map((a) => (
+            <HojaResultadosPrueba
+              key={a.id}
+              asignacion={a}
+              puedeConcluir={tiene(user, 'seleccion.candidatos.gestionar', 'seleccion.evaluaciones.gestionar')}
+              onConcluir={(id, valores) => ejecutar(() => pruebas.acciones.concluir(id, valores), 'Conclusión registrada.')}
+            />
+          ))}
         </div>
       ),
     },

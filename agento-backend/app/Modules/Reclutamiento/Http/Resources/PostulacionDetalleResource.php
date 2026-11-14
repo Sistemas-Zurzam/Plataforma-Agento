@@ -2,6 +2,7 @@
 
 namespace App\Modules\Reclutamiento\Http\Resources;
 
+use App\Modules\Reclutamiento\Application\ResultadoPruebaService;
 use Illuminate\Http\Request;
 
 /**
@@ -40,7 +41,10 @@ class PostulacionDetalleResource extends PostulacionResource
             'entrevistas' => $this->whenLoaded('entrevistas', fn () => EntrevistaResource::collection($this->entrevistas)),
             'pruebas' => $this->whenLoaded('asignacionesPrueba', fn () => $this->asignacionesPrueba->map(fn ($a) => [
                 'id' => $a->id,
-                'prueba' => ['id' => $a->prueba->id, 'nombre' => $a->prueba->nombre, 'version' => $a->prueba->version, 'validada' => $a->prueba->validada],
+                'prueba' => [
+                    'id' => $a->prueba->id, 'nombre' => $a->prueba->nombre, 'version' => $a->prueba->version,
+                    'validada' => $a->prueba->validada, 'tipo' => $a->prueba->tipo, 'origen' => $a->prueba->empresa_id === null ? 'agento' : 'empresa',
+                ],
                 'estado' => $a->estado,
                 'disponible_hasta' => $a->disponible_hasta?->toIso8601String(),
                 'intento' => $a->intento ? [
@@ -50,6 +54,7 @@ class PostulacionDetalleResource extends PostulacionResource
                     'puntaje' => $a->intento->puntaje,
                     'dimensiones' => $a->intento->resultados->map(fn ($r) => ['dimension' => $r->dimension?->nombre, 'puntaje' => $r->puntaje]),
                 ] : null,
+                'resultado' => app(ResultadoPruebaService::class)->hoja($a, $this->relationLoaded('proceso') ? $this->proceso : null),
             ])),
             'movimientos' => $this->whenLoaded('movimientos', fn () => $this->movimientos->map(fn ($m) => [
                 'etapa_anterior' => $m->etapa_anterior,

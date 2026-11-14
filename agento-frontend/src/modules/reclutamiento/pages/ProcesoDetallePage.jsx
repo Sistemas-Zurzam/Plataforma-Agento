@@ -6,6 +6,8 @@ import dayjs from 'dayjs';
 import { useMemo, useState } from 'react';
 import EstadoSeccion from '../components/EstadoSeccion';
 import MotivoModal from '../components/MotivoModal';
+import EvaluacionConocimientosForm from '../components/EvaluacionConocimientosForm';
+import EvaluacionPsicometricaForm from '../components/EvaluacionPsicometricaForm';
 import PerfilProcesoForm from '../components/PerfilProcesoForm';
 import PostulacionDrawer from '../components/PostulacionDrawer';
 import TableroPostulaciones from '../components/TableroPostulaciones';
@@ -381,7 +383,29 @@ export default function ProcesoDetallePage({ user, procesoId, onVolver }) {
               items={[
                 { key: 'resumen', label: 'Resumen', children: <Resumen proceso={proceso} porEtapa={datos.candidatos_por_etapa} editable={gestiona && !finalizado} usuarios={usuarios.datos} onActualizar={(v) => ejecutar(() => acciones.actualizar(proceso.id, v), 'Proceso actualizado.')} /> },
                 ...(veCandidatos ? [{ key: 'candidatos', label: 'Candidatos', children: <Candidatos user={user} proceso={proceso} version={version} onAbrir={setPostulacionAbierta} /> }] : []),
-                { key: 'perfil', label: 'Perfil', children: <PerfilProcesoForm perfil={proceso.perfil} sugerido={datos.perfil_sugerido} editable={gestiona && !finalizado} onGuardar={async (v) => { await acciones.guardarPerfil(proceso.id, v); recargar(); }} /> },
+                {
+                  key: 'perfil',
+                  label: 'Perfil',
+                  children: (
+                    <>
+                      <EvaluacionPsicometricaForm
+                        key={proceso.id}
+                        procesoId={proceso.id}
+                        configuracion={proceso.evaluacion_psicometrica}
+                        editable={gestiona && !finalizado}
+                        onGuardar={async (id, v) => { await acciones.configurarEvaluacion(id, v); recargar(); }}
+                      />
+                      <EvaluacionConocimientosForm
+                        key={`conocimientos-${proceso.id}`}
+                        procesoId={proceso.id}
+                        configuracion={proceso.evaluacion_conocimientos}
+                        editable={gestiona && !finalizado}
+                        onGuardar={async (id, v) => { await acciones.configurarConocimientos(id, v); recargar(); }}
+                      />
+                      <PerfilProcesoForm perfil={proceso.perfil} sugerido={datos.perfil_sugerido} editable={gestiona && !finalizado} onGuardar={async (v) => { await acciones.guardarPerfil(proceso.id, v); recargar(); }} />
+                    </>
+                  ),
+                },
                 { key: 'evaluaciones', label: 'Evaluaciones', children: <Evaluaciones proceso={proceso} puedeInvitar={tiene(user, 'seleccion.candidatos.gestionar')} /> },
                 { key: 'actividad', label: 'Actividad', children: <Actividad key={version} procesoId={proceso.id} /> },
               ]}

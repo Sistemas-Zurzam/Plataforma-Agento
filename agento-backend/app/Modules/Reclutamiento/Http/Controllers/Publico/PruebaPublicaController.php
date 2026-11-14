@@ -47,6 +47,6 @@ class PruebaPublicaController extends Controller
 
     private function cargar(string $token)
     {
-        return $this->pruebas->porToken($token)->load(['prueba.preguntas.opciones', 'intento.respuestas']);
+        return $this->pruebas->porToken($token)->load(['prueba.preguntas.imagen', 'prueba.preguntas.opciones.imagen', 'intento.respuestas']);
     }
 }

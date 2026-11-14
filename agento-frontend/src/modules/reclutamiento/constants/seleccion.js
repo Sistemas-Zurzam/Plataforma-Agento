@@ -98,6 +98,28 @@ export const RECOMENDACIONES = [
   { value: 'no_avanzar', label: 'No avanzar' },
 ];
 
+// Evaluación psicométrica: niveles por dimensión según la guía de la prueba.
+export const NIVELES_PSICOMETRICOS = {
+  bajo: { label: 'Bajo', color: 'red' },
+  medio: { label: 'Medio', color: 'gold' },
+  alto: { label: 'Alto', color: 'green' },
+};
+
+export const CONCLUSIONES_PRUEBA = [
+  { value: 'recomendada', label: 'Recomendada', color: 'green' },
+  { value: 'recomendada_con_reservas', label: 'Recomendada con reservas', color: 'gold' },
+  { value: 'no_recomendada', label: 'No recomendada', color: 'red' },
+];
+
+// Resumen en la tarjeta del tablero.
+export const ESTADOS_PSICOMETRIA = {
+  pendiente: { label: 'Prueba pendiente', color: 'default' },
+  cumple: { label: 'Prueba: cumple', color: 'green' },
+  no_cumple: { label: 'Prueba: no alcanza', color: 'red' },
+  rendida: { label: 'Prueba rendida', color: 'blue' },
+  vencida: { label: 'Prueba vencida', color: 'default' },
+};
+
 export const RESULTADOS_ATS = {
   apto: { label: 'Apto', color: 'green' },
   bajo_umbral: { label: 'Bajo umbral', color: 'orange' },

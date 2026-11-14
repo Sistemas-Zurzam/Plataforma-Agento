@@ -20,7 +20,8 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
     'tipo_contrato', 'ubicacion', 'salario_min', 'salario_max', 'moneda', 'mostrar_salario', 'empresa_confidencial',
     'fecha_requerida', 'fecha_inicio', 'fecha_cierre_postulacion', 'estado', 'motivo_estado', 'mensaje_publico',
     'publicacion_interna', 'publicacion_externa', 'publicada_interna_at', 'publicada_externa_at', 'retirada_at',
-    'cubierto_at',
+    'cubierto_at', 'prueba_familia', 'prueba_nivel_minimo',
+    'conocimientos_familia', 'conocimientos_momento', 'conocimientos_puntaje_minimo',
 ])]
 class ProcesoSeleccion extends Model
 {
@@ -75,6 +76,30 @@ class ProcesoSeleccion extends Model
     public function reclutador(): BelongsTo
     {
         return $this->belongsTo(User::class, 'reclutador_user_id');
+    }
+
+    public function dimensionesPrioritarias(): HasMany
+    {
+        return $this->hasMany(ProcesoDimensionPrioritaria::class, 'proceso_id');
+    }
+
+    /**
+     * Última versión publicada de una prueba configurada en el proceso (banco
+     * de Agento o de la empresa del proceso). Sin argumento: la psicométrica.
+     */
+    public function pruebaVigente(?string $familia = null): ?Prueba
+    {
+        $familia = func_num_args() === 0 ? $this->prueba_familia : $familia;
+        if (! $familia) {
+            return null;
+        }
+
+        return Prueba::withoutGlobalScopes()
+            ->where('familia', $familia)
+            ->where(fn ($q) => $q->whereNull('empresa_id')->orWhere('empresa_id', $this->empresa_id))
+            ->where('estado', Prueba::PUBLICADA)
+            ->orderByDesc('version')
+            ->first();
     }
 
     public function perfiles(): HasMany

@@ -56,10 +56,10 @@ class PostulacionController extends SeleccionController
         $this->alcance($request);
 
         return new PostulacionDetalleResource($postulacion->load([
-            'candidato', 'proceso', 'cv', 'evaluacionAtsVigente', 'puntajeFinalVigente', 'plaza',
+            'candidato', 'proceso.dimensionesPrioritarias', 'cv', 'evaluacionAtsVigente', 'puntajeFinalVigente', 'plaza',
             'evaluacionesAts.evaluador:id,name',
             'entrevistas.evaluador:id,name', 'entrevistas.evaluaciones.evaluador:id,name', 'entrevistas.evaluaciones.calificaciones',
-            'asignacionesPrueba.prueba', 'asignacionesPrueba.intento.resultados.dimension',
+            'asignacionesPrueba.prueba.dimensiones', 'asignacionesPrueba.intento.resultados.dimension', 'asignacionesPrueba.intento.concluidoPor:id,name',
             'movimientos.actor:id,name',
         ]));
     }

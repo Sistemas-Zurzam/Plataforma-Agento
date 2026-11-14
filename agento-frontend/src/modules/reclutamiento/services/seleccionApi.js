@@ -31,6 +31,8 @@ export const seleccionApi = {
     obtener: (id) => api.get(`/seleccion/procesos/${id}`).then(completo),
     actualizar: (id, valores) => api.put(`/seleccion/procesos/${id}`, valores).then(datos),
     guardarPerfil: (id, valores) => api.put(`/seleccion/procesos/${id}/perfil`, valores).then(datos),
+    configurarEvaluacion: (id, valores) => api.put(`/seleccion/procesos/${id}/evaluacion-psicometrica`, valores).then(datos),
+    configurarConocimientos: (id, valores) => api.put(`/seleccion/procesos/${id}/evaluacion-conocimientos`, valores).then(datos),
     publicar: (id, valores) => api.post(`/seleccion/procesos/${id}/publicar`, valores).then(datos),
     retirarPublicacion: (id, motivo) => api.post(`/seleccion/procesos/${id}/retirar-publicacion`, { motivo }).then(datos),
     cambiarEstado: (id, valores) => api.post(`/seleccion/procesos/${id}/estado`, valores).then(datos),
@@ -65,6 +67,7 @@ export const seleccionApi = {
 
   pruebas: {
     listar: (params) => api.get('/seleccion/pruebas', { params }).then(completo),
+    areas: () => api.get('/seleccion/pruebas/areas').then(datos),
     obtener: (id) => api.get(`/seleccion/pruebas/${id}`).then(datos),
     crear: (valores) => api.post('/seleccion/pruebas', valores).then(datos),
     actualizar: (id, valores) => api.put(`/seleccion/pruebas/${id}`, valores).then(datos),
@@ -72,6 +75,22 @@ export const seleccionApi = {
     validar: (id, fuente) => api.post(`/seleccion/pruebas/${id}/validar`, { motivo: fuente }).then(datos),
     nuevaVersion: (id) => api.post(`/seleccion/pruebas/${id}/nueva-version`).then(datos),
     archivar: (id) => api.post(`/seleccion/pruebas/${id}/archivar`).then(datos),
+    reactivar: (id) => api.post(`/seleccion/pruebas/${id}/reactivar`).then(datos),
+    eliminar: (id) => api.delete(`/seleccion/pruebas/${id}`).then(datos),
+    // Vista previa: no guarda. Devuelve { contenido, advertencias }.
+    importarArchivo: (archivo) => {
+      const formulario = new FormData();
+      formulario.append('archivo', archivo);
+      return api.post('/seleccion/pruebas/importar', formulario).then(datos);
+    },
+    importarTexto: (texto, nombre) => api.post('/seleccion/pruebas/importar', { texto, nombre }).then(datos),
+    plantilla: () => api.get('/seleccion/pruebas/plantilla', { responseType: 'blob' }).then((r) => r.data),
+    subirImagen: (archivo) => {
+      const formulario = new FormData();
+      formulario.append('imagen', archivo);
+      return api.post('/seleccion/pruebas/imagenes', formulario).then(datos);
+    },
+    concluir: (asignacionId, valores) => api.post(`/seleccion/pruebas/asignaciones/${asignacionId}/conclusion`, valores).then(datos),
   },
 
   contratacion: {

@@ -32,10 +32,13 @@ class PruebaCandidatoResource extends JsonResource
                 'finalizado' => $intento->finalizado_at !== null,
                 'segundos_restantes' => $enCurso ? max(0, (int) now()->diffInSeconds($intento->vence_at, false)) : 0,
             ] : null,
+            // Sin "invertida" ni valores: no deben insinuar la clave.
             'preguntas' => $enCurso ? $this->prueba->preguntas->map(fn ($p) => [
                 'id' => $p->id,
+                'tipo' => $p->tipo,
                 'enunciado' => $p->enunciado,
-                'opciones' => $p->opciones->map(fn ($o) => ['id' => $o->id, 'texto' => $o->texto])->values(),
+                'imagen_url' => $p->imagen?->url(),
+                'opciones' => $p->opciones->map(fn ($o) => ['id' => $o->id, 'texto' => $o->texto, 'imagen_url' => $o->imagen?->url()])->values(),
             ])->values() : [],
             'respuestas' => $enCurso ? $intento->respuestas->pluck('opcion_id', 'pregunta_id') : (object) [],
         ];

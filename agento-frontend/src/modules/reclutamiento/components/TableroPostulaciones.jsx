@@ -1,5 +1,5 @@
 import { Badge, Dropdown, Tag } from 'antd';
-import { ETAPAS, ETIQUETA_ETAPA, RESULTADOS_ATS } from '../constants/seleccion';
+import { ESTADOS_PSICOMETRIA, ETAPAS, ETIQUETA_ETAPA, RESULTADOS_ATS } from '../constants/seleccion';
 
 /**
  * Tablero por etapas. Mover una tarjeta se hace con su menú (accesible por
@@ -36,6 +36,17 @@ export default function TableroPostulaciones({ columnas, onAbrir, onMover }) {
                     {p.puntaje_final?.puntaje != null && (
                       <Tag>{p.puntaje_final.provisional ? 'Prov.' : 'Final'} {p.puntaje_final.puntaje}</Tag>
                     )}
+                    {p.psicometria && (
+                      <Tag color={ESTADOS_PSICOMETRIA[p.psicometria.estado]?.color}>
+                        {ESTADOS_PSICOMETRIA[p.psicometria.estado]?.label ?? p.psicometria.estado}
+                      </Tag>
+                    )}
+                    {p.conocimientos && (
+                      <Tag color={ESTADOS_PSICOMETRIA[p.conocimientos.estado]?.color}>
+                        {(ESTADOS_PSICOMETRIA[p.conocimientos.estado]?.label ?? p.conocimientos.estado).replace('Prueba', 'Conocimientos')}
+                      </Tag>
+                    )}
+                    {p.psicometria?.alerta_validez &&<Tag color="orange" title="Respondió buscando dar buena imagen: interpretar con cautela">Validez ⚠</Tag>}
                   </div>
                   {p.estado === 'activa' && (
                     <Dropdown

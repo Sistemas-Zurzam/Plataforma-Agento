@@ -85,6 +85,12 @@ export function usePruebas(filtros, habilitado = true) {
   return { ...consulta, acciones: seleccionApi.pruebas };
 }
 
+/** Profesiones o áreas usadas en las pruebas de conocimientos. */
+export function useAreasPruebas() {
+  const cargar = useCallback(() => seleccionApi.pruebas.areas(), []);
+  return useConsulta(cargar);
+}
+
 export function useBancoTalentos(filtros) {
   const cargar = useCallback(() => seleccionApi.banco.listar(filtros), [filtros]);
   const consulta = useConsulta(cargar);

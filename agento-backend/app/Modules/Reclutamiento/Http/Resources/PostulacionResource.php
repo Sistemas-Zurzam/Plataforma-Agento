@@ -3,6 +3,7 @@
 namespace App\Modules\Reclutamiento\Http\Resources;
 
 use App\Modules\Reclutamiento\Application\AlcanceSeleccion;
+use App\Modules\Reclutamiento\Application\ResultadoPruebaService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -43,6 +44,14 @@ class PostulacionResource extends JsonResource
             'etapa_desde_at' => $this->etapa_desde_at?->toIso8601String(),
             'dias_en_etapa' => $this->etapa_desde_at ? (int) floor($this->etapa_desde_at->diffInDays(now())) : null,
             'siguiente_accion' => $this->siguienteAccion($ats),
+            'psicometria' => $this->when(
+                $sensible && $this->relationLoaded('asignacionesPrueba') && $this->relationLoaded('proceso'),
+                fn () => app(ResultadoPruebaService::class)->resumen($this->asignacionesPrueba, $this->proceso),
+            ),
+            'conocimientos' => $this->when(
+                $sensible && $this->relationLoaded('asignacionesPrueba') && $this->relationLoaded('proceso') && $this->proceso->conocimientos_familia,
+                fn () => app(ResultadoPruebaService::class)->resumen($this->asignacionesPrueba, $this->proceso, $this->proceso->conocimientos_familia),
+            ),
             'ats' => $sensible && $ats ? [
                 'puntaje' => $ats->puntaje,
                 'resultado' => $ats->resultado,

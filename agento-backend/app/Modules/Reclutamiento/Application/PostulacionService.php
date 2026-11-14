@@ -27,6 +27,7 @@ class PostulacionService
         private readonly RegistroActividad $actividad,
         private readonly PuntajeFinalService $puntajes,
         private readonly EtiquetadoAutomatico $etiquetas,
+        private readonly EnvioAutomaticoPruebas $envios,
     ) {}
 
     public function listar(AlcanceSeleccion $alcance, array $filtros, int $perPage): LengthAwarePaginator
@@ -45,12 +46,19 @@ class PostulacionService
     public function tablero(AlcanceSeleccion $alcance, ProcesoSeleccion $proceso, array $filtros, int $limite = 50): array
     {
         $columnas = [];
+        $proceso->loadMissing('dimensionesPrioritarias');
         foreach (FlujoPostulacion::ETAPAS as $etapa) {
             $consulta = $this->consulta($alcance, [...$filtros, 'proceso_id' => $proceso->id, 'etapa' => $etapa, 'vigentes' => true]);
+            $postulaciones = $consulta->orderBy('etapa_desde_at')->limit($limite)->get();
+            // Resumen de las pruebas configuradas en cada tarjeta.
+            if ($proceso->prueba_familia || $proceso->conocimientos_familia) {
+                $postulaciones->load(['asignacionesPrueba.prueba.dimensiones', 'asignacionesPrueba.intento.resultados']);
+                $postulaciones->each(fn (Postulacion $p) => $p->setRelation('proceso', $proceso));
+            }
             $columnas[] = [
                 'etapa' => $etapa,
                 'total' => (clone $consulta)->count(),
-                'postulaciones' => $consulta->orderBy('etapa_desde_at')->limit($limite)->get(),
+                'postulaciones' => $postulaciones,
             ];
         }
 
@@ -59,7 +67,8 @@ class PostulacionService
 
     public function mover(AlcanceSeleccion $alcance, Postulacion $postulacion, string $etapa, ?string $motivo): Postulacion
     {
-        return $this->transicion($postulacion, function (Postulacion $p) use ($alcance, $etapa, $motivo) {
+        $etapaAnterior = $postulacion->etapa;
+        $movida = $this->transicion($postulacion, function (Postulacion $p) use ($alcance, $etapa, $motivo) {
             $this->exigirProcesoGestionable($p);
             FlujoPostulacion::mover($p->etapa, $p->estado, $etapa, $motivo);
             $this->aplicar($p, $etapa, $p->estado, $motivo, $alcance->usuario->id);
@@ -68,6 +77,11 @@ class PostulacionService
                 $this->etiquetas->aplicar($p->empresa_id, $p->candidato_id, 'finalista');
             }
         });
+
+        // Fuera de la transacción: el envío incluye un correo.
+        $this->envios->alMoverDeEtapa($movida, $etapaAnterior);
+
+        return $movida;
     }
 
     public function seleccionar(AlcanceSeleccion $alcance, Postulacion $postulacion, ?string $motivo): Postulacion

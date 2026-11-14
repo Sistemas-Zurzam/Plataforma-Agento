@@ -61,6 +61,8 @@ Route::middleware(['jwt', 'servicio:reclutamiento'])->prefix('seleccion')->group
     Route::post('/procesos/{proceso}/publicar', [ProcesoController::class, 'publicar'])->middleware('permiso:seleccion.vacantes.gestionar');
     Route::post('/procesos/{proceso}/retirar-publicacion', [ProcesoController::class, 'retirarPublicacion'])->middleware('permiso:seleccion.vacantes.gestionar');
     Route::post('/procesos/{proceso}/estado', [ProcesoController::class, 'cambiarEstado'])->middleware('permiso:seleccion.vacantes.gestionar');
+    Route::put('/procesos/{proceso}/evaluacion-psicometrica', [ProcesoController::class, 'evaluacionPsicometrica'])->middleware('permiso:seleccion.vacantes.gestionar');
+    Route::put('/procesos/{proceso}/evaluacion-conocimientos', [ProcesoController::class, 'evaluacionConocimientos'])->middleware('permiso:seleccion.vacantes.gestionar');
     Route::get('/procesos/{proceso}/tablero', [PostulacionController::class, 'tablero'])->middleware($verCandidatos);
     Route::get('/procesos/{proceso}/coincidencias', [BancoTalentosController::class, 'coincidencias'])->middleware($gestionarCandidatos);
     Route::post('/procesos/{proceso}/invitaciones', [BancoTalentosController::class, 'invitar'])->middleware($alguno('seleccion.candidatos.gestionar', 'seleccion.vacantes.gestionar'));
@@ -87,13 +89,20 @@ Route::middleware(['jwt', 'servicio:reclutamiento'])->prefix('seleccion')->group
     // Banco de pruebas y asignaciones
     Route::get('/pruebas', [PruebaController::class, 'index'])->middleware($verCandidatos);
     Route::post('/pruebas', [PruebaController::class, 'store'])->middleware('permiso:seleccion.evaluaciones.gestionar');
+    Route::post('/pruebas/importar', [PruebaController::class, 'importar'])->middleware('permiso:seleccion.evaluaciones.gestionar');
+    Route::get('/pruebas/areas', [PruebaController::class, 'areas'])->middleware($verCandidatos);
+    Route::get('/pruebas/plantilla', [PruebaController::class, 'plantilla'])->middleware('permiso:seleccion.evaluaciones.gestionar');
+    Route::post('/pruebas/imagenes', [PruebaController::class, 'subirImagen'])->middleware('permiso:seleccion.evaluaciones.gestionar');
     Route::get('/pruebas/{prueba}', [PruebaController::class, 'show'])->middleware('permiso:seleccion.evaluaciones.gestionar');
     Route::put('/pruebas/{prueba}', [PruebaController::class, 'update'])->middleware('permiso:seleccion.evaluaciones.gestionar');
     Route::post('/pruebas/{prueba}/publicar', [PruebaController::class, 'publicar'])->middleware('permiso:seleccion.evaluaciones.gestionar');
     Route::post('/pruebas/{prueba}/validar', [PruebaController::class, 'validar'])->middleware('permiso:seleccion.evaluaciones.gestionar');
     Route::post('/pruebas/{prueba}/nueva-version', [PruebaController::class, 'nuevaVersion'])->middleware('permiso:seleccion.evaluaciones.gestionar');
     Route::post('/pruebas/{prueba}/archivar', [PruebaController::class, 'archivar'])->middleware('permiso:seleccion.evaluaciones.gestionar');
+    Route::post('/pruebas/{prueba}/reactivar', [PruebaController::class, 'reactivar'])->middleware('permiso:seleccion.evaluaciones.gestionar');
+    Route::delete('/pruebas/{prueba}', [PruebaController::class, 'destroy'])->middleware('permiso:seleccion.evaluaciones.gestionar');
     Route::post('/postulaciones/{postulacion}/pruebas/{prueba}', [PruebaController::class, 'asignar'])->middleware($verCandidatos);
+    Route::post('/pruebas/asignaciones/{asignacion}/conclusion', [PruebaController::class, 'concluir'])->middleware($verCandidatos);
 
     // Contratación
     Route::get('/contratacion/opciones', [ContratacionController::class, 'opciones'])->middleware('permiso:seleccion.contratar');
@@ -129,3 +138,11 @@ Route::prefix('publico')->middleware('throttle:seleccion-publico')->group(functi
     Route::post('/pruebas/{token}/respuestas', [PruebaPublicaController::class, 'responder']);
     Route::post('/pruebas/{token}/finalizar', [PruebaPublicaController::class, 'finalizar']);
 });
+
+// Imágenes de preguntas y opciones de pruebas: solo con URL firmada temporal
+// (la firma es el control de acceso). Fuera del límite del portal público:
+// una prueba con imágenes hace muchas solicitudes seguidas.
+Route::get('/publico/pruebas/imagenes/{imagen}', [PruebaController::class, 'imagen'])
+    ->whereNumber('imagen')
+    ->middleware('signed:relative')
+    ->name('seleccion.pruebas.imagen');

@@ -2,6 +2,7 @@ import { Alert, App, Button, Card, Popconfirm, Radio, Result, Spin, Tag } from '
 import { useEffect, useState } from 'react';
 import { mensajeDeError } from '../constants/seleccion';
 import { usePruebaCandidato } from '../hooks/usePortalEmpleos';
+import { urlRecurso } from '../services/urlRecurso';
 
 function formatear(segundos) {
   const m = Math.floor(segundos / 60);
@@ -85,8 +86,11 @@ export default function RendirPrueba({ token }) {
       {datos.preguntas.map((pregunta, i) => (
         <Card key={pregunta.id} size="small">
           <p className="mb-2 text-sm font-medium">{i + 1}. {pregunta.enunciado}</p>
+          {pregunta.imagen_url && (
+            <img src={urlRecurso(pregunta.imagen_url)} alt={`Imagen de la pregunta ${i + 1}`} className="mb-3 max-h-72 max-w-full rounded-lg border border-gray-100 object-contain" />
+          )}
           <Radio.Group
-            className="flex! flex-col! gap-1"
+            className={pregunta.tipo === 'escala' ? 'grid! grid-cols-1 gap-1 sm:grid-cols-5' : 'flex! flex-col! gap-1'}
             value={respuestasVista[pregunta.id]}
             onChange={async (e) => {
               const opcion = e.target.value;
@@ -102,7 +106,15 @@ export default function RendirPrueba({ token }) {
                 }
               }
             }}
-            options={pregunta.opciones.map((o) => ({ value: o.id, label: o.texto }))}
+            options={pregunta.opciones.map((o, j) => ({
+              value: o.id,
+              label: o.imagen_url ? (
+                <span className="inline-flex items-center gap-2">
+                  <img src={urlRecurso(o.imagen_url)} alt={o.texto || `Opción ${j + 1}`} className="max-h-28 max-w-48 rounded border border-gray-100 object-contain" />
+                  {o.texto && <span>{o.texto}</span>}
+                </span>
+              ) : o.texto,
+            }))}
           />
         </Card>
       ))}

@@ -4,7 +4,9 @@ namespace App\Modules\Reclutamiento\Http\Controllers;
 
 use App\Models\User;
 use App\Modules\Configuracion\Models\Empresa;
+use App\Modules\Reclutamiento\Application\EnvioAutomaticoPruebas;
 use App\Modules\Reclutamiento\Application\ProcesoService;
+use App\Modules\Reclutamiento\Domain\PerfilPsicometrico;
 use App\Modules\Reclutamiento\Http\Requests\ActualizarProcesoRequest;
 use App\Modules\Reclutamiento\Http\Requests\EstadoProcesoRequest;
 use App\Modules\Reclutamiento\Http\Requests\MotivoRequest;
@@ -16,6 +18,7 @@ use App\Modules\Reclutamiento\Models\ProcesoSeleccion;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class ProcesoController extends SeleccionController
@@ -44,6 +47,33 @@ class ProcesoController extends SeleccionController
     public function update(ActualizarProcesoRequest $request, ProcesoSeleccion $proceso): ProcesoResource
     {
         return new ProcesoResource($this->procesos->actualizar($this->alcance($request), $proceso, $request->validated()));
+    }
+
+    public function evaluacionPsicometrica(Request $request, ProcesoSeleccion $proceso): ProcesoResource
+    {
+        $alcance = $this->alcance($request);
+        $this->procesos->autorizarLectura($alcance, $proceso);
+        $datos = $request->validate([
+            'prueba_familia' => ['nullable', 'string', 'max:36'],
+            'nivel_minimo' => ['nullable', Rule::in(PerfilPsicometrico::NIVELES)],
+            'dimensiones' => ['array', 'max:20'],
+            'dimensiones.*' => ['string', 'max:10'],
+        ]);
+
+        return new ProcesoResource($this->procesos->configurarEvaluacion($alcance, $proceso, $datos));
+    }
+
+    public function evaluacionConocimientos(Request $request, ProcesoSeleccion $proceso): ProcesoResource
+    {
+        $alcance = $this->alcance($request);
+        $this->procesos->autorizarLectura($alcance, $proceso);
+        $datos = $request->validate([
+            'prueba_familia' => ['nullable', 'string', 'max:36'],
+            'momento' => ['nullable', Rule::in(EnvioAutomaticoPruebas::MOMENTOS)],
+            'puntaje_minimo' => ['nullable', 'integer', 'min:0', 'max:100'],
+        ]);
+
+        return new ProcesoResource($this->procesos->configurarConocimientos($alcance, $proceso, $datos));
     }
 
     public function guardarPerfil(PerfilProcesoRequest $request, ProcesoSeleccion $proceso): ProcesoResource

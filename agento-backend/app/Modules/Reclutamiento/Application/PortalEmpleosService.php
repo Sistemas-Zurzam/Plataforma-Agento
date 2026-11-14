@@ -36,6 +36,7 @@ class PortalEmpleosService
         private readonly PostulacionService $postulaciones,
         private readonly CorreoReclutamiento $correo,
         private readonly RegistroActividad $actividad,
+        private readonly EnvioAutomaticoPruebas $envios,
     ) {}
 
     public function listar(array $filtros, int $perPage): LengthAwarePaginator
@@ -190,6 +191,8 @@ class PortalEmpleosService
             "Recibimos tu postulación al puesto {$proceso->cargo}.\nCódigo de seguimiento: {$postulacion->codigo_seguimiento}\n\n"
             .'Para consultar su estado ingresa a '.$this->correo->urlPortal('/empleos/mis-postulaciones').' con tu correo verificado.',
         );
+
+        $this->envios->alPostular($postulacion);
 
         return $postulacion;
     }
