@@ -4,6 +4,7 @@ import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import { colorForName, initialsForName } from '../../../utils/avatarColor';
 import EnviarBoletasCorreoModal from './EnviarBoletasCorreoModal';
+import TxtCtsBbvaModal from './TxtCtsBbvaModal';
 
 const TEXTOS_CORREO_CTS = {
   titulo: 'Enviar boletas de CTS por correo',
@@ -74,6 +75,7 @@ function TarjetaStat({ icono, valor, etiqueta, color }) {
 export default function CtsGratificacionesTab({
   fetchResumenBeneficio, calcularBeneficio, pagarBeneficio, resumen, loading, puedeCalcular, puedePagar,
   registrarDepositosCts, descargarBoletaCts, descargarBoletasCts, previsualizarEnvioCts, enviarBoletasCtsPorCorreo,
+  validarTxtCtsBbva, exportarTxtCtsBbva, puedeExportarTxtBbva,
 }) {
   const { message, modal } = App.useApp();
   const [periodo, setPeriodo] = useState('gratificacion_julio');
@@ -85,6 +87,7 @@ export default function CtsGratificacionesTab({
   const [depositoOpen, setDepositoOpen] = useState(false);
   const [registrandoDeposito, setRegistrandoDeposito] = useState(false);
   const [envioCtsOpen, setEnvioCtsOpen] = useState(false);
+  const [txtBbvaOpen, setTxtBbvaOpen] = useState(false);
   const [descargando, setDescargando] = useState(null);
   const [formDeposito] = Form.useForm();
 
@@ -313,6 +316,11 @@ export default function CtsGratificacionesTab({
           <span className="text-sm font-medium text-blue-900">{seleccion.length} colaborador(es) seleccionado(s)</span>
           <div className="flex flex-wrap gap-2">
             {seleccion.length > 0 && <Button size="small" onClick={() => setSeleccion([])}>Limpiar selección</Button>}
+            {puedeExportarTxtBbva && seleccion.length > 0 && resumen.estado === 'calculado' && (
+              <Button size="small" icon={<DownloadOutlined />} onClick={() => setTxtBbvaOpen(true)}>
+                TXT BBVA ({seleccion.length})
+              </Button>
+            )}
             {puedePagar && seleccion.length > 0 && resumen.estado === 'calculado' && (
               <Button size="small" type="primary" icon={<BankOutlined />} onClick={() => { formDeposito.setFieldsValue({ fecha_deposito: dayjs(), entidad: 'BBVA', operacion: '' }); setDepositoOpen(true); }}>
                 Registrar depósito ({seleccion.length})
@@ -365,6 +373,15 @@ export default function CtsGratificacionesTab({
           </Form.Item>
         </Form>
       </Modal>
+
+      <TxtCtsBbvaModal
+        open={txtBbvaOpen}
+        onCancel={() => setTxtBbvaOpen(false)}
+        beneficioId={resumen?.id}
+        detalleIds={seleccion}
+        validarTxtCtsBbva={validarTxtCtsBbva}
+        exportarTxtCtsBbva={exportarTxtCtsBbva}
+      />
 
       <EnviarBoletasCorreoModal
         open={envioCtsOpen}

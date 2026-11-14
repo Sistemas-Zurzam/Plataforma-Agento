@@ -423,6 +423,15 @@ export function useRemuneraciones() {
     descargarPdf(api.post(`/beneficios-sociales/${beneficioId}/cts/boletas`, { detalle_ids: detalleIds }, { responseType: 'blob' }), 'boletas-cts.pdf'),
   [descargarPdf]);
 
+  const validarTxtCtsBbva = useCallback(async (beneficioId, detalleIds) => {
+    const { data } = await api.post(`/beneficios-sociales/${beneficioId}/cts/txt-bbva/validacion`, { detalle_ids: detalleIds });
+    return data.data;
+  }, []);
+
+  const exportarTxtCtsBbva = useCallback((beneficioId, detalleIds) =>
+    descargarPdf(api.post(`/beneficios-sociales/${beneficioId}/cts/txt-bbva`, { detalle_ids: detalleIds }, { responseType: 'blob' }), 'BBVA_CTS.txt'),
+  [descargarPdf]);
+
   const previsualizarEnvioCts = useCallback(async (beneficioId, detalleIds, reenviar = false) => {
     const { data } = await api.post(`/beneficios-sociales/${beneficioId}/cts/envio-correo/previsualizar`, { detalle_ids: detalleIds, reenviar });
     return data.data;
@@ -841,6 +850,8 @@ export function useRemuneraciones() {
     descargarBoletasCts,
     previsualizarEnvioCts,
     enviarBoletasCtsPorCorreo,
+    validarTxtCtsBbva,
+    exportarTxtCtsBbva,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo,
     registrarConceptoPeriodo,

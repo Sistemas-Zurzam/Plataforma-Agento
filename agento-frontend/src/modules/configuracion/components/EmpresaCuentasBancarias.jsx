@@ -16,6 +16,7 @@ const MONEDA_OPTIONS = [
 
 const USO_OPTIONS = [
   { value: 'haberes', label: 'Pago de haberes' },
+  { value: 'cts', label: 'Depósito de CTS' },
 ];
 
 /**

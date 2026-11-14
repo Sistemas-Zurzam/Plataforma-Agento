@@ -5,12 +5,14 @@ namespace App\Modules\Nominas\Http\Controllers;
 use App\Http\Controllers\Controller;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\Cts\EnviarBoletasCtsPorCorreo;
+use App\Modules\Nominas\Application\Cts\ExportarTxtCtsBbva;
 use App\Modules\Nominas\Application\Cts\RegistrarDepositosCts;
 use App\Modules\Nominas\Infrastructure\Cts\BoletaCtsPdf;
 use App\Modules\Nominas\Models\BeneficioSocial;
 use App\Modules\Nominas\Models\BeneficioSocialDetalle;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -51,6 +53,31 @@ class CtsController extends Controller
         abort_if($detalles->isEmpty(), 422, 'Selecciona al menos un colaborador de esta CTS.');
 
         return $this->pdf($pdf->generar($beneficio, $detalles), 'boletas-cts_'.$beneficio->tipo.'_'.$beneficio->anio.'.pdf');
+    }
+
+    /** Resumen previo del TXT de BBVA: quiénes entran, quiénes no y por qué, total y cuenta de cargo (enmascarada). */
+    public function validarTxtBbva(Request $request, BeneficioSocial $beneficio, ExportarTxtCtsBbva $txt): JsonResponse
+    {
+        $datos = $request->validate($this->reglasSeleccion());
+
+        return response()->json(['data' => $txt->validar($this->empresa($request, $beneficio), $beneficio, $datos['detalle_ids'])]);
+    }
+
+    /** Descarga el TXT de BBVA. No registra el depósito: eso se hace con el N.º de operación del banco. */
+    public function exportarTxtBbva(Request $request, BeneficioSocial $beneficio, ExportarTxtCtsBbva $txt): Response
+    {
+        $datos = $request->validate($this->reglasSeleccion());
+        $empresa = $this->empresa($request, $beneficio);
+        $archivo = $txt->exportar($empresa, $beneficio, $datos['detalle_ids']);
+
+        // Auditoría sin cuentas, documentos ni contenido del archivo.
+        Log::info('cts.bbva_txt.export', ['usuario_id' => $request->user('api')->id, 'empresa_id' => $empresa->id, 'beneficio_id' => $beneficio->id]);
+
+        return response($archivo['contenido'], 200, [
+            'Content-Type' => 'text/plain; charset=windows-1252',
+            'Content-Disposition' => 'attachment; filename="'.$archivo['nombre'].'"',
+            'Content-Length' => (string) strlen($archivo['contenido']),
+        ]);
     }
 
     public function previsualizarEnvio(Request $request, BeneficioSocial $beneficio, EnviarBoletasCtsPorCorreo $envios): JsonResponse

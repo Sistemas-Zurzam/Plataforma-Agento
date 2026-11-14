@@ -34,7 +34,7 @@ class UpdateEmpresaCuentaBancariaRequest extends FormRequest
         return [
             'tipo_cuenta' => ['required', Rule::in(['corriente', 'maestra'])],
             'moneda' => ['required', Rule::in(['PEN', 'USD'])],
-            'uso' => ['required', Rule::in(['haberes'])],
+            'uso' => ['required', Rule::in(['haberes', 'cts'])],
             'es_predeterminada' => ['nullable', 'boolean'],
             'numero_cuenta' => [
                 'sometimes', 'string', 'regex:/^\d+$/', 'max:20',

@@ -32,7 +32,7 @@ class StoreEmpresaCuentaBancariaRequest extends FormRequest
             // Controlado, no texto libre (Sección 13): hoy solo "haberes"
             // tiene sentido de negocio; una cuenta empresarial BCP no debe
             // ofrecerse para nómina solo por existir.
-            'uso' => ['required', Rule::in(['haberes'])],
+            'uso' => ['required', Rule::in(['haberes', 'cts'])],
             'es_predeterminada' => ['nullable', 'boolean'],
         ];
     }

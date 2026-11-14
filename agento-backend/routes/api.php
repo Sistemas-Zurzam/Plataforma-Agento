@@ -313,6 +313,9 @@ Route::middleware('jwt')->group(function () {
     Route::post('/beneficios-sociales/{beneficio}/cts/boletas', [CtsController::class, 'boletas'])->middleware('permiso:nominas.ver');
     Route::post('/beneficios-sociales/{beneficio}/cts/envio-correo/previsualizar', [CtsController::class, 'previsualizarEnvio'])->middleware('permiso:nominas.pagar');
     Route::post('/beneficios-sociales/{beneficio}/cts/envio-correo', [CtsController::class, 'enviar'])->middleware('permiso:nominas.pagar');
+    Route::post('/beneficios-sociales/{beneficio}/cts/txt-bbva/validacion', [CtsController::class, 'validarTxtBbva'])->middleware('permiso:nominas.ver');
+    // Mismo permiso que el TXT de haberes BBVA: el archivo mueve dinero al cargarse en el banco.
+    Route::post('/beneficios-sociales/{beneficio}/cts/txt-bbva', [CtsController::class, 'exportarTxtBbva'])->middleware('permiso:nominas.bbva_netcash_exportar');
     Route::get('/liquidaciones-cese', [LiquidacionCeseController::class, 'index'])->middleware('permiso:nominas.ver');
     Route::get('/liquidaciones-cese/pendientes', [LiquidacionCeseController::class, 'pendientes'])->middleware('permiso:nominas.ver');
     Route::get('/liquidaciones-cese/catalogo', [LiquidacionCeseController::class, 'catalogo'])->middleware('permiso:nominas.ver');
