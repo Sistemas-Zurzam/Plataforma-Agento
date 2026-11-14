@@ -253,7 +253,7 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
     catalogoConceptos, fetchCatalogoConceptos,
     resumenBeneficio, resumenBeneficioLoading, fetchResumenBeneficio, calcularBeneficio, pagarBeneficio,
     registrarDepositosCts, descargarBoletaCts, descargarBoletasCts, previsualizarEnvioCts, enviarBoletasCtsPorCorreo,
-    validarTxtCtsBbva, exportarTxtCtsBbva,
+    validarTxtCtsBbva, exportarTxtCtsBbva, previsualizarCtsExcel, importarCtsExcel,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo, registrarConceptoPeriodo, registrarHorasExtraEnBoleta, actualizarConceptoPeriodo, eliminarConceptoPeriodo,
     previsualizacion, previsualizacionLoading, fetchPrevisualizacion, exportarPrevisualizacionExcel, fetchPrevisualizacionDatosReporte,
@@ -1325,6 +1325,9 @@ export default function GestionRemuneraciones({ user, onUserRefresh }) {
                 previsualizarEnvioCts={previsualizarEnvioCts}
                 enviarBoletasCtsPorCorreo={enviarBoletasCtsPorCorreo}
                 validarTxtCtsBbva={validarTxtCtsBbva}
+                previsualizarCtsExcel={previsualizarCtsExcel}
+                importarCtsExcel={importarCtsExcel}
+                esAdministrador={user?.role === 'administrador'}
                 exportarTxtCtsBbva={exportarTxtCtsBbva}
                 puedeExportarTxtBbva={puedeExportarBbvaNetCash}
                 resumen={resumenBeneficio}

@@ -1,8 +1,9 @@
-import { BankOutlined, CalculatorOutlined, CheckCircleOutlined, ClockCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, FilePdfOutlined, GiftOutlined, MailOutlined, TeamOutlined } from '@ant-design/icons';
+import { BankOutlined, CalculatorOutlined, CheckCircleOutlined, ClockCircleOutlined, DownloadOutlined, ExclamationCircleOutlined, FileExcelOutlined, FilePdfOutlined, GiftOutlined, MailOutlined, TeamOutlined } from '@ant-design/icons';
 import { Alert, App, Button, DatePicker, Empty, Form, Input, Modal, Select, Table, Tag, Tooltip } from 'antd';
 import dayjs from 'dayjs';
 import { useEffect, useState } from 'react';
 import { colorForName, initialsForName } from '../../../utils/avatarColor';
+import CtsExcelHistoricoModal from './CtsExcelHistoricoModal';
 import EnviarBoletasCorreoModal from './EnviarBoletasCorreoModal';
 import TxtCtsBbvaModal from './TxtCtsBbvaModal';
 
@@ -75,7 +76,7 @@ function TarjetaStat({ icono, valor, etiqueta, color }) {
 export default function CtsGratificacionesTab({
   fetchResumenBeneficio, calcularBeneficio, pagarBeneficio, resumen, loading, puedeCalcular, puedePagar,
   registrarDepositosCts, descargarBoletaCts, descargarBoletasCts, previsualizarEnvioCts, enviarBoletasCtsPorCorreo,
-  validarTxtCtsBbva, exportarTxtCtsBbva, puedeExportarTxtBbva,
+  validarTxtCtsBbva, exportarTxtCtsBbva, puedeExportarTxtBbva, previsualizarCtsExcel, importarCtsExcel, esAdministrador,
 }) {
   const { message, modal } = App.useApp();
   const [periodo, setPeriodo] = useState('gratificacion_julio');
@@ -88,6 +89,7 @@ export default function CtsGratificacionesTab({
   const [registrandoDeposito, setRegistrandoDeposito] = useState(false);
   const [envioCtsOpen, setEnvioCtsOpen] = useState(false);
   const [txtBbvaOpen, setTxtBbvaOpen] = useState(false);
+  const [excelOpen, setExcelOpen] = useState(false);
   const [descargando, setDescargando] = useState(null);
   const [formDeposito] = Form.useForm();
 
@@ -286,7 +288,11 @@ export default function CtsGratificacionesTab({
           )}
         </div>
         <div className="flex items-center gap-2">
-          {puedeCalcular && (
+          {esAdministrador && !esGratificacion && (
+            <Button icon={<FileExcelOutlined />} onClick={() => setExcelOpen(true)}>Cargar desde Excel</Button>
+          )}
+          {/* Una CTS cargada desde Excel no se recalcula: se corrige volviendo a cargar el Excel. */}
+          {puedeCalcular && resumen?.origen !== 'excel' && (
             <Tooltip title={resumen?.total_colaboradores === 0 ? 'No hay boletas calculadas en este período' : undefined}>
               <Button type="primary" icon={<CalculatorOutlined />} loading={calculando} disabled={!resumen || resumen.total_colaboradores === 0} onClick={handleCalcular}>
                 {resumen?.calculado ? `Recalcular ${esGratificacion ? 'gratificación' : 'CTS'}` : `Calcular ${esGratificacion ? 'gratificación' : 'CTS'}`}
@@ -373,6 +379,16 @@ export default function CtsGratificacionesTab({
           </Form.Item>
         </Form>
       </Modal>
+
+      <CtsExcelHistoricoModal
+        open={excelOpen}
+        onCancel={() => setExcelOpen(false)}
+        tipo={periodo}
+        anio={anio}
+        titulo={periodoActivo?.titulo}
+        previsualizarCtsExcel={previsualizarCtsExcel}
+        importarCtsExcel={importarCtsExcel}
+      />
 
       <TxtCtsBbvaModal
         open={txtBbvaOpen}

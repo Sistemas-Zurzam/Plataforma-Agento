@@ -384,6 +384,25 @@ export function useRemuneraciones() {
     return data;
   }, []);
 
+  const formularioCtsExcel = (tipo, anio, archivo) => {
+    const formData = new FormData();
+    formData.append('archivo', archivo);
+    formData.append('tipo', tipo);
+    formData.append('anio', anio);
+    return formData;
+  };
+
+  const previsualizarCtsExcel = useCallback(async (tipo, anio, archivo) => {
+    const { data } = await api.post('/beneficios-sociales/cts/excel/previsualizar', formularioCtsExcel(tipo, anio, archivo));
+    return data.data;
+  }, []);
+
+  const importarCtsExcel = useCallback(async (tipo, anio, archivo) => {
+    const { data } = await api.post('/beneficios-sociales/cts/excel', formularioCtsExcel(tipo, anio, archivo));
+    setResumenBeneficio(data);
+    return data;
+  }, []);
+
   const pagarBeneficio = useCallback(async (beneficioId, referenciaPago) => {
     const { data } = await api.patch(`/beneficios-sociales/${beneficioId}/pagar`, { referencia_pago: referenciaPago });
     setResumenBeneficio(data);
@@ -851,6 +870,8 @@ export function useRemuneraciones() {
     previsualizarEnvioCts,
     enviarBoletasCtsPorCorreo,
     validarTxtCtsBbva,
+    previsualizarCtsExcel,
+    importarCtsExcel,
     exportarTxtCtsBbva,
     actualizarConfiguracionNomina,
     fetchConceptosPeriodo,

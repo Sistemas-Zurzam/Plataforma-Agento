@@ -308,6 +308,9 @@ Route::middleware('jwt')->group(function () {
     Route::patch('/beneficios-sociales/{beneficio}/pagar', [BeneficioSocialController::class, 'marcarPagado'])->middleware('permiso:nominas.pagar');
     Route::post('/beneficios-sociales/detalles/{detalle}/depositos', [BeneficioSocialController::class, 'registrarDeposito'])->middleware('permiso:nominas.pagar');
     Route::post('/beneficios-sociales/detalles/{detalle}/depositos-cts', [BeneficioSocialController::class, 'registrarDepositoCts'])->middleware('permiso:nominas.pagar');
+    // CTS histórica: el Excel de RR.HH. del primer semestre sin data previa en Agento.
+    Route::post('/beneficios-sociales/cts/excel/previsualizar', [CtsController::class, 'previsualizarExcel'])->middleware('permiso:nominas.calcular');
+    Route::post('/beneficios-sociales/cts/excel', [CtsController::class, 'importarExcel'])->middleware('permiso:nominas.calcular');
     Route::post('/beneficios-sociales/{beneficio}/cts/depositos', [CtsController::class, 'registrarDepositos'])->middleware('permiso:nominas.pagar');
     Route::get('/beneficios-sociales/detalles/{detalle}/boleta-cts', [CtsController::class, 'boleta'])->middleware('permiso:nominas.ver');
     Route::post('/beneficios-sociales/{beneficio}/cts/boletas', [CtsController::class, 'boletas'])->middleware('permiso:nominas.ver');

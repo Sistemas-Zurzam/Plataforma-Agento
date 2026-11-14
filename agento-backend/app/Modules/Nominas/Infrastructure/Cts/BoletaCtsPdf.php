@@ -21,6 +21,8 @@ class BoletaCtsPdf
         'SUELDO_BASICO' => 'Remuneración básica', 'ASIGNACION_FAMILIAR' => 'Asignación familiar',
         'COMISION' => 'Promedio de comisiones', 'HE_25' => 'Promedio de horas extra 25%',
         'HE_35' => 'Promedio de horas extra 35%', 'HE_100' => 'Promedio de horas extra 100%',
+        // CTS cargada desde el Excel de RR.HH.: promedios ya calculados.
+        'PROMEDIO_HORAS_EXTRA' => 'Promedio de horas extra', 'PROMEDIO_COMISIONES' => 'Promedio de comisiones',
     ];
 
     /** @param  Collection<int, BeneficioSocialDetalle>  $detalles  De un mismo beneficio de CTS. */

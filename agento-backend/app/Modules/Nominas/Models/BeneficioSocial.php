@@ -15,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
     'empresa_id', 'tipo', 'anio', 'version', 'es_version_vigente',
     'total_colaboradores', 'total_bruto', 'total_neto', 'estado',
     'calculado_por', 'calculado_at', 'pagado_por', 'pagado_at', 'referencia_pago',
+    'origen', 'archivo_origen',
 ])]
 class BeneficioSocial extends Model
 {

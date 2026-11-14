@@ -6,13 +6,16 @@ use App\Http\Controllers\Controller;
 use App\Modules\Configuracion\Models\Empresa;
 use App\Modules\Nominas\Application\Cts\EnviarBoletasCtsPorCorreo;
 use App\Modules\Nominas\Application\Cts\ExportarTxtCtsBbva;
+use App\Modules\Nominas\Application\Cts\ImportarCtsHistoricaExcel;
 use App\Modules\Nominas\Application\Cts\RegistrarDepositosCts;
 use App\Modules\Nominas\Infrastructure\Cts\BoletaCtsPdf;
 use App\Modules\Nominas\Models\BeneficioSocial;
 use App\Modules\Nominas\Models\BeneficioSocialDetalle;
+use App\Modules\Nominas\Services\BeneficioSocialService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -94,6 +97,51 @@ class CtsController extends Controller
         return response()->json(['data' => $envios->enviar(
             $this->empresa($request, $beneficio), $beneficio, $datos['detalle_ids'], $request->user('api')->id, (bool) ($datos['reenviar'] ?? false),
         )], 202);
+    }
+
+    /** Vista previa de la CTS cargada desde el Excel de RR.HH.: filas reconocidas, errores y total. No guarda nada. */
+    public function previsualizarExcel(Request $request, ImportarCtsHistoricaExcel $importacion): JsonResponse
+    {
+        $this->soloAdministrador($request);
+        $datos = $request->validate($this->reglasExcel());
+
+        return response()->json(['data' => $importacion->previsualizar($this->empresaActiva($request), $datos['tipo'], (int) $datos['anio'], $datos['archivo']->getRealPath())]);
+    }
+
+    /** Guarda la CTS del Excel como versión vigente (origen 'excel') y devuelve el resumen actualizado. */
+    public function importarExcel(Request $request, ImportarCtsHistoricaExcel $importacion, BeneficioSocialService $beneficios): JsonResponse
+    {
+        $this->soloAdministrador($request);
+        $datos = $request->validate($this->reglasExcel());
+        $empresa = $this->empresaActiva($request);
+        $beneficio = $importacion->importar($empresa, $datos['tipo'], (int) $datos['anio'], $datos['archivo']->getRealPath(), $datos['archivo']->getClientOriginalName(), $request->user('api')->id);
+
+        Log::info('cts.excel_historico.import', ['usuario_id' => $request->user('api')->id, 'empresa_id' => $empresa->id, 'beneficio_id' => $beneficio->id]);
+
+        return response()->json($beneficios->resumen($empresa, $datos['tipo'], (int) $datos['anio']));
+    }
+
+    /** La carga de una CTS desde Excel reemplaza el cálculo de Agento: solo la hace un administrador. */
+    private function soloAdministrador(Request $request): void
+    {
+        abort_unless($request->user('api')?->esAdministradorGlobal(), 403, 'Solo un administrador puede cargar la CTS desde Excel.');
+    }
+
+    private function reglasExcel(): array
+    {
+        return [
+            'archivo' => ['required', 'file', 'mimes:xlsx', 'max:10240'],
+            'tipo' => ['required', Rule::in(['cts_mayo', 'cts_noviembre'])],
+            'anio' => ['required', 'integer', 'between:2020,2100'],
+        ];
+    }
+
+    private function empresaActiva(Request $request): Empresa
+    {
+        $empresa = $request->user('api')->empresa;
+        abort_unless($empresa && $request->user('api')->tieneAccesoA($empresa), 404);
+
+        return $empresa;
     }
 
     private function reglasSeleccion(): array
